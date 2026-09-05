@@ -11,6 +11,7 @@ import routes from "./routes.js";
 import * as metrics from "./metrics.js";
 import * as dockerx from "./dockerx.js";
 import * as terminal from "./terminal.js";
+import * as apps from "./apps.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = path.join(__dirname, "..", "web");
@@ -33,7 +34,7 @@ app.use((_req, res, next) => {
   res.setHeader("Referrer-Policy", "same-origin");
   res.setHeader("Content-Security-Policy", [
     "default-src 'self'",
-    "img-src 'self' data:",
+    "img-src 'self' data: https:",   // remote app-store icons; images cannot execute
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
     "script-src 'self'",
@@ -76,6 +77,7 @@ app.use((err, req, res, _next) => {
   res.status(status).json({ error: err.expose === false ? "internal error" : (err.message || "internal error") });
 });
 
+const VERSION = "0.2.0";
 const server = http.createServer(app);
 
 /* ============================ WebSockets ============================ */
@@ -83,6 +85,7 @@ const server = http.createServer(app);
 const wssMetrics = new WebSocketServer({ noServer: true });
 const wssTerminal = new WebSocketServer({ noServer: true });
 const wssLogs = new WebSocketServer({ noServer: true });
+const wssEvents = new WebSocketServer({ noServer: true });
 
 server.on("upgrade", (req, socket, head) => {
   // 1. Origin check FIRST. Browsers do not apply CORS to WebSockets, so without
@@ -107,6 +110,9 @@ server.on("upgrade", (req, socket, head) => {
   if (pathname === "/ws/terminal") {
     if (!terminal.enabled()) { socket.write("HTTP/1.1 403 Forbidden\r\n\r\n"); return socket.destroy(); }
     return wssTerminal.handleUpgrade(req, socket, head, ws => wssTerminal.emit("connection", ws, req, auth));
+  }
+  if (pathname === "/ws/events") {
+    return wssEvents.handleUpgrade(req, socket, head, ws => wssEvents.emit("connection", ws, req, auth));
   }
   if (pathname.startsWith("/ws/logs/")) {
     return wssLogs.handleUpgrade(req, socket, head, ws => wssLogs.emit("connection", ws, req, auth));
@@ -179,6 +185,18 @@ wssTerminal.on("connection", (ws, req, auth) => {
   ws.on("error", () => session.kill());
 });
 
+/* ---- install / uninstall job progress ---- */
+wssEvents.on("connection", ws => {
+  const onJob = payload => {
+    if (ws.readyState === ws.OPEN) {
+      try { ws.send(JSON.stringify({ type: "job", data: payload })); } catch {}
+    }
+  };
+  apps.bus.on("job", onJob);
+  ws.on("close", () => apps.bus.off("job", onJob));
+  ws.on("error", () => apps.bus.off("job", onJob));
+});
+
 /* ---- container logs ---- */
 wssLogs.on("connection", async (ws, req) => {
   const id = new URL(req.url, "http://localhost").pathname.replace("/ws/logs/", "");
@@ -197,19 +215,33 @@ wssLogs.on("connection", async (ws, req) => {
 /* ============================ boot ============================ */
 
 async function main() {
-  await dockerx.init();
-  await metrics.start();
+  // Listen FIRST, then warm everything up in the background.
+  //
+  // Probing Docker, discovering sensors and taking a first metrics sample all
+  // shell out to the OS, and on some hosts that is slow enough to look like a
+  // hang (Windows + WMI is minutes, not seconds). None of it is needed to serve
+  // the login page, so nothing here gets to delay the socket opening. Endpoints
+  // that depend on this data already report their own "not ready" state.
+  const warmup = (async () => {
+    await apps.init().catch(e => console.error("[boot] app store:", e.message));
+    await dockerx.init().catch(e => console.error("[boot] docker:", e.message));
+    await metrics.start().catch(e => console.error("[boot] metrics:", e.message));
+  })();
 
-  server.listen(cfg.port, cfg.host, () => {
+  server.listen(cfg.port, cfg.host, async () => {
+    console.log("");
+    console.log("  nexus " + VERSION);
+    console.log(`  listening       http://${cfg.host}:${cfg.port}`);
+    console.log("  warming up      docker, sensors, app store…");
+    await warmup;
     const d = dockerx.status();
     console.log("");
-    console.log("  nexus 0.1.0");
-    console.log(`  listening       http://${cfg.host}:${cfg.port}`);
     console.log(`  platform        ${process.platform} ${metrics.snapshot.host?.distro || ""}`.trimEnd());
     console.log(`  config          ${cfg.loadedFrom || "defaults (no config file found)"}`);
     console.log(`  data dir        ${cfg.dataDir}`);
     console.log(`  docker          ${d.available ? "connected" : "unavailable — " + d.reason}`);
-    console.log(`  terminal        ${cfg.terminal.enabled ? "ENABLED (" + terminal.shellName() + ")" : "disabled"}`);
+    console.log(`  terminal        ${cfg.terminal.enabled ? "ENABLED via " + terminal.backendName() + " (" + terminal.shellName() + ")" : "disabled"}`);
+    console.log(`  compose         ${apps.composeStatus().available ? apps.composeStatus().command : "not found — app store installs disabled"}`);
     console.log(`  file roots      ${cfg.fileRoots.map(r => r.path).join(", ") || "(none)"}`);
 
     if (db().users.length === 0) {

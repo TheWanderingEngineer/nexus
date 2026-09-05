@@ -99,17 +99,91 @@ over Tailscale/WireGuard. If you must publish it, put it behind a reverse proxy
 with TLS and an auth layer in front, set `trustedProxies`, and turn the terminal
 off.
 
+## The app store
+
+**Libraries** are git repositories of app definitions. Two layouts are read:
+
+| Format | Layout |
+|---|---|
+| `casaos` | `Apps/<Name>/docker-compose.yml` carrying an `x-casaos:` metadata block |
+| `nexus` | `apps/<slug>/manifest.yaml` next to a `docker-compose.yml` |
+
+The **CasaOS App Store is added by default** and just needs its first sync
+(a shallow clone, a few hundred MB). That gives you several hundred apps
+immediately without anyone hand-writing manifests. Add your own libraries by
+pasting a git URL under **App Store → LIBRARIES**.
+
+### Installing straight from GitHub
+
+**App Store → + FROM GITHUB** accepts any of:
+
+- `https://github.com/owner/repo` — looks for a compose file at the repo root
+  on `main` then `master`
+- `https://github.com/owner/repo/blob/main/docker-compose.yml`
+- a raw `.yml` URL
+- or paste a compose file into the box directly
+
+Before anything runs, Nexus **checks every published port against what is
+already bound** on the host and refuses with a clear message rather than letting
+you discover the clash at the bottom of a wall of Docker pull output. You can
+override with "install anyway".
+
+Everything Nexus installs is labelled `io.nexus.managed=true` and lands in
+`/var/lib/nexus/apps/<slug>/docker-compose.yml`, so it stays distinguishable
+from containers you started by hand and from CasaOS's.
+
+Uninstall removes the containers and **keeps volumes by default** — the compose
+file also stays on disk, so a mis-click is recoverable.
+
+> Installing an app runs third-party containers as root. Only install from
+> sources you trust. Nexus says so at the point of install, not just here.
+
+## The terminal
+
+A real PTY in the browser, using xterm.js (vendored in `web/vendor/`, not loaded
+from a CDN). Arrow keys, tab completion, colours, `htop`, `vim` — all work.
+
+There are two backends and the UI tells you which is active:
+
+| Backend | Resize | Requirement |
+|---|---|---|
+| `node-pty` | Full `SIGWINCH` | optional dependency; needs a compiler at install time |
+| `script` | Best-effort via `stty` | util-linux, always present |
+
+`node-pty` is an **optional** dependency: if your box has no build toolchain,
+npm skips it and Nexus silently uses `script` instead. To get the better one,
+install build tools before running the installer:
+
+```bash
+sudo apt-get install -y build-essential python3
+```
+
+Every session open and close is written to the audit log, and the whole feature
+can be switched off with `terminal.enabled: false`.
+
 ## Development
 
 ```bash
 npm install
-npm run dev      # auto-restarts on change
-npm run check    # end-to-end self test — 21 assertions
+npm run dev          # auto-restarts on change
+npm run check        # end-to-end self test
+npm run store-check  # clones the real CasaOS store and validates the adapter
 ```
 
 `npm run check` boots a real server on a scratch port and exercises the auth
-flow, CSRF enforcement, the path jail and the WebSocket origin check. It runs on
-Windows and macOS too, where hardware sensors report as simulated.
+flow, CSRF enforcement, the path jail, the WebSocket origin check and the store
+endpoints. It runs on Windows and macOS too, where hardware sensors report as
+simulated and Docker-dependent assertions accept a 503.
+
+`npm run store-check` is the one that cannot be faked: it clones the actual
+CasaOS App Store and asserts the adapter still parses it, because that format is
+whatever IceWhale ships today.
+
+> **On Windows with an antivirus scanner**, module loading can be extremely slow
+> — importing express alone has been measured at over two minutes on a scanned
+> drive. That is environmental, not the app. The self-check allows four minutes
+> for startup because of it; on Linux the server is listening in well under a
+> second.
 
 ## How it is put together
 

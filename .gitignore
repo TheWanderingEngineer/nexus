@@ -5,7 +5,8 @@
 node_modules/
 
 # Local runtime state
-.nexus-data/
+.nexus-*/
+boot-*.log
 /var/
 config.json
 config.local.yaml

@@ -47,7 +47,7 @@ async function req(pathname, opts = {}) {
   return { res, body, status: res.status };
 }
 
-function waitForPort(port, timeoutMs = 20000) {
+function waitForPort(port, timeoutMs = 600000) {
   const started = Date.now();
   return new Promise((resolve, reject) => {
     (function attempt() {
@@ -76,8 +76,26 @@ function cleanup(code) {
 }
 
 try {
-  console.log(`\n  nexus self-check  (port ${PORT}, data ${DATA})\n`);
+  console.log(`\n  nexus self-check  (port ${PORT}, data ${DATA})`);
+  console.log("  waiting for the server — this can take minutes on a scanned filesystem\n");
   await waitForPort(PORT);
+
+  // The socket accepting is not the same as the app answering. On a slow host
+  // the first request can land while Node is still busy, so poll /api/health
+  // until it actually replies rather than failing the whole run on one refusal.
+  {
+    const deadline = Date.now() + 120000;
+    let ready = false, lastErr = "";
+    while (Date.now() < deadline) {
+      try {
+        const r = await fetch(BASE + "/api/health", { signal: AbortSignal.timeout(10000) });
+        if (r.ok) { ready = true; break; }
+        lastErr = "HTTP " + r.status;
+      } catch (e) { lastErr = e.message; }
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    if (!ready) throw new Error(`server never answered /api/health (${lastErr})`);
+  }
 
   /* ---- health, unauthenticated ---- */
   {
@@ -174,6 +192,55 @@ try {
   {
     const anon = await wsHandshake("/ws/metrics", { Origin: BASE });
     check("WebSocket without a session is refused", anon === 401, `expected 401, got ${anon}`);
+  }
+
+  /* ---- app store ---- */
+  {
+    const { status, body } = await req("/api/store/status");
+    const shaped = body && body.compose && body.docker && Array.isArray(body.libraries);
+    check("store status reports compose/docker/libraries", status === 200 && shaped, JSON.stringify(body).slice(0, 140));
+    check("CasaOS library is seeded on first boot", body.libraries.some(l => l.format === "casaos"), JSON.stringify(body.libraries));
+  }
+  {
+    const { status, body } = await req("/api/store/apps");
+    check("catalogue endpoint returns a valid shape", status === 200 && Array.isArray(body.apps) && Array.isArray(body.categories), JSON.stringify(body).slice(0, 120));
+  }
+  {
+    const { status } = await req("/api/store/libraries", {
+      method: "POST", json: { url: "not-a-url" }, headers: { "X-CSRF-Token": globalThis.CSRF }
+    });
+    check("library add rejects a non-http url", status === 400, `expected 400, got ${status}`);
+  }
+  {
+    const { status } = await req("/api/store/libraries", {
+      method: "POST", json: { url: "https://github.com/example/store.git" }
+    });
+    check("library add without CSRF is refused", status === 403, `expected 403, got ${status}`);
+  }
+  {
+    const { status } = await req("/api/store/install-url", {
+      method: "POST", json: { url: "https://example.com/not-a-repo" }, headers: { "X-CSRF-Token": globalThis.CSRF }
+    });
+    // 400 = rejected as not a GitHub repo, 503 = compose missing on this box.
+    check("install-url rejects an unrecognised url", status === 400 || status === 503, `got ${status}`);
+  }
+  {
+    const { status } = await req("/api/store/install-compose", {
+      method: "POST", json: { name: "bad", composeText: "this: [is: not: valid" }, headers: { "X-CSRF-Token": globalThis.CSRF }
+    });
+    check("install rejects malformed YAML", status === 422 || status === 503, `expected 422/503, got ${status}`);
+  }
+  {
+    const { status, body } = await req("/api/store/installed");
+    check("installed list is empty on a fresh install", status === 200 && Array.isArray(body) && body.length === 0, JSON.stringify(body));
+  }
+  {
+    const ws = await wsHandshake("/ws/events", { Origin: BASE, Cookie: cookies });
+    check("events WebSocket accepts an authenticated same-origin client", ws === 101, `expected 101, got ${ws}`);
+  }
+  {
+    const ws = await wsHandshake("/ws/events", { Origin: "http://evil.example.com", Cookie: cookies });
+    check("events WebSocket refuses a foreign Origin", ws === 403, `expected 403, got ${ws}`);
   }
 
   /* ---- logout ---- */

@@ -42,6 +42,10 @@ function load() {
 
 let writeTimer = null;
 function flush() {
+  // The debounced write can fire after the data dir has been removed (test
+  // teardown, or someone clearing /var/lib/nexus while it runs). Recreate it
+  // rather than throwing on a background timer nobody is awaiting.
+  fs.mkdirSync(path.dirname(FILE), { recursive: true });
   const tmp = FILE + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
   fs.renameSync(tmp, FILE);   // atomic on POSIX

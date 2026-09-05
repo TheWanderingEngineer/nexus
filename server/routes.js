@@ -9,6 +9,8 @@ import * as sensors from "./sensors.js";
 import * as dockerx from "./dockerx.js";
 import * as filesvc from "./files.js";
 import * as terminal from "./terminal.js";
+import * as library from "./library.js";
+import * as apps from "./apps.js";
 import {
   hashPassword, verifyPassword, createSession, destroySession,
   setSessionCookies, clearSessionCookies, requireAuth, requireCsrf,
@@ -96,7 +98,8 @@ export default function routes() {
       cpu: { model: metrics.snapshot.cpu.model, cores: metrics.snapshot.cpu.cores },
       simulated: metrics.snapshot.simulated,
       platform: process.platform,
-      terminal: { enabled: terminal.enabled(), shell: terminal.shellName(), active: terminal.activeCount() },
+      terminal: { enabled: terminal.enabled(), shell: terminal.shellName(), active: terminal.activeCount(), backend: terminal.backendName(), resize: terminal.supportsResize() },
+      store: { compose: apps.composeStatus(), libraries: library.listLibraries().length, installed: apps.listInstalled().length },
       docker: dockerx.status(),
       fileRoots: filesvc.listRoots(),
       config: { loadedFrom: cfg.loadedFrom, dataDir: cfg.dataDir, port: cfg.port }
@@ -205,6 +208,105 @@ export default function routes() {
   });
 
   r.delete("/layout", (req, res) => { db().widgets = null; save(); audit("layout.reset", null, req); res.json({ ok: true }); });
+
+  /* ---------------- app store ---------------- */
+  r.get("/store/status", (_req, res) => {
+    res.json({
+      compose: apps.composeStatus(),
+      docker: dockerx.status(),
+      libraries: library.listLibraries(),
+      installedCount: apps.listInstalled().length
+    });
+  });
+
+  r.get("/store/libraries", (_req, res) => res.json(library.listLibraries()));
+
+  r.post("/store/libraries", wrap(async (req, res) => {
+    const lib = await library.addLibrary({
+      url: String(req.body?.url || "").trim(),
+      name: req.body?.name ? String(req.body.name).slice(0, 80) : null,
+      format: ["nexus", "casaos", "auto"].includes(req.body?.format) ? req.body.format : "auto"
+    });
+    audit("store.library.add", { url: lib.url }, req);
+    res.json(lib);
+  }));
+
+  r.delete("/store/libraries/:id", wrap(async (req, res) => {
+    library.removeLibrary(req.params.id);
+    audit("store.library.remove", { id: req.params.id }, req);
+    res.json({ ok: true });
+  }));
+
+  r.post("/store/libraries/:id/sync", wrap(async (req, res) => {
+    const out = await library.syncLibrary(req.params.id);
+    audit("store.library.sync", out, req);
+    res.json(out);
+  }));
+
+  r.get("/store/apps", (req, res) => {
+    res.json(library.searchCatalog({
+      q: String(req.query.q || ""),
+      category: String(req.query.category || ""),
+      library: String(req.query.library || ""),
+      limit: Math.min(Number(req.query.limit) || 60, 200),
+      offset: Math.max(Number(req.query.offset) || 0, 0)
+    }));
+  });
+
+  r.get("/store/apps/:library/:slug", wrap(async (req, res) => {
+    const app = library.getApp(req.params.library, req.params.slug);
+    if (!app) return res.status(404).json({ error: "not found" });
+    let compose = null;
+    try { compose = await library.readCompose(app); } catch {}
+    res.json({ ...app, compose });
+  }));
+
+  r.post("/store/install", wrap(async (req, res) => {
+    const out = await apps.installFromCatalog({
+      libraryId: String(req.body?.libraryId || ""),
+      slug: String(req.body?.slug || ""),
+      params: req.body?.params || {},
+      force: !!req.body?.force
+    });
+    audit("store.install", { slug: req.body?.slug, library: req.body?.libraryId }, req);
+    res.json(out);
+  }));
+
+  r.post("/store/install-url", wrap(async (req, res) => {
+    const out = await apps.installFromUrl({
+      url: String(req.body?.url || ""),
+      name: req.body?.name ? String(req.body.name) : null,
+      params: req.body?.params || {},
+      force: !!req.body?.force
+    });
+    audit("store.install.url", { url: req.body?.url }, req);
+    res.json(out);
+  }));
+
+  r.post("/store/install-compose", wrap(async (req, res) => {
+    const out = await apps.installFromComposeText({
+      name: String(req.body?.name || "app"),
+      composeText: String(req.body?.composeText || ""),
+      params: req.body?.params || {},
+      force: !!req.body?.force
+    });
+    audit("store.install.compose", { name: req.body?.name }, req);
+    res.json(out);
+  }));
+
+  r.get("/store/installed", (_req, res) => res.json(apps.listInstalled()));
+
+  r.delete("/store/installed/:id", wrap(async (req, res) => {
+    const out = await apps.uninstall(req.params.id, { removeVolumes: req.query.volumes === "1" });
+    audit("store.uninstall", { id: req.params.id, volumes: req.query.volumes === "1" }, req);
+    res.json(out);
+  }));
+
+  r.get("/store/jobs/:id", (req, res) => {
+    const j = apps.getJob(req.params.id);
+    if (!j) return res.status(404).json({ error: "no such job" });
+    res.json(j);
+  });
 
   /* ---------------- settings + audit ---------------- */
   r.get("/settings", (_req, res) => res.json(db().settings || {}));

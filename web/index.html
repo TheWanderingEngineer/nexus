@@ -12,7 +12,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Pixelify+Sans:wght@400;500;600;700&family=Silkscreen:wght@400;700&display=swap">
-<link rel="stylesheet" href="/style.css?v=0.1.0">
+<link rel="stylesheet" href="/vendor/xterm.css">
+<link rel="stylesheet" href="/style.css?v=0.2.0">
 </head>
 <body>
 
@@ -63,6 +64,7 @@
   <div id="body">
     <nav id="rail">
       <button class="nav on" data-page="dash"><img src="/assets/brand/icons/ui-dashboard.png" alt="Dashboard"><span class="tip">DASHBOARD</span></button>
+      <button class="nav" data-page="store"><img src="/assets/brand/icons/ui-apps.png" alt="App Store"><span class="tip">APP STORE</span></button>
       <button class="nav" data-page="containers"><img src="/assets/brand/icons/ui-containers.png" alt="Containers"><span class="tip">CONTAINERS</span></button>
       <button class="nav" data-page="files"><img src="/assets/brand/icons/ui-files.png" alt="Files"><span class="tip">FILES</span></button>
       <button class="nav" data-page="term"><img src="/assets/brand/icons/ui-terminal.png" alt="Terminal"><span class="tip">TERMINAL</span></button>
@@ -84,6 +86,15 @@
         <div id="tools-files" hidden>
           <button class="btn" id="f-up">PARENT</button>
           <button class="btn" id="f-mkdir">NEW FOLDER</button>
+        </div>
+        <div id="tools-store" hidden>
+          <button class="btn" id="st-installed-btn">INSTALLED</button>
+          <button class="btn" id="st-github">+ FROM GITHUB</button>
+          <button class="btn" id="st-libs">LIBRARIES</button>
+        </div>
+        <div id="tools-term" hidden>
+          <button class="btn" id="t-new">NEW SESSION</button>
+          <button class="btn" id="t-clear">CLEAR</button>
         </div>
       </div>
 
@@ -111,6 +122,23 @@
         </table></div>
       </section>
 
+      <!-- app store -->
+      <section class="page" id="page-store">
+        <div id="st-warn"></div>
+
+        <div class="storebar">
+          <div class="searchwrap">
+            <img class="si" src="/assets/brand/icons/ui-search.png" alt="">
+            <input id="st-q" type="search" placeholder="Search apps…" autocapitalize="none" spellcheck="false">
+          </div>
+          <select id="st-cat" class="sel"><option value="">All categories</option></select>
+          <span class="hint" id="st-count"></span>
+        </div>
+
+        <div id="st-grid" class="appgrid"></div>
+        <div id="st-more" class="loadmore" hidden><button class="btn" id="st-more-btn">LOAD MORE</button></div>
+      </section>
+
       <!-- terminal -->
       <section class="page" id="page-term">
         <div class="section" id="term-off" hidden>
@@ -118,13 +146,20 @@
           <p class="hint">The terminal is switched off in the server config. Set <code>terminal.enabled</code> to true and restart to use it.</p>
         </div>
         <div id="term-on">
-          <div id="termwrap" class="inset"><pre id="termout"></pre></div>
-          <div id="terminput">
-            <span class="ps">$</span>
-            <input id="termcmd" type="text" placeholder="type a command and press Enter" autocapitalize="none" autocomplete="off" spellcheck="false">
-            <button class="btn" id="term-clear">CLEAR</button>
+          <div class="termchrome raised">
+            <div class="termbar">
+              <img src="/assets/brand/icons/ui-terminal.png" alt="">
+              <span class="tt" id="term-title">/bin/bash</span>
+              <span class="spacer"></span>
+              <span class="pill idle" id="term-backend">—</span>
+              <span class="pill ok" id="term-state"><i class="dot live"></i>CONNECTED</span>
+            </div>
+            <div id="xterm-host"></div>
           </div>
-          <p class="hint" style="margin-top:8px">Runs as the Nexus service user. Every session is written to the audit log.</p>
+          <p class="hint" style="margin-top:8px">
+            Full PTY — arrow keys, tab completion, colours and curses apps all work.
+            Every session is written to the audit log.
+          </p>
         </div>
       </section>
 
@@ -162,6 +197,23 @@
   </div>
 </div>
 
-<script src="/app.js?v=0.1.0"></script>
+<!-- ============ GENERIC MODAL (store detail, install, libraries) ============ -->
+<div id="modal">
+  <div class="mw raised">
+    <div class="mw-head">
+      <img id="mw-icon" src="/assets/brand/icons/ui-apps.png" alt="">
+      <span id="mw-title">TITLE</span>
+      <span class="spacer"></span>
+      <button class="btn" id="mw-close">CLOSE</button>
+    </div>
+    <div class="mw-body" id="mw-body"></div>
+    <div class="mw-foot" id="mw-foot"></div>
+  </div>
+</div>
+
+<script src="/vendor/xterm.js"></script>
+<script src="/vendor/xterm-addon-fit.js"></script>
+<script src="/vendor/xterm-addon-web-links.js"></script>
+<script src="/app.js?v=0.2.0"></script>
 </body>
 </html>

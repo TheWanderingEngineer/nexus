@@ -8,6 +8,15 @@
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+/* Bind only if the element exists. Without this a single renamed id in the
+   HTML throws at module scope and takes the whole dashboard down with it —
+   which is exactly what happened once during development. */
+const on = (sel, ev, fn, opts) => {
+  const el = typeof sel === "string" ? $(sel) : sel;
+  if (el) el.addEventListener(ev, fn, opts);
+  else console.warn("[nexus] no element for", sel);
+  return el;
+};
 const ICON = n => `/assets/brand/icons/ui-${n}.png`;
 
 let CSRF = null;
@@ -95,7 +104,7 @@ async function boot() {
   }
 }
 
-$("#gate-form").addEventListener("submit", async e => {
+on("#gate-form", "submit", async e => {
   e.preventDefault();
   const err = $("#gate-err");
   err.textContent = "";
@@ -122,7 +131,7 @@ $("#gate-form").addEventListener("submit", async e => {
   }
 });
 
-$("#logout").addEventListener("click", async () => {
+on("#logout", "click", async () => {
   try { await api("/auth/logout", { method: "POST" }); } catch {}
   location.reload();
 });
@@ -131,7 +140,7 @@ $("#logout").addEventListener("click", async () => {
 const LIVE = {
   cpu: 0, mem: 0, net: { rx: 0, tx: 0 }, uptimeSec: 0,
   sensors: [], history: { cpu: [], mem: [], rx: [], tx: [] },
-  info: null, disks: [], containers: []
+  info: null, disks: [], containers: [], installed: []
 };
 
 let ws = null, wsRetry = 0;
@@ -473,7 +482,7 @@ async function loadContainers() {
     box.innerHTML = `<div class="empty">${esc(e.message).toUpperCase()}</div>`;
   }
 }
-$("#c-table").addEventListener("click", async e => {
+on("#c-table", "click", async e => {
   const b = e.target.closest("button[data-act]");
   if (!b) return;
   b.disabled = true;
@@ -483,7 +492,7 @@ $("#c-table").addEventListener("click", async e => {
     setTimeout(loadContainers, 700);
   } catch (ex) { toast(ex.message.toUpperCase(), "err"); b.disabled = false; }
 });
-$("#c-refresh").addEventListener("click", loadContainers);
+on("#c-refresh", "click", loadContainers);
 
 let curDir = null;
 async function loadFiles(dir) {
@@ -505,7 +514,7 @@ async function loadFiles(dir) {
     tb.innerHTML = `<tr><td colspan="4" class="empty">${esc(e.message).toUpperCase()}</td></tr>`;
   }
 }
-$("#f-table").addEventListener("click", async e => {
+on("#f-table", "click", async e => {
   const d = e.target.closest("button[data-dir]");
   if (d) return loadFiles(d.dataset.dir);
   const del = e.target.closest("button[data-del]");
@@ -515,43 +524,123 @@ $("#f-table").addEventListener("click", async e => {
     catch (ex) { toast(ex.message.toUpperCase(), "err"); }
   }
 });
-$("#f-up").addEventListener("click", async () => {
+on("#f-up", "click", async () => {
   if (!curDir) return;
   try { const out = await api("/files?path=" + encodeURIComponent(curDir)); if (out.parent) loadFiles(out.parent); else toast("AT ROOT", "err"); }
   catch (ex) { toast(ex.message.toUpperCase(), "err"); }
 });
-$("#f-mkdir").addEventListener("click", async () => {
+on("#f-mkdir", "click", async () => {
   const name = prompt("New folder name:");
   if (!name) return;
   try { await api("/files/mkdir", { method: "POST", body: { path: curDir + "/" + name } }); toast("CREATED", "ok"); loadFiles(curDir); }
   catch (ex) { toast(ex.message.toUpperCase(), "err"); }
 });
 
-/* ---- terminal (line-oriented over the PTY socket) ---- */
-let termWS = null;
-function openTerminal() {
+/* ============================ terminal (xterm.js) ============================ */
+let term = null, fit = null, termWS = null, termReady = false;
+
+function termTheme() {
+  // Pull the palette straight from the CSS tokens so the terminal follows the
+  // theme toggle instead of being a separate hard-coded colour scheme.
+  const v = n => cssv(n) || undefined;
+  const dark = document.documentElement.getAttribute("data-theme") === "dark" ||
+    (!document.documentElement.getAttribute("data-theme") && matchMedia("(prefers-color-scheme:dark)").matches);
+  return {
+    background: dark ? "#0D0916" : "#1C1528",
+    foreground: dark ? "#C9C2DE" : "#E8E2F5",
+    cursor: v("--accent"), cursorAccent: "#0D0916",
+    selectionBackground: "rgba(199,125,255,.35)",
+    black: "#0D0916", red: "#FF4D5E", green: "#5CE68A", yellow: "#FFC145",
+    blue: "#7DA2FF", magenta: "#C77DFF", cyan: "#4EE1E8", white: "#C9C2DE",
+    brightBlack: "#6E6291", brightRed: "#FF7A87", brightGreen: "#86F0A9",
+    brightYellow: "#FFD37A", brightBlue: "#A6C0FF", brightMagenta: "#DCA6FF",
+    brightCyan: "#8CF0F5", brightWhite: "#F2EEFA"
+  };
+}
+
+function ensureTerm() {
+  if (term) return term;
+  if (typeof Terminal === "undefined") { toast("TERMINAL LIBRARY FAILED TO LOAD", "err"); return null; }
+
+  term = new Terminal({
+    fontFamily: '"IBM Plex Mono", ui-monospace, Consolas, monospace',
+    fontSize: 13,
+    lineHeight: 1.25,
+    cursorBlink: true,
+    cursorStyle: "block",
+    scrollback: 5000,
+    allowProposedApi: true,
+    macOptionIsMeta: true,
+    theme: termTheme()
+  });
+
+  try { fit = new FitAddon.FitAddon(); term.loadAddon(fit); } catch { fit = null; }
+  try { term.loadAddon(new WebLinksAddon.WebLinksAddon()); } catch {}
+
+  term.open($("#xterm-host"));
+  term.onData(d => { if (termWS?.readyState === 1) termWS.send(d); });
+
+  // Resize is debounced: xterm fires per-frame during a window drag and each one
+  // would otherwise become a control frame and an ioctl on the pty.
+  let rt = null;
+  term.onResize(({ cols, rows }) => {
+    clearTimeout(rt);
+    rt = setTimeout(() => {
+      if (termWS?.readyState === 1) termWS.send(JSON.stringify({ type: "resize", cols, rows }));
+    }, 80);
+  });
+
+  return term;
+}
+
+function fitTerm() {
+  if (!fit) return;
+  try { fit.fit(); } catch {}
+}
+
+function connectTerminal() {
+  if (!ensureTerm()) return;
   if (termWS && termWS.readyState <= 1) return;
+
+  const state = $("#term-state");
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   termWS = new WebSocket(`${proto}//${location.host}/ws/terminal`);
   termWS.binaryType = "arraybuffer";
-  const out = $("#termout");
-  termWS.onopen = () => { out.textContent += "[connected]\n"; };
-  termWS.onmessage = ev => {
-    const text = typeof ev.data === "string" ? ev.data : new TextDecoder().decode(ev.data);
-    out.textContent += text;
-    if (out.textContent.length > 60000) out.textContent = out.textContent.slice(-40000);
-    $("#termwrap").scrollTop = $("#termwrap").scrollHeight;
+
+  termWS.onopen = () => {
+    termReady = true;
+    state.className = "pill ok";
+    state.innerHTML = '<i class="dot live"></i>CONNECTED';
+    requestAnimationFrame(() => {
+      fitTerm();
+      termWS.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+      term.focus();
+    });
   };
-  termWS.onclose = () => { out.textContent += "\n[disconnected]\n"; };
-  termWS.onerror = () => { out.textContent += "\n[connection error]\n"; };
+  termWS.onmessage = ev => {
+    term.write(typeof ev.data === "string" ? ev.data : new Uint8Array(ev.data));
+  };
+  termWS.onclose = () => {
+    termReady = false;
+    state.className = "pill crit";
+    state.innerHTML = '<i class="dot"></i>DISCONNECTED';
+    term.write("\r\n\x1b[90m[session closed — press NEW SESSION to reconnect]\x1b[0m\r\n");
+  };
+  termWS.onerror = () => {
+    state.className = "pill crit";
+    state.innerHTML = '<i class="dot"></i>ERROR';
+  };
 }
-$("#termcmd").addEventListener("keydown", e => {
-  if (e.key !== "Enter") return;
-  const v = e.target.value;
-  if (termWS && termWS.readyState === 1) { termWS.send(v + "\n"); e.target.value = ""; }
-  else toast("TERMINAL NOT CONNECTED", "err");
-});
-$("#term-clear").addEventListener("click", () => { $("#termout").textContent = ""; });
+
+function newTerminalSession() {
+  if (termWS) { try { termWS.close(); } catch {} termWS = null; }
+  if (term) term.reset();
+  connectTerminal();
+}
+
+on("#t-new", "click", newTerminalSession);
+on("#t-clear", "click", () => { if (term) term.clear(); });
+addEventListener("resize", () => { if (term && $("#page-term").classList.contains("on")) fitTerm(); });
 
 async function loadSettings() {
   const i = LIVE.info || (LIVE.info = await api("/system/info").catch(() => null));
@@ -591,8 +680,371 @@ async function loadSettings() {
   } catch {}
 }
 
+/* ============================ modal ============================ */
+const modal = $("#modal");
+function openModal({ title, icon, body, foot }) {
+  $("#mw-title").textContent = title;
+  $("#mw-icon").src = icon || "/assets/brand/icons/ui-apps.png";
+  $("#mw-body").innerHTML = "";
+  $("#mw-foot").innerHTML = "";
+  if (typeof body === "string") $("#mw-body").innerHTML = body; else if (body) $("#mw-body").appendChild(body);
+  if (typeof foot === "string") $("#mw-foot").innerHTML = foot; else if (foot) $("#mw-foot").appendChild(foot);
+  modal.classList.add("open");
+}
+function closeModal() { modal.classList.remove("open"); }
+on("#mw-close", "click", closeModal);
+modal.addEventListener("click", e => { if (e.target === modal) closeModal(); });
+addEventListener("keydown", e => { if (e.key === "Escape" && modal.classList.contains("open")) closeModal(); });
+
+/* ============================ app store ============================ */
+const ST = { q: "", category: "", offset: 0, limit: 60, total: 0, loading: false, status: null };
+
+async function loadStoreStatus() {
+  try {
+    ST.status = await api("/store/status");
+    const warn = $("#st-warn");
+    const bits = [];
+    if (!ST.status.docker.available) bits.push(`<div class="warnbox err"><b>Docker is unavailable</b> — ${esc(ST.status.docker.reason)}. Browsing works, installing does not.</div>`);
+    else if (!ST.status.compose.available) bits.push(`<div class="warnbox err"><b>docker compose not found</b> — install the Compose plugin to enable app installs.</div>`);
+    const unsynced = ST.status.libraries.filter(l => !l.lastSyncAt);
+    if (unsynced.length && !(db_catalogCount())) {
+      bits.push(`<div class="warnbox"><b>The catalogue is empty.</b> Sync a library to populate it — the CasaOS store is already added, it just needs its first sync (a one-off clone of a few hundred MB). <button class="btn sm" id="st-sync-now">SYNC NOW</button></div>`);
+    }
+    warn.innerHTML = bits.join("");
+    const b = $("#st-sync-now");
+    if (b) b.addEventListener("click", () => syncLibrary(unsynced[0].id));
+  } catch {}
+}
+let _catalogCount = 0;
+const db_catalogCount = () => _catalogCount;
+
+async function loadStore(reset = true) {
+  if (ST.loading) return;
+  ST.loading = true;
+  if (reset) { ST.offset = 0; $("#st-grid").innerHTML = '<div class="empty">LOADING…</div>'; }
+  try {
+    const out = await api(`/store/apps?q=${encodeURIComponent(ST.q)}&category=${encodeURIComponent(ST.category)}&limit=${ST.limit}&offset=${ST.offset}`);
+    ST.total = out.total;
+    _catalogCount = out.total;
+
+    const cat = $("#st-cat");
+    if (cat.options.length <= 1 && out.categories.length) {
+      out.categories.forEach(c => { const o = document.createElement("option"); o.value = c; o.textContent = c; cat.appendChild(o); });
+    }
+
+    if (reset) $("#st-grid").innerHTML = "";
+    if (!out.apps.length && reset) {
+      $("#st-grid").innerHTML = `<div class="empty">${ST.q ? "NO MATCHES" : "CATALOGUE EMPTY — SYNC A LIBRARY"}</div>`;
+    }
+    for (const a of out.apps) $("#st-grid").appendChild(appCard(a));
+
+    $("#st-count").textContent = out.total ? `${out.total} app${out.total === 1 ? "" : "s"}` : "";
+    $("#st-more").hidden = ST.offset + ST.limit >= out.total;
+  } catch (e) {
+    $("#st-grid").innerHTML = `<div class="empty">${esc(e.message).toUpperCase()}</div>`;
+  } finally { ST.loading = false; }
+}
+
+function appCard(a) {
+  const el = document.createElement("button");
+  el.className = "appcard";
+  const installed = (LIVE.installed || []).some(i => i.slug === a.slug);
+  el.innerHTML = `
+    <div class="top">
+      ${a.icon ? `<img class="ico" src="${esc(a.icon)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`
+               : `<span class="ico"></span>`}
+      <span style="min-width:0">
+        <span class="nm">${esc(a.name)}</span>
+        <span class="tg">${esc(a.tagline || a.description || "")}</span>
+      </span>
+    </div>
+    <div class="meta">
+      <span class="pill idle">${esc(a.category || "APP")}</span>
+      ${installed ? '<span class="pill ok"><i class="dot"></i>INSTALLED</span>' : ""}
+    </div>`;
+  el.addEventListener("click", () => openAppDetail(a));
+  return el;
+}
+
+async function openAppDetail(a) {
+  openModal({ title: a.name.toUpperCase(), icon: a.icon || undefined, body: `<p>Loading…</p>` });
+  let full = a;
+  try { full = await api(`/store/apps/${encodeURIComponent(a.libraryId)}/${encodeURIComponent(a.slug)}`); } catch {}
+
+  const params = full.params || [];
+  const body = document.createElement("div");
+  body.style.cssText = "display:flex;flex-direction:column;gap:16px";
+  body.innerHTML = `
+    <div class="applead">
+      ${full.icon ? `<img src="${esc(full.icon)}" alt="" onerror="this.style.visibility='hidden'">` : `<img src="/assets/brand/icons/ui-apps.png" alt="">`}
+      <div style="min-width:0">
+        <span class="t">${esc(full.name)}</span>
+        <p>${esc(full.tagline || "")}</p>
+        <div class="meta" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+          <span class="pill idle">${esc(full.category || "APP")}</span>
+          ${full.developer ? `<span class="pill idle">${esc(full.developer)}</span>` : ""}
+          ${full.image ? `<span class="pill idle">${esc(String(full.image).split(":")[0])}</span>` : ""}
+        </div>
+      </div>
+    </div>
+    ${full.description ? `<div><h3>ABOUT</h3><p>${esc(full.description).slice(0, 1200)}</p></div>` : ""}
+    ${params.length ? `<div><h3>SETTINGS</h3><div id="ap-params" style="display:flex;flex-direction:column;gap:12px"></div></div>` : ""}
+    ${full.compose ? `<div><h3>COMPOSE</h3><div class="joblog"><pre>${esc(full.compose.slice(0, 4000))}</pre></div></div>` : ""}
+  `;
+
+  if (params.length) {
+    const wrap = body.querySelector("#ap-params");
+    params.forEach(p => {
+      const f = document.createElement("div");
+      f.className = "field";
+      f.innerHTML = `<label for="p-${esc(p.key)}">${esc(p.label || p.key)}</label>
+                     <input id="p-${esc(p.key)}" type="text" value="${esc(p.default ?? "")}" data-key="${esc(p.key)}">`;
+      wrap.appendChild(f);
+    });
+  }
+
+  const installed = (LIVE.installed || []).some(i => i.slug === full.slug);
+  const foot = document.createElement("div");
+  foot.style.cssText = "display:flex;gap:8px;flex-wrap:wrap";
+  foot.innerHTML = installed
+    ? `<button class="btn danger" id="ap-remove">UNINSTALL</button><button class="btn" id="ap-cancel">CLOSE</button>`
+    : `<button class="btn" id="ap-cancel">CANCEL</button><button class="btn primary" id="ap-install">INSTALL</button>`;
+
+  openModal({ title: full.name.toUpperCase(), icon: full.icon || undefined, body, foot });
+
+  $("#ap-cancel")?.addEventListener("click", closeModal);
+  $("#ap-install")?.addEventListener("click", () => {
+    const p = {};
+    $$("#ap-params input").forEach(i => { p[i.dataset.key] = i.value; });
+    doInstall({ libraryId: full.libraryId, slug: full.slug, params: p, name: full.name });
+  });
+  $("#ap-remove")?.addEventListener("click", () => doUninstall(full.slug, full.name));
+}
+
+/* ---- install with live job output ---- */
+function jobModal(title) {
+  const body = document.createElement("div");
+  body.innerHTML = `<div class="joblog" id="job-log"><pre></pre></div>`;
+  const foot = document.createElement("div");
+  foot.innerHTML = `<button class="btn" id="job-close">CLOSE</button>`;
+  openModal({ title, body, foot });
+  on("#job-close", "click", closeModal);
+  return $("#job-log pre");
+}
+
+const activeJobs = new Map();
+
+async function doInstall(opts, force = false) {
+  const pre = jobModal(`INSTALLING ${opts.name.toUpperCase()}`);
+  const write = (t, cls) => {
+    const s = document.createElement("span");
+    if (cls) s.className = cls;
+    s.textContent = t + "\n";
+    pre.appendChild(s);
+    pre.parentElement.scrollTop = pre.parentElement.scrollHeight;
+  };
+  write("preparing…");
+  try {
+    const body = opts.url
+      ? { url: opts.url, name: opts.name, force }
+      : opts.composeText
+        ? { name: opts.name, composeText: opts.composeText, force }
+        : { libraryId: opts.libraryId, slug: opts.slug, params: opts.params || {}, force };
+    const path = opts.url ? "/store/install-url" : opts.composeText ? "/store/install-compose" : "/store/install";
+    const out = await api(path, { method: "POST", body });
+    activeJobs.set(String(out.jobId), write);
+    write(`job ${out.jobId} started`);
+  } catch (e) {
+    if (e.status === 409) {
+      write(e.message, "errl");
+      const btn = document.createElement("button");
+      btn.className = "btn";
+      btn.textContent = "INSTALL ANYWAY";
+      btn.addEventListener("click", () => doInstall(opts, true));
+      $("#mw-foot").prepend(btn);
+    } else {
+      write(e.message, "errl");
+    }
+  }
+}
+
+async function doUninstall(slug, name) {
+  const keep = confirm(`Remove ${name}?\n\nOK = remove containers, keep data volumes.\nCancel = abort.`);
+  if (!keep) return;
+  const pre = jobModal(`REMOVING ${name.toUpperCase()}`);
+  const write = (t, cls) => {
+    const s = document.createElement("span");
+    if (cls) s.className = cls;
+    s.textContent = t + "\n"; pre.appendChild(s);
+    pre.parentElement.scrollTop = pre.parentElement.scrollHeight;
+  };
+  try {
+    const out = await api(`/store/installed/${encodeURIComponent(slug)}`, { method: "DELETE" });
+    activeJobs.set(String(out.jobId), write);
+  } catch (e) { write(e.message, "errl"); }
+}
+
+/* ---- events socket: install/uninstall progress ---- */
+let evtWS = null, evtRetry = 0;
+function connectEvents() {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  evtWS = new WebSocket(`${proto}//${location.host}/ws/events`);
+  evtWS.onopen = () => { evtRetry = 0; };
+  evtWS.onmessage = ev => {
+    let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+    if (msg.type !== "job") return;
+    const d = msg.data;
+    const write = activeJobs.get(String(d.id));
+    if (write) {
+      if (d.line) write(d.line, d.status === "error" ? "errl" : d.done ? "okl" : "");
+      if (d.done) {
+        activeJobs.delete(String(d.id));
+        refreshInstalled();
+        if (d.status === "success") toast("DONE", "ok"); else toast("FAILED", "err");
+      }
+    }
+  };
+  evtWS.onclose = () => { evtRetry = Math.min(evtRetry + 1, 6); setTimeout(connectEvents, 500 * 2 ** evtRetry); };
+  evtWS.onerror = () => { try { evtWS.close(); } catch {} };
+}
+
+async function refreshInstalled() {
+  try { LIVE.installed = await api("/store/installed"); } catch { LIVE.installed = []; }
+}
+
+/* ---- libraries ---- */
+async function syncLibrary(id) {
+  toast("SYNCING — THIS MAY TAKE A MINUTE");
+  try {
+    const out = await api(`/store/libraries/${encodeURIComponent(id)}/sync`, { method: "POST" });
+    toast(`INDEXED ${out.apps} APPS`, "ok");
+    await loadStoreStatus();
+    loadStore(true);
+  } catch (e) { toast(e.message.toUpperCase(), "err"); }
+}
+
+async function openLibraries() {
+  const libs = await api("/store/libraries").catch(() => []);
+  const body = document.createElement("div");
+  body.style.cssText = "display:flex;flex-direction:column;gap:12px";
+  body.innerHTML = `
+    <p>A library is a git repository of app definitions. CasaOS-format stores work as-is.</p>
+    <div id="lib-list" style="display:flex;flex-direction:column;gap:8px"></div>
+    <div class="field">
+      <label for="lib-url">ADD A LIBRARY (GIT URL)</label>
+      <input id="lib-url" type="text" placeholder="https://github.com/owner/repo.git" spellcheck="false">
+    </div>`;
+  const list = body.querySelector("#lib-list");
+  libs.forEach(l => {
+    const row = document.createElement("div");
+    row.className = "libitem";
+    row.innerHTML = `
+      <span class="ln">${esc(l.name)}</span>
+      <span class="pill idle">${esc(l.format.toUpperCase())}</span>
+      <span class="pill ${l.lastSyncAt ? "ok" : "warn"}">${l.lastSyncAt ? l.appCount + " APPS" : "NOT SYNCED"}</span>
+      <button class="btn sm" data-sync="${esc(l.id)}">SYNC</button>
+      <button class="btn sm danger" data-del="${esc(l.id)}">REMOVE</button>
+      <span class="lu">${esc(l.url)}</span>
+      ${l.lastSyncError ? `<span class="lu" style="color:var(--crit)">${esc(l.lastSyncError)}</span>` : ""}`;
+    list.appendChild(row);
+  });
+
+  const foot = document.createElement("div");
+  foot.innerHTML = `<button class="btn" id="lib-cancel">CLOSE</button><button class="btn primary" id="lib-add">ADD LIBRARY</button>`;
+  openModal({ title: "APP LIBRARIES", body, foot });
+
+  on("#lib-cancel", "click", closeModal);
+  on("#lib-add", "click", async () => {
+    const url = $("#lib-url").value.trim();
+    if (!url) return;
+    try { await api("/store/libraries", { method: "POST", body: { url } }); toast("ADDED — NOW SYNC IT", "ok"); openLibraries(); }
+    catch (e) { toast(e.message.toUpperCase(), "err"); }
+  });
+  list.addEventListener("click", async e => {
+    const s = e.target.closest("[data-sync]"), d = e.target.closest("[data-del]");
+    if (s) { closeModal(); return syncLibrary(s.dataset.sync); }
+    if (d) {
+      if (!confirm("Remove this library and its indexed apps?")) return;
+      try { await api(`/store/libraries/${encodeURIComponent(d.dataset.del)}`, { method: "DELETE" }); openLibraries(); loadStore(true); }
+      catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+    }
+  });
+}
+
+/* ---- install from GitHub / raw compose ---- */
+function openGitHubInstall() {
+  const body = document.createElement("div");
+  body.style.cssText = "display:flex;flex-direction:column;gap:16px";
+  body.innerHTML = `
+    <div class="field">
+      <label for="gh-url">GITHUB REPO OR COMPOSE URL</label>
+      <input id="gh-url" type="text" spellcheck="false"
+             placeholder="https://github.com/owner/repo">
+      <span class="fh">A repo with docker-compose.yml at its root, a /blob/ link to one, or a raw .yml URL.</span>
+    </div>
+    <div class="field">
+      <label for="gh-name">APP NAME (OPTIONAL)</label>
+      <input id="gh-name" type="text" spellcheck="false" placeholder="derived from the repo name">
+    </div>
+    <div class="field">
+      <label for="gh-compose">…OR PASTE A COMPOSE FILE DIRECTLY</label>
+      <textarea id="gh-compose" spellcheck="false" placeholder="services:&#10;  app:&#10;    image: nginx&#10;    ports: [&quot;8081:80&quot;]"></textarea>
+    </div>
+    <div class="warnbox"><b>This runs third-party containers as root.</b> Only install from sources you trust.</div>`;
+  const foot = document.createElement("div");
+  foot.innerHTML = `<button class="btn" id="gh-cancel">CANCEL</button><button class="btn primary" id="gh-go">INSTALL</button>`;
+  openModal({ title: "INSTALL FROM GITHUB", body, foot });
+
+  on("#gh-cancel", "click", closeModal);
+  on("#gh-go", "click", () => {
+    const url = $("#gh-url").value.trim();
+    const name = $("#gh-name").value.trim();
+    const composeText = $("#gh-compose").value.trim();
+    if (composeText) return doInstall({ composeText, name: name || "custom-app" });
+    if (!url) return toast("ENTER A URL OR PASTE A COMPOSE FILE", "err");
+    doInstall({ url, name: name || url.split("/").filter(Boolean).slice(-1)[0] });
+  });
+}
+
+/* ---- installed apps ---- */
+async function openInstalled() {
+  await refreshInstalled();
+  const body = document.createElement("div");
+  if (!LIVE.installed.length) {
+    body.innerHTML = `<div class="empty">NOTHING INSTALLED THROUGH NEXUS YET</div>`;
+  } else {
+    body.innerHTML = `<div class="tw"><table><thead><tr><th>App</th><th>Ports</th><th>Source</th><th></th></tr></thead>
+      <tbody>${LIVE.installed.map(a => `<tr>
+        <td class="name">${esc(a.name)}</td>
+        <td class="mono">${(a.ports || []).join(", ") || "—"}</td>
+        <td class="mono">${esc(a.libraryId || a.source || "manual").slice(0, 40)}</td>
+        <td><button class="btn sm danger" data-rm="${esc(a.slug)}" data-nm="${esc(a.name)}">REMOVE</button></td>
+      </tr>`).join("")}</tbody></table></div>`;
+  }
+  const foot = document.createElement("div");
+  foot.innerHTML = `<button class="btn" id="ins-close">CLOSE</button>`;
+  openModal({ title: "INSTALLED APPS", body, foot });
+  on("#ins-close", "click", closeModal);
+  body.addEventListener("click", e => {
+    const b = e.target.closest("[data-rm]");
+    if (b) doUninstall(b.dataset.rm, b.dataset.nm);
+  });
+}
+
+let searchTimer = null;
+on("#st-q", "input", e => {
+  clearTimeout(searchTimer);
+  ST.q = e.target.value;
+  searchTimer = setTimeout(() => loadStore(true), 220);
+});
+on("#st-cat", "change", e => { ST.category = e.target.value; loadStore(true); });
+on("#st-more-btn", "click", () => { ST.offset += ST.limit; loadStore(false); });
+on("#st-libs", "click", openLibraries);
+on("#st-github", "click", openGitHubInstall);
+on("#st-installed-btn", "click", openInstalled);
+
 /* ============================ navigation ============================ */
-const TITLES = { dash: "DASHBOARD", containers: "CONTAINERS", files: "FILES", term: "TERMINAL", settings: "SETTINGS" };
+const TITLES = { dash: "DASHBOARD", store: "APP STORE", containers: "CONTAINERS", files: "FILES", term: "TERMINAL", settings: "SETTINGS" };
 
 function go(page) {
   $$(".nav").forEach(n => n.classList.toggle("on", n.dataset.page === page));
@@ -601,33 +1053,46 @@ function go(page) {
   $("#tools-dash").hidden = page !== "dash";
   $("#tools-containers").hidden = page !== "containers";
   $("#tools-files").hidden = page !== "files";
+  $("#tools-store").hidden = page !== "store";
+  $("#tools-term").hidden = page !== "term";
 
   if (page === "containers") loadContainers();
   if (page === "files") loadFiles(curDir);
   if (page === "settings") loadSettings();
+  if (page === "store") { refreshInstalled().then(() => { loadStoreStatus(); loadStore(true); }); }
   if (page === "term") {
     const on = LIVE.info?.terminal?.enabled;
     $("#term-off").hidden = !!on;
     $("#term-on").hidden = !on;
-    if (on) openTerminal();
+    if (on) {
+      const t = LIVE.info.terminal;
+      $("#term-title").textContent = t.shell || "shell";
+      const b = $("#term-backend");
+      b.className = "pill " + (t.resize ? "ok" : "warn");
+      b.textContent = t.resize ? "NODE-PTY · FULL RESIZE" : "SCRIPT · RESIZE BEST-EFFORT";
+      connectTerminal();
+      // The host has no size until the page is visible, so fit after paint.
+      requestAnimationFrame(() => { fitTerm(); term?.focus(); });
+    }
   }
 }
 $$(".nav").forEach(n => n.addEventListener("click", () => go(n.dataset.page)));
 
-$("#theme").addEventListener("click", () => {
+on("#theme", "click", () => {
   const r = document.documentElement;
   const dark = r.getAttribute("data-theme") === "dark" ||
     (!r.getAttribute("data-theme") && matchMedia("(prefers-color-scheme:dark)").matches);
   r.setAttribute("data-theme", dark ? "light" : "dark");
   try { localStorage.setItem("nexus.theme", dark ? "light" : "dark"); } catch {}
   renderWidgets();
+  if (term) { term.options.theme = termTheme(); }
 });
 try { const t = localStorage.getItem("nexus.theme"); if (t) document.documentElement.setAttribute("data-theme", t); } catch {}
 
-$("#add").addEventListener("click", () => $("#drawer").classList.add("open"));
-$("#dclose").addEventListener("click", () => $("#drawer").classList.remove("open"));
-$("#drawer").addEventListener("click", e => { if (e.target.id === "drawer") e.currentTarget.classList.remove("open"); });
-$("#reset").addEventListener("click", async () => {
+on("#add", "click", () => $("#drawer").classList.add("open"));
+on("#dclose", "click", () => $("#drawer").classList.remove("open"));
+on("#drawer", "click", e => { if (e.target.id === "drawer") e.currentTarget.classList.remove("open"); });
+on("#reset", "click", async () => {
   try { await api("/layout", { method: "DELETE" }); } catch {}
   gridEl.innerHTML = ""; mounted = {};
   items = DEFAULT_LAYOUT.map((d, i) => ({ id: i + 1, ...d }));
@@ -668,6 +1133,8 @@ async function start() {
   setInterval(() => { api("/docker/containers").then(o => { if (o.available) LIVE.containers = o.containers; }).catch(() => {}); }, 15000);
 
   connectWS();
+  connectEvents();
+  refreshInstalled();
   setInterval(renderWidgets, 1000);
 }
 

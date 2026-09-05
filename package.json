@@ -1,7 +1,7 @@
 {
   "name": "nexus-dashboard",
-  "version": "0.1.0",
-  "description": "Retro-pixel homelab dashboard and Docker manager for a single Linux host",
+  "version": "0.2.0",
+  "description": "Retro-pixel homelab dashboard, Docker manager and app store for a single Linux host",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -10,12 +10,23 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
-    "check": "node --check server/index.js && node scripts/selfcheck.js"
+    "check": "node scripts/selfcheck.js",
+    "vendor": "node scripts/vendor-xterm.js",
+    "store-check": "node scripts/store-check.js"
   },
   "dependencies": {
     "dockerode": "^4.0.2",
     "express": "^4.21.2",
     "systeminformation": "^5.23.5",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "yaml": "^2.9.0"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.0.0"
+  },
+  "devDependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/xterm": "^6.0.0"
   }
 }
