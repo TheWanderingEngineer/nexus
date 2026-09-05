@@ -1,0 +1,33 @@
+[Unit]
+Description=Nexus homelab dashboard
+Documentation=https://github.com/nexus-dashboard/nexus
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Runs as root deliberately: the terminal needs a real shell, SMART needs raw
+# device access, and the Docker socket is root-equivalent regardless. This is
+# stated plainly in the README rather than hidden behind a service account that
+# would need most of these privileges granted back anyway.
+User=root
+WorkingDirectory=/opt/nexus
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node /opt/nexus/server/index.js
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+# Modest hardening that does not break the feature set.
+NoNewPrivileges=false
+ProtectHome=false
+ProtectSystem=false
+PrivateTmp=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nexus
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,27 @@
+{
+  "host": "0.0.0.0",
+  "port": 8080,
+
+  "//allowedOrigins": "Extra origins allowed to open a WebSocket. Same-origin is always allowed; add entries only if the UI is served from a different hostname than the API.",
+  "allowedOrigins": [],
+
+  "//trustedProxies": "Only these peers are believed when they send X-Forwarded-For / X-Forwarded-Proto.",
+  "trustedProxies": [],
+
+  "//terminal": "A root shell over the network. Set enabled to false to turn it off without redeploying.",
+  "terminal": { "enabled": true, "shell": "/bin/bash" },
+
+  "docker": { "enabled": true, "socket": "/var/run/docker.sock" },
+
+  "//fileRoots": "The file manager cannot read or write outside these paths. Symlinks are resolved before the check.",
+  "fileRoots": [
+    { "name": "DATA", "path": "/DATA" },
+    { "name": "root", "path": "/root" }
+  ],
+
+  "//smart": "devices: [] means auto-detect from /sys/block. Polling uses --nocheck=standby so idle drives are never spun up.",
+  "smart": { "enabled": true, "cacheSeconds": 900, "devices": [] },
+
+  "dataDir": "/var/lib/nexus",
+  "sessionHours": 168
+}

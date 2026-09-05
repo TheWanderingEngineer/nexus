@@ -1,0 +1,23 @@
+# MCP config carries the Pixel Lab API key in plaintext — never commit it.
+.mcp.json
+
+# Dependencies
+node_modules/
+
+# Local runtime state
+.nexus-data/
+/var/
+config.json
+config.local.yaml
+*.log
+
+# Build output
+/dist/
+*.exe
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

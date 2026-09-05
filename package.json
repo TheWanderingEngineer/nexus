@@ -1,0 +1,21 @@
+{
+  "name": "nexus-dashboard",
+  "version": "0.1.0",
+  "description": "Retro-pixel homelab dashboard and Docker manager for a single Linux host",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "check": "node --check server/index.js && node scripts/selfcheck.js"
+  },
+  "dependencies": {
+    "dockerode": "^4.0.2",
+    "express": "^4.21.2",
+    "systeminformation": "^5.23.5",
+    "ws": "^8.18.0"
+  }
+}

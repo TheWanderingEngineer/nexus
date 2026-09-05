@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#14101F">
+<title>Nexus</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/icons/nexus-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/assets/brand/icons/nexus-16.png">
+<link rel="apple-touch-icon" href="/assets/brand/icons/nexus-128.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Pixelify+Sans:wght@400;500;600;700&family=Silkscreen:wght@400;700&display=swap">
+<link rel="stylesheet" href="/style.css?v=0.1.0">
+</head>
+<body>
+
+<div id="scan"></div>
+<div id="toast"></div>
+
+<!-- ============ LOGIN / FIRST-RUN SETUP ============ -->
+<div id="gate">
+  <div class="gatebox raised">
+    <div class="gatehead"><span id="gate-title">NEXUS &mdash; SIGN IN</span></div>
+    <form class="gatebody" id="gate-form" autocomplete="on">
+      <img class="crt" src="/assets/brand/nexus-logo.png" alt="">
+      <p class="gatemsg" id="gate-msg">Sign in to your homelab.</p>
+      <div>
+        <label for="g-user">USERNAME</label>
+        <input id="g-user" name="username" type="text" autocomplete="username" required autocapitalize="none" spellcheck="false">
+      </div>
+      <div>
+        <label for="g-pass">PASSWORD</label>
+        <input id="g-pass" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <div id="g-confirm-wrap" hidden>
+        <label for="g-confirm">CONFIRM PASSWORD</label>
+        <input id="g-confirm" type="password" autocomplete="new-password">
+      </div>
+      <div class="gateerr" id="gate-err"></div>
+      <button class="btn primary" id="g-submit" type="submit">SIGN IN</button>
+    </form>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app" hidden>
+
+  <div id="topbar">
+    <img id="logo" src="/assets/brand/nexus-logo.png" alt="Nexus">
+    <span class="brand">NEXUS<span class="v">v0.1</span></span>
+    <span class="spacer"></span>
+    <span class="stat" id="st-state"><i class="dot live" style="color:var(--ok)"></i><span>LIVE</span></span>
+    <span class="stat">CPU <b id="tb-cpu">--</b></span>
+    <span class="stat opt">RAM <b id="tb-mem">--</b></span>
+    <span class="stat opt">TEMP <b id="tb-temp">--</b></span>
+    <span id="clock">--:--:--</span>
+    <button class="btn" id="theme">THEME</button>
+    <button class="btn" id="logout">EXIT</button>
+  </div>
+
+  <div id="body">
+    <nav id="rail">
+      <button class="nav on" data-page="dash"><img src="/assets/brand/icons/ui-dashboard.png" alt="Dashboard"><span class="tip">DASHBOARD</span></button>
+      <button class="nav" data-page="containers"><img src="/assets/brand/icons/ui-containers.png" alt="Containers"><span class="tip">CONTAINERS</span></button>
+      <button class="nav" data-page="files"><img src="/assets/brand/icons/ui-files.png" alt="Files"><span class="tip">FILES</span></button>
+      <button class="nav" data-page="term"><img src="/assets/brand/icons/ui-terminal.png" alt="Terminal"><span class="tip">TERMINAL</span></button>
+      <span class="spacer"></span>
+      <button class="nav" data-page="settings"><img src="/assets/brand/icons/ui-settings.png" alt="Settings"><span class="tip">SETTINGS</span></button>
+    </nav>
+
+    <div id="main">
+      <div id="toolbar">
+        <h1 id="page-title">DASHBOARD</h1>
+        <span class="spacer"></span>
+        <div id="tools-dash">
+          <button class="btn" id="add">+ ADD WIDGET</button>
+          <button class="btn" id="reset">RESET</button>
+        </div>
+        <div id="tools-containers" hidden>
+          <button class="btn" id="c-refresh">REFRESH</button>
+        </div>
+        <div id="tools-files" hidden>
+          <button class="btn" id="f-up">PARENT</button>
+          <button class="btn" id="f-mkdir">NEW FOLDER</button>
+        </div>
+      </div>
+
+      <!-- dashboard -->
+      <section class="page on" id="page-dash">
+        <div id="grid"></div>
+        <div class="empty" id="grid-empty" hidden>NO WIDGETS &mdash; PRESS &ldquo;+ ADD WIDGET&rdquo;</div>
+      </section>
+
+      <!-- containers -->
+      <section class="page" id="page-containers">
+        <div id="c-status"></div>
+        <div class="tw"><table id="c-table">
+          <thead><tr><th>Name</th><th>Image</th><th>State</th><th>Ports</th><th>Managed</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </section>
+
+      <!-- files -->
+      <section class="page" id="page-files">
+        <div class="crumbs" id="f-crumbs"></div>
+        <div class="tw"><table id="f-table">
+          <thead><tr><th>Name</th><th>Size</th><th>Modified</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </section>
+
+      <!-- terminal -->
+      <section class="page" id="page-term">
+        <div class="section" id="term-off" hidden>
+          <h2>TERMINAL DISABLED</h2>
+          <p class="hint">The terminal is switched off in the server config. Set <code>terminal.enabled</code> to true and restart to use it.</p>
+        </div>
+        <div id="term-on">
+          <div id="termwrap" class="inset"><pre id="termout"></pre></div>
+          <div id="terminput">
+            <span class="ps">$</span>
+            <input id="termcmd" type="text" placeholder="type a command and press Enter" autocapitalize="none" autocomplete="off" spellcheck="false">
+            <button class="btn" id="term-clear">CLEAR</button>
+          </div>
+          <p class="hint" style="margin-top:8px">Runs as the Nexus service user. Every session is written to the audit log.</p>
+        </div>
+      </section>
+
+      <!-- settings -->
+      <section class="page" id="page-settings">
+        <div class="section">
+          <h2>SYSTEM</h2>
+          <dl class="kv" id="s-system"></dl>
+        </div>
+        <div class="section">
+          <h2>SERVICES</h2>
+          <dl class="kv" id="s-services"></dl>
+        </div>
+        <div class="section">
+          <h2>STORAGE HEALTH (SMART)</h2>
+          <div id="s-smart"></div>
+        </div>
+        <div class="section">
+          <h2>RECENT ACTIVITY</h2>
+          <div class="tw"><table id="s-audit">
+            <thead><tr><th>When</th><th>Action</th><th>Who</th><th>Detail</th></tr></thead>
+            <tbody></tbody>
+          </table></div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- ============ WIDGET LIBRARY ============ -->
+<div id="drawer">
+  <div class="dw raised">
+    <div class="dw-head"><span>WIDGET LIBRARY</span><span class="spacer"></span><button class="btn" id="dclose">CLOSE</button></div>
+    <div class="dw-body" id="dbody"></div>
+  </div>
+</div>
+
+<script src="/app.js?v=0.1.0"></script>
+</body>
+</html>
