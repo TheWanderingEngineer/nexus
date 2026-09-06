@@ -28,12 +28,42 @@ const run = promisify(execFile);
 
 const LIB_DIR = () => path.join(cfg.dataDir, "libraries");
 
+/** Added automatically on first boot so the store is not empty on arrival. */
 export const BUILTIN_LIBRARIES = [
   {
     name: "CasaOS App Store",
     url: "https://github.com/IceWhaleTech/CasaOS-AppStore.git",
     format: "casaos",
     description: "The official CasaOS catalogue — several hundred self-hosted apps."
+  }
+];
+
+/**
+ * Offered in the UI as one-click additions rather than seeded, because each one
+ * is a full clone and you should choose what you pull down.
+ *
+ * These are CasaOS-format stores, so they go through the same adapter as the
+ * official one. If a repository has moved or changed layout the sync reports it
+ * rather than failing silently — nothing here is assumed to be correct forever.
+ */
+export const SUGGESTED_LIBRARIES = [
+  {
+    name: "Big Bear CasaOS",
+    url: "https://github.com/bigbeartechworld/big-bear-casaos.git",
+    format: "casaos",
+    description: "The largest community CasaOS store — a lot of apps the official one does not carry."
+  },
+  {
+    name: "CasaOS App Store (official)",
+    url: "https://github.com/IceWhaleTech/CasaOS-AppStore.git",
+    format: "casaos",
+    description: "The official IceWhale catalogue. Added by default on first boot."
+  },
+  {
+    name: "Coolify templates",
+    url: "https://github.com/coollabsio/coolify.git",
+    format: "auto",
+    description: "Compose templates from Coolify. Layout differs — sync will report if the adapter cannot read it."
   }
 ];
 

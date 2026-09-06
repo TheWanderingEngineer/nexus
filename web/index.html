@@ -11,9 +11,9 @@
 <link rel="apple-touch-icon" href="/assets/brand/icons/nexus-128.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Pixelify+Sans:wght@400;500;600;700&family=Silkscreen:wght@400;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Silkscreen:wght@400;700&display=swap">
 <link rel="stylesheet" href="/vendor/xterm.css">
-<link rel="stylesheet" href="/style.css?v=0.4.0">
+<link rel="stylesheet" href="/style.css?v=0.5.0">
 </head>
 <body>
 
@@ -63,13 +63,15 @@
 
   <div id="body">
     <nav id="rail">
-      <button class="nav on" data-page="dash"><img src="/assets/brand/icons/ui-dashboard.png" alt="Dashboard"><span class="tip">DASHBOARD</span></button>
-      <button class="nav" data-page="store"><img src="/assets/brand/icons/ui-apps.png" alt="App Store"><span class="tip">APP STORE</span></button>
-      <button class="nav" data-page="containers"><img src="/assets/brand/icons/ui-containers.png" alt="Containers"><span class="tip">CONTAINERS</span></button>
-      <button class="nav" data-page="files"><img src="/assets/brand/icons/ui-files.png" alt="Files"><span class="tip">FILES</span></button>
-      <button class="nav" data-page="term"><img src="/assets/brand/icons/ui-terminal.png" alt="Terminal"><span class="tip">TERMINAL</span></button>
+      <button id="rail-toggle" title="Expand or collapse the menu"><span id="rail-toggle-txt">&#9776;</span></button>
+      <button class="nav on" data-page="dash"><img src="/assets/brand/icons/ui-dashboard.png" alt=""><span class="nlabel">Dashboard</span><span class="tip">DASHBOARD</span></button>
+      <button class="nav" data-page="store"><img src="/assets/brand/icons/ui-apps.png" alt=""><span class="nlabel">App Store</span><span class="tip">APP STORE</span></button>
+      <button class="nav" data-page="containers"><img src="/assets/brand/icons/ui-containers.png" alt=""><span class="nlabel">Containers</span><span class="tip">CONTAINERS</span></button>
+      <button class="nav" data-page="files"><img src="/assets/brand/icons/ui-files.png" alt=""><span class="nlabel">Files</span><span class="tip">FILES</span></button>
+      <button class="nav" data-page="term"><img src="/assets/brand/icons/ui-terminal.png" alt=""><span class="nlabel">Terminal</span><span class="tip">TERMINAL</span></button>
       <span class="spacer"></span>
-      <button class="nav" data-page="settings"><img src="/assets/brand/icons/ui-settings.png" alt="Settings"><span class="tip">SETTINGS</span></button>
+      <button class="nav" data-page="settings"><img src="/assets/brand/icons/ui-settings.png" alt=""><span class="nlabel">Settings</span><span class="tip">SETTINGS</span></button>
+      <div id="rail-grip" title="Drag to resize the menu"></div>
     </nav>
 
     <div id="main">
@@ -204,6 +206,16 @@
   </div>
 </div>
 
+<!-- ============ WIDGET CONTEXT MENU (right-click) ============ -->
+<div id="ctx">
+  <div class="ctxhead"><img id="ctx-icon" src="/assets/brand/icons/ui-settings.png" alt=""><span id="ctx-title">WIDGET</span></div>
+  <div id="ctx-body"></div>
+  <div class="ctxfoot">
+    <button class="ctxopt" id="ctx-reset">RESET STYLE</button>
+    <button class="ctxopt" id="ctx-remove" style="color:var(--crit)">REMOVE</button>
+  </div>
+</div>
+
 <!-- ============ GENERIC MODAL (store detail, install, libraries) ============ -->
 <div id="modal">
   <div class="mw raised">
@@ -221,6 +233,6 @@
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/xterm-addon-fit.js"></script>
 <script src="/vendor/xterm-addon-web-links.js"></script>
-<script src="/app.js?v=0.4.0"></script>
+<script src="/app.js?v=0.5.0"></script>
 </body>
 </html>

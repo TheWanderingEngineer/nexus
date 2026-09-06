@@ -68,6 +68,23 @@ function upfmt(sec) {
   const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
   return d ? `${d}d ${h}h ${m}m` : `${h}h ${m}m`;
 }
+
+const DAYS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+
+/** 12-hour by default — "5:47 PM". 24-hour keeps the leading zero. */
+function fmtTime(d, h12 = true, seconds = false) {
+  const H = d.getHours();
+  const m = String(d.getMinutes()).padStart(2, "0");
+  const s = String(d.getSeconds()).padStart(2, "0");
+  if (!h12) return `${String(H).padStart(2, "0")}:${m}${seconds ? ":" + s : ""}`;
+  const h = H % 12 === 0 ? 12 : H % 12;
+  return `${h}:${m}${seconds ? ":" + s : ""} ${H < 12 ? "AM" : "PM"}`;
+}
+
+function fmtDate(d) {
+  return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
@@ -140,6 +157,7 @@ on("#logout", "click", async () => {
 const LIVE = {
   cpu: 0, mem: 0, net: { rx: 0, tx: 0 }, uptimeSec: 0,
   sensors: [], history: { cpu: [], mem: [], rx: [], tx: [] },
+  memUsed: 0, memTotal: 0, bootAt: 0,
   info: null, disks: [], containers: [], installed: []
 };
 
@@ -155,6 +173,7 @@ function connectWS() {
     if (msg.type !== "metrics") return;
     Object.assign(LIVE, {
       cpu: msg.data.cpu, mem: msg.data.mem, net: msg.data.net,
+      memUsed: msg.data.memUsed, memTotal: msg.data.memTotal, bootAt: msg.data.bootAt,
       uptimeSec: msg.data.uptimeSec, sensors: msg.data.sensors || [], history: msg.data.history || LIVE.history
     });
     paintTopbar();
@@ -177,7 +196,10 @@ function paintTopbar() {
 
 setInterval(() => {
   const n = new Date();
-  $("#clock").textContent = [n.getHours(), n.getMinutes(), n.getSeconds()].map(x => String(x).padStart(2, "0")).join(":");
+  const el = $("#clock");
+  if (el) el.innerHTML =
+    `<span class="ctime">${fmtTime(n, true, true)}</span>` +
+    `<span class="cday">${DAYS[n.getDay()]} ${n.getDate()} ${MONTHS[n.getMonth()]}</span>`;
 }, 1000);
 
 /* ============================ charts ============================ */
@@ -262,13 +284,140 @@ function meterHTML(pct, warnAt, critAt, segs) {
   return h;
 }
 
+/* ==================== per-widget appearance settings ==================== */
+const WCOLORS = [
+  { key: "cyan",   label: "Cyan",   css: "var(--wc-cyan)"   },
+  { key: "orchid", label: "Orchid", css: "var(--wc-orchid)" },
+  { key: "amber",  label: "Amber",  css: "var(--wc-amber)"  },
+  { key: "green",  label: "Green",  css: "var(--wc-green)"  },
+  { key: "coral",  label: "Coral",  css: "var(--wc-coral)"  },
+  { key: "blue",   label: "Blue",   css: "var(--wc-blue)"   }
+];
+const SCALES = [
+  { key: 0.85, label: "S" }, { key: 1, label: "M" },
+  { key: 1.25, label: "L" }, { key: 1.6, label: "XL" }
+];
+const colorCss = key => (WCOLORS.find(c => c.key === key) || WCOLORS[0]).css;
+
+/** Defaults merged with whatever the widget has saved. */
+function cfgOf(it) {
+  const def = REG[it.t]?.defaults || {};
+  return { scale: 1, color: "cyan", ...def, ...(it.cfg || {}) };
+}
+
+/** Push the settings onto the element as CSS variables, so styling is pure CSS. */
+function applyCfg(el, it) {
+  const c = cfgOf(it);
+  el.style.setProperty("--ws", String(c.scale));
+  el.style.setProperty("--wc", colorCss(c.color));
+}
+
+/* ============================ context menu ============================ */
+const ctx = $("#ctx");
+let ctxItem = null;
+
+function closeCtx() { ctx.classList.remove("open"); ctxItem = null; }
+addEventListener("click", e => { if (!e.target.closest("#ctx")) closeCtx(); });
+addEventListener("keydown", e => { if (e.key === "Escape") closeCtx(); });
+addEventListener("scroll", closeCtx, true);
+
+function openCtx(it, x, y) {
+  const def = REG[it.t];
+  if (!def) return;
+  ctxItem = it;
+
+  $("#ctx-icon").src = def.icon;
+  $("#ctx-title").textContent = def.name.toUpperCase();
+
+  const body = $("#ctx-body");
+  body.innerHTML = "";
+
+  // Every widget gets size and colour…
+  body.appendChild(ctxGroup("Text &amp; icon size", ICON("textsize"), SCALES.map(s => ({
+    label: s.label, sel: cfgOf(it).scale === s.key, apply: () => setCfg(it, { scale: s.key })
+  }))));
+
+  const colorRow = document.createElement("div");
+  colorRow.className = "ctxgroup";
+  colorRow.innerHTML = `<span class="ctxlabel"><img src="${ICON("palette")}" alt="">Colour</span>`;
+  const row = document.createElement("div");
+  row.className = "ctxrow";
+  WCOLORS.forEach(c => {
+    const b = document.createElement("button");
+    b.className = "ctxopt swatch" + (cfgOf(it).color === c.key ? " sel" : "");
+    b.style.background = c.css;
+    b.title = c.label;
+    b.setAttribute("aria-label", c.label);
+    b.addEventListener("click", () => setCfg(it, { color: c.key }));
+    row.appendChild(b);
+  });
+  colorRow.appendChild(row);
+  body.appendChild(colorRow);
+
+  // …and anything the widget itself declares.
+  for (const opt of def.options || []) {
+    body.appendChild(ctxGroup(opt.label, opt.icon || null, opt.values.map(v => ({
+      label: v.label,
+      sel: cfgOf(it)[opt.key] === v.value,
+      apply: () => setCfg(it, { [opt.key]: v.value })
+    }))));
+  }
+
+  // Place it on screen, nudged back inside the viewport if it would overflow.
+  ctx.classList.add("open");
+  const r = ctx.getBoundingClientRect();
+  ctx.style.left = Math.min(x, innerWidth - r.width - 8) + "px";
+  ctx.style.top = Math.min(y, innerHeight - r.height - 8) + "px";
+}
+
+function ctxGroup(label, icon, opts) {
+  const g = document.createElement("div");
+  g.className = "ctxgroup";
+  g.innerHTML = `<span class="ctxlabel">${icon ? `<img src="${icon}" alt="">` : ""}${label}</span>`;
+  const row = document.createElement("div");
+  row.className = "ctxrow";
+  opts.forEach(o => {
+    const b = document.createElement("button");
+    b.className = "ctxopt" + (o.sel ? " sel" : "");
+    b.textContent = o.label;
+    b.addEventListener("click", o.apply);
+    row.appendChild(b);
+  });
+  g.appendChild(row);
+  return g;
+}
+
+function setCfg(it, patch) {
+  it.cfg = { ...(it.cfg || {}), ...patch };
+  const el = document.getElementById("w" + it.id);
+  if (el) applyCfg(el, it);
+  // Remount so a mode change (bars vs list, analog vs digital) takes effect.
+  remount(it);
+  saveLayout();
+  openCtx(it, parseFloat(ctx.style.left) || 0, parseFloat(ctx.style.top) || 0);
+}
+
+function remount(it) {
+  const el = document.getElementById("w" + it.id);
+  if (!el) return;
+  const def = REG[it.t];
+  const body = $(".w-body", el);
+  body.innerHTML = "";
+  body.removeAttribute("style");
+  mounted[it.id] = { def, ref: def.mount(body, cfgOf(it)), it };
+  try { def.update(mounted[it.id].ref, cfgOf(it)); } catch {}
+}
+
+on("#ctx-remove", "click", () => { if (ctxItem) { removeWidget(ctxItem.id); closeCtx(); } });
+on("#ctx-reset", "click", () => { if (ctxItem) { ctxItem.cfg = {}; setCfg(ctxItem, {}); } });
+
 /* ============================ widget registry ============================ */
 const REG = {
   cpu: { name: "CPU", icon: ICON("cpu"), desc: "Load with stepped history", w: 4, h: 4,
     mount(b) { b.innerHTML = '<div class="big"><span class="n">--</span><span class="u">%</span></div><svg class="chart"></svg><span class="sub"></span>';
       return { n: $(".n", b), svg: $("svg", b), sub: $(".sub", b) }; },
-    update(r) { r.n.textContent = Math.round(LIVE.cpu);
-      drawChart(r.svg, LIVE.history.cpu, 100, cssv("--accent"), { maxLabel: "100%" });
+    update(r, cfg) { r.n.textContent = Math.round(LIVE.cpu);
+      drawChart(r.svg, LIVE.history.cpu, 100, colorCss(cfg.color));
       const t = LIVE.sensors.find(s => s.kind === "temperature");
       r.sub.textContent = `${LIVE.info?.cpu?.cores || "?"} cores${t ? " · " + Math.round(t.value) + "°C" : ""}`; } },
 
@@ -277,7 +426,7 @@ const REG = {
       return { n: $(".n", b), m: $(".meter", b), sub: $(".sub", b) }; },
     update(r) { r.n.textContent = Math.round(LIVE.mem);
       r.m.innerHTML = meterHTML(LIVE.mem, 75, 90);
-      r.sub.textContent = "live"; } },
+      r.sub.textContent = bytes(LIVE.memUsed) + " of " + bytes(LIVE.memTotal); } },
 
   storage: { name: "Storage", icon: ICON("storage"), desc: "Usage per mount point", w: 4, h: 4,
     mount(b) { b.innerHTML = '<ul class="klist"></ul>'; return { l: $("ul", b) }; },
@@ -290,23 +439,77 @@ const REG = {
       }).join(""); } },
 
   network: { name: "Network", icon: ICON("network"), desc: "Throughput in and out", w: 4, h: 4,
-    mount(b) { b.innerHTML = '<div class="big"><span class="n">--</span><span class="u">↓</span></div><svg class="chart"></svg><span class="sub"></span>';
-      return { n: $(".n", b), svg: $("svg", b), sub: $(".sub", b) }; },
-    update(r) {
-      r.n.textContent = rate(LIVE.net.rx).replace("/s", "");
-      const max = Math.max(1024, ...(LIVE.history.rx || [0]));
-      drawChart(r.svg, LIVE.history.rx, max, cssv("--accent-2"), { maxLabel: bytes(max) + "/s" });
-      r.sub.textContent = `↑ ${rate(LIVE.net.tx)}`; } },
+    defaults: { trace: "rx" },
+    options: [
+      { key: "trace", label: "Graph shows", values: [
+        { value: "rx", label: "DOWNLOAD" }, { value: "tx", label: "UPLOAD" }] }
+    ],
+    mount(b) {
+      // Both directions get an equal, labelled slot. Previously download was a
+      // giant number and upload was an arrow in the footnote, which made it
+      // look like two unrelated readings.
+      b.innerHTML = `
+        <div class="netrow">
+          <div class="netstat"><span class="nlbl">DOWN</span><span class="nval rx">--</span></div>
+          <div class="netstat"><span class="nlbl">UP</span><span class="nval tx">--</span></div>
+          <span class="spacer"></span>
+          <span class="npeak"></span>
+        </div>
+        <svg class="chart"></svg>`;
+      return { rx: $(".rx", b), tx: $(".tx", b), peak: $(".npeak", b), svg: $("svg", b) };
+    },
+    update(r, cfg) {
+      r.rx.textContent = rate(LIVE.net.rx);
+      r.tx.textContent = rate(LIVE.net.tx);
+      const series = (cfg.trace === "tx" ? LIVE.history.tx : LIVE.history.rx) || [];
+      const max = Math.max(1024, ...series);
+      // The scale lives outside the drawing now, so the line can never run
+      // through its own axis label.
+      r.peak.textContent = `peak ${rate(max)} · ${cfg.trace === "tx" ? "up" : "down"}`;
+      drawChart(r.svg, series, max, colorCss(cfg.color));
+    } },
 
   sensors: { name: "Sensors", icon: ICON("temp"), desc: "Temperatures and fans", w: 4, h: 4,
-    mount(b) { b.innerHTML = '<ul class="klist"></ul>'; return { l: $("ul", b) }; },
-    update(r) {
-      if (!LIVE.sensors.length) { r.l.innerHTML = '<li><span class="k">no sensors detected</span></li>'; return; }
-      r.l.innerHTML = LIVE.sensors.slice(0, 8).map(s => {
-        const lim = s.critical || s.max;
-        const col = lim && s.value >= lim * 0.92 ? "var(--crit)" : lim && s.value >= lim * 0.8 ? "var(--warn)" : "var(--text)";
-        return `<li><span class="k">${esc(s.label)}</span><span class="v" style="color:${col}">${s.value}${s.unit}</span></li>`;
-      }).join(""); } },
+    defaults: { mode: "bars", limit: 8 },
+    options: [
+      { key: "mode", label: "Display", values: [
+        { value: "bars", label: "BARS" }, { value: "list", label: "LIST" }] },
+      { key: "limit", label: "How many", values: [
+        { value: 5, label: "5" }, { value: 8, label: "8" }, { value: 14, label: "14" }, { value: 99, label: "ALL" }] }
+    ],
+    mount(b, cfg) {
+      b.innerHTML = cfg.mode === "list" ? '<ul class="klist"></ul>' : '<div class="sbars"></div>';
+      return { box: b.firstElementChild, mode: cfg.mode };
+    },
+    update(r, cfg) {
+      const list = LIVE.sensors.slice(0, cfg.limit || 8);
+      if (!list.length) { r.box.innerHTML = '<li><span class="k">no sensors detected</span></li>'; return; }
+
+      if (cfg.mode === "list") {
+        r.box.innerHTML = list.map(s => {
+          const lim = s.critical || s.max;
+          const col = lim && s.value >= lim * 0.92 ? "var(--crit)" : lim && s.value >= lim * 0.8 ? "var(--warn)" : "var(--text)";
+          return `<li><span class="k">${esc(s.label)}</span><span class="v" style="color:${col}">${s.value}${s.unit}</span></li>`;
+        }).join("");
+        return;
+      }
+
+      // Bars. Fans have no meaningful ceiling reported, so fall back to sane
+      // per-kind maxima rather than drawing a bar against an unknown scale.
+      r.box.innerHTML = list.map(s => {
+        const lim = s.critical || s.max || (s.kind === "fan" ? 3000 : s.kind === "temperature" ? 100 : 100);
+        const pct = clamp((s.value / lim) * 100, 0, 100);
+        const cls = pct >= 92 ? "crit" : pct >= 80 ? "warn" : "";
+        const col = cls === "crit" ? "var(--crit)" : cls === "warn" ? "var(--warn)" : "var(--text)";
+        return `<div class="sbar">
+          <div class="srow">
+            <span class="sname">${esc(s.label)}</span>
+            <span class="sval" style="color:${col}">${s.value}${esc(s.unit)}</span>
+          </div>
+          <div class="strack"><div class="sfill ${cls}" style="width:${pct.toFixed(1)}%"></div></div>
+        </div>`;
+      }).join("");
+    } },
 
   containers: { name: "Containers", icon: ICON("containers"), desc: "Running services", w: 4, h: 4,
     mount(b) { b.innerHTML = '<ul class="klist"></ul>'; return { l: $("ul", b) }; },
@@ -323,13 +526,88 @@ const REG = {
       return { n: $(".n", b) }; },
     update(r) { r.n.textContent = upfmt(LIVE.uptimeSec); } },
 
-  clock: { name: "Clock", icon: ICON("home"), desc: "Big pixel clock", w: 3, h: 3,
-    mount(b) { b.style.containerType = "inline-size";
-      b.innerHTML = '<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:6px"><div class="clockbig"></div><div class="sub" style="text-align:center"></div></div>';
-      return { c: $(".clockbig", b), d: $(".sub", b) }; },
-    update(r) { const n = new Date();
-      r.c.textContent = String(n.getHours()).padStart(2, "0") + ":" + String(n.getMinutes()).padStart(2, "0");
-      r.d.textContent = n.toDateString().toUpperCase(); } },
+  clock: { name: "Clock", icon: ICON("clock"), desc: "Digital or analog, with the date", w: 3, h: 3,
+    defaults: { face: "digital", h12: true, seconds: false },
+    options: [
+      { key: "face", label: "Face", values: [
+        { value: "digital", label: "DIGITAL" }, { value: "analog", label: "ANALOG" }] },
+      { key: "h12", label: "Format", values: [
+        { value: true, label: "12 H" }, { value: false, label: "24 H" }] },
+      { key: "seconds", label: "Seconds", values: [
+        { value: false, label: "OFF" }, { value: true, label: "ON" }] }
+    ],
+    mount(b, cfg) {
+      b.style.containerType = "inline-size";
+      b.innerHTML = cfg.face === "analog"
+        ? `<div class="analog"><svg viewBox="0 0 100 100" aria-label="Analog clock"></svg></div><div class="cdate"></div>`
+        : `<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:6px">
+             <div class="clockbig"></div><div class="cdate"></div></div>`;
+      return { face: cfg.face, svg: $("svg", b), big: $(".clockbig", b), d: $(".cdate", b) };
+    },
+    update(r, cfg) {
+      const n = new Date();
+      r.d.textContent = fmtDate(n);
+
+      if (r.face === "analog" && r.svg) {
+        const hA = ((n.getHours() % 12) + n.getMinutes() / 60) * 30 - 90;
+        const mA = (n.getMinutes() + n.getSeconds() / 60) * 6 - 90;
+        const sA = n.getSeconds() * 6 - 90;
+        const hand = (deg, len, wdt, col) => {
+          const rad = deg * Math.PI / 180;
+          return `<line x1="50" y1="50" x2="${(50 + Math.cos(rad) * len).toFixed(1)}"
+                        y2="${(50 + Math.sin(rad) * len).toFixed(1)}"
+                        stroke="${col}" stroke-width="${wdt}" stroke-linecap="round"/>`;
+        };
+        const ticks = Array.from({ length: 12 }, (_, i) => {
+          const rad = (i * 30 - 90) * Math.PI / 180;
+          const r1 = 42, r2 = i % 3 === 0 ? 34 : 38;
+          return `<line x1="${(50 + Math.cos(rad) * r1).toFixed(1)}" y1="${(50 + Math.sin(rad) * r1).toFixed(1)}"
+                        x2="${(50 + Math.cos(rad) * r2).toFixed(1)}" y2="${(50 + Math.sin(rad) * r2).toFixed(1)}"
+                        stroke="${cssv("--text-3")}" stroke-width="${i % 3 === 0 ? 2.5 : 1.5}"/>`;
+        }).join("");
+        r.svg.innerHTML =
+          `<circle cx="50" cy="50" r="46" fill="${cssv("--sunk")}" stroke="${cssv("--rule")}" stroke-width="2"/>` +
+          ticks +
+          hand(hA, 24, 4, cssv("--text")) +
+          hand(mA, 34, 3, cssv("--text")) +
+          (cfg.seconds ? hand(sA, 38, 1.5, colorCss(cfg.color)) : "") +
+          `<circle cx="50" cy="50" r="3" fill="${colorCss(cfg.color)}"/>`;
+        return;
+      }
+
+      if (r.big) r.big.textContent = fmtTime(n, cfg.h12, cfg.seconds);
+    } },
+
+  boot: { name: "Last Boot", icon: ICON("boot"), desc: "When the machine last started, and how long it has been up", w: 4, h: 3,
+    defaults: { show: "both" },
+    options: [
+      { key: "show", label: "Show", values: [
+        { value: "both", label: "BOTH" }, { value: "uptime", label: "UPTIME" }, { value: "when", label: "WHEN" }] }
+    ],
+    mount(b) {
+      b.innerHTML = `<div class="big"><span class="n" style="font-size:0.62em">--</span></div>
+                     <span class="sub sub1"></span><span class="sub sub2"></span>`;
+      return { n: $(".n", b), s1: $(".sub1", b), s2: $(".sub2", b) };
+    },
+    update(r, cfg) {
+      const sec = LIVE.uptimeSec || 0;
+      // Boot time is derived from uptime rather than trusted from the client
+      // clock alone, so it stays right even if the browser's time is skewed.
+      const boot = new Date(Date.now() - sec * 1000);
+      if (cfg.show === "when") {
+        r.n.textContent = fmtTime(boot, true, false);
+        r.s1.textContent = fmtDate(boot);
+        r.s2.textContent = "up " + upfmt(sec);
+      } else if (cfg.show === "uptime") {
+        r.n.textContent = upfmt(sec);
+        r.s1.textContent = "since last boot";
+        r.s2.textContent = "";
+      } else {
+        r.n.textContent = upfmt(sec);
+        r.s1.textContent = "booted " + fmtDate(boot) + " at " + fmtTime(boot, true, false);
+        r.s2.textContent = sec > 86400 ? Math.floor(sec / 86400) + " full days of uptime" : "";
+      }
+    } },
 
   cat: { name: "Server Cat", icon: "/assets/brand/cat-sleeping.png", desc: "Sleeps when idle, stirs when busy", w: 3, h: 4,
     mount(b) { b.innerHTML = '<div class="catwrap"><img class="catimg" src="/assets/brand/cat-sleeping.png" alt="cat"><span class="catmsg"></span></div>';
@@ -430,11 +708,20 @@ function build(it, animate) {
   el.id = "w" + it.id;
   el.innerHTML = `<div class="w-head"><img src="${def.icon}" alt=""><span class="t">${esc(def.name.toUpperCase())}</span><button class="w-x" title="Remove">X</button></div><div class="w-body"></div><div class="w-rs"></div>`;
   gridEl.appendChild(el);
-  mounted[it.id] = { def, ref: def.mount($(".w-body", el)) };
+  applyCfg(el, it);
+  mounted[it.id] = { def, ref: def.mount($(".w-body", el), cfgOf(it)), it };
   $(".w-x", el).addEventListener("click", e => { e.stopPropagation(); removeWidget(it.id); });
+
+  // Right-click anywhere in the widget opens its own settings.
+  el.addEventListener("contextmenu", e => {
+    e.preventDefault();
+    e.stopPropagation();
+    openCtx(it, e.clientX, e.clientY);
+  });
+
   dragify(el, it); resizify(el, it);
   place(el, it);
-  try { def.update(mounted[it.id].ref); } catch {}
+  try { def.update(mounted[it.id].ref, cfgOf(it)); } catch {}
 }
 function removeWidget(id) {
   const el = document.getElementById("w" + id);
@@ -451,7 +738,10 @@ function addWidget(type) {
   $("#main").scrollTo({ top: 1e6, behavior: "smooth" });
 }
 function renderWidgets() {
-  for (const id in mounted) { try { mounted[id].def.update(mounted[id].ref); } catch {} }
+  for (const id in mounted) {
+    const m = mounted[id];
+    try { m.def.update(m.ref, cfgOf(m.it)); } catch {}
+  }
 }
 
 function dragify(el, it) {
@@ -982,16 +1272,42 @@ async function syncLibrary(id) {
 }
 
 async function openLibraries() {
-  const libs = await api("/store/libraries").catch(() => []);
+  const [libs, sug] = await Promise.all([
+    api("/store/libraries").catch(() => []),
+    api("/store/libraries/suggested").catch(() => [])
+  ]);
   const body = document.createElement("div");
   body.style.cssText = "display:flex;flex-direction:column;gap:12px";
   body.innerHTML = `
     <p>A library is a git repository of app definitions. CasaOS-format stores work as-is.</p>
     <div id="lib-list" style="display:flex;flex-direction:column;gap:8px"></div>
+    <div id="lib-sug-wrap"></div>
     <div class="field">
-      <label for="lib-url">ADD A LIBRARY (GIT URL)</label>
+      <label for="lib-url">OR ADD ANY GIT URL</label>
       <input id="lib-url" type="text" placeholder="https://github.com/owner/repo.git" spellcheck="false">
     </div>`;
+
+  const sugWrap = body.querySelector("#lib-sug-wrap");
+  const notAdded = sug.filter(s => !s.added);
+  if (notAdded.length) {
+    sugWrap.innerHTML = `<h3 style="margin:0 0 8px">SUGGESTED</h3><div class="libsug">` +
+      notAdded.map(s => `<div class="s">
+        <span class="sn">${esc(s.name)}</span>
+        <span class="pill idle">${esc(String(s.format).toUpperCase())}</span>
+        <button class="btn sm" data-add="${esc(s.url)}" data-nm="${esc(s.name)}">ADD</button>
+        <span class="sd">${esc(s.description)}</span>
+      </div>`).join("") + `</div>`;
+    sugWrap.addEventListener("click", async e => {
+      const b = e.target.closest("[data-add]");
+      if (!b) return;
+      b.disabled = true;
+      try {
+        await api("/store/libraries", { method: "POST", body: { url: b.dataset.add, name: b.dataset.nm } });
+        toast("ADDED — NOW SYNC IT", "ok");
+        openLibraries();
+      } catch (ex) { toast(ex.message.toUpperCase(), "err"); b.disabled = false; }
+    });
+  }
   const list = body.querySelector("#lib-list");
   libs.forEach(l => {
     const row = document.createElement("div");
@@ -1135,6 +1451,53 @@ function go(page) {
   }
 }
 $$(".nav").forEach(n => n.addEventListener("click", () => go(n.dataset.page)));
+
+/* ============================ sidebar ============================ */
+const RAIL_MIN = 60, RAIL_MAX = 260, RAIL_WIDE_AT = 132;
+
+function setRail(px, persist = true) {
+  const w = clamp(Math.round(px), RAIL_MIN, RAIL_MAX);
+  const rail = $("#rail");
+  document.documentElement.style.setProperty("--rail-w", w + "px");
+  // Icons grow with the rail, but stop before they dominate the labels.
+  document.documentElement.style.setProperty("--rail-icon", clamp(Math.round(w * 0.34), 22, 40) + "px");
+  rail.classList.toggle("wide", w >= RAIL_WIDE_AT);
+  $("#rail-toggle-txt").textContent = w >= RAIL_WIDE_AT ? "◀  MENU" : "☰";
+  if (persist) { try { localStorage.setItem("nexus.rail", String(w)); } catch {} }
+  if (term && $("#page-term").classList.contains("on")) requestAnimationFrame(fitTerm);
+  layout(false);
+}
+
+on("#rail-toggle", "click", () => {
+  const cur = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--rail-w")) || 72;
+  setRail(cur >= RAIL_WIDE_AT ? 72 : 180);
+});
+
+// Drag the right edge to any width in between.
+on("#rail-grip", "pointerdown", e => {
+  e.preventDefault();
+  const grip = e.currentTarget;
+  grip.setPointerCapture(e.pointerId);
+  const startX = e.clientX;
+  const startW = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--rail-w")) || 72;
+  const mv = ev => setRail(startW + (ev.clientX - startX), false);
+  const up = () => {
+    grip.releasePointerCapture(e.pointerId);
+    grip.removeEventListener("pointermove", mv);
+    grip.removeEventListener("pointerup", up);
+    grip.removeEventListener("pointercancel", up);
+    const w = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--rail-w")) || 72;
+    setRail(w);
+  };
+  grip.addEventListener("pointermove", mv);
+  grip.addEventListener("pointerup", up);
+  grip.addEventListener("pointercancel", up);
+});
+
+try {
+  const saved = parseInt(localStorage.getItem("nexus.rail"));
+  setRail(Number.isFinite(saved) ? saved : 72, false);
+} catch { setRail(72, false); }
 
 on("#theme", "click", () => {
   const r = document.documentElement;

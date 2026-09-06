@@ -12,9 +12,10 @@
   --ok:#1F7A45; --warn:#9A6200; --crit:#B32334;
   --scan:rgba(28,21,40,.025); --scan-blend:multiply;
   --u:4px;
-  --pixel:"Pixelify Sans","Trebuchet MS",system-ui,sans-serif;
-  --screen:"Silkscreen","Courier New",monospace;
+  --pixel:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --screen:"Chakra Petch","IBM Plex Sans",system-ui,sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  --bitmap:"Silkscreen","Courier New",monospace;
   color-scheme:light;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
@@ -115,7 +116,7 @@ label{font-family:var(--screen);font-size:9px;letter-spacing:.1em;color:var(--te
 #topbar{display:flex;align-items:center;gap:calc(var(--u)*3);padding:calc(var(--u)*2) calc(var(--u)*3);
         background:var(--panel);border-bottom:var(--u) solid var(--bevel-dk);flex-wrap:wrap}
 #logo{width:32px;height:32px;flex:none}
-.brand{font-family:var(--screen);font-size:15px;letter-spacing:.1em}
+.brand{font-family:var(--bitmap);font-size:14px;letter-spacing:.1em}
 .brand .v{color:var(--text-3);font-size:10px;margin-left:6px}
 .stat{display:flex;align-items:center;gap:calc(var(--u)*1.5);font-family:var(--screen);font-size:10px;
       letter-spacing:.06em;padding:calc(var(--u)) calc(var(--u)*2);background:var(--sunk);color:var(--text-2);
@@ -125,13 +126,32 @@ label{font-family:var(--screen);font-size:9px;letter-spacing:.1em;color:var(--te
 #clock{font-family:var(--screen);font-size:13px;font-variant-numeric:tabular-nums;letter-spacing:.04em}
 
 #body{display:grid;grid-template-columns:auto minmax(0,1fr);min-height:0}
+/* Width-driven: one variable controls the layout, the icon size and whether
+   labels show. The grip sets it by drag; the value is persisted per browser. */
 #rail{display:flex;flex-direction:column;gap:calc(var(--u)*2);padding:calc(var(--u)*3) calc(var(--u)*2);
-      background:var(--panel);border-right:var(--u) solid var(--bevel-dk)}
-.nav{width:calc(var(--u)*12);height:calc(var(--u)*12);display:grid;place-items:center;position:relative;
+      background:var(--panel);border-right:var(--u) solid var(--bevel-dk);
+      width:var(--rail-w,72px);flex:none;position:relative}
+.nav{width:100%;min-height:calc(var(--rail-icon,26px) + var(--u)*5);
+     display:flex;align-items:center;gap:calc(var(--u)*2);
+     padding:calc(var(--u)*1.5);position:relative;
      background:var(--panel);
      border-top:2px solid var(--bevel-lt);border-left:2px solid var(--bevel-lt);
      border-right:2px solid var(--bevel-dk);border-bottom:2px solid var(--bevel-dk)}
-.nav img{width:24px;height:24px}
+.nav img{width:var(--rail-icon,26px);height:var(--rail-icon,26px);flex:none;margin:0 auto}
+#rail.wide .nav img{margin:0}
+.nlabel{display:none;font-family:var(--screen);font-weight:600;font-size:12px;letter-spacing:.05em;
+        color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#rail.wide .nlabel{display:block}
+#rail.wide .nav .tip{display:none!important}
+.nav.on .nlabel{color:var(--on-accent)}
+#rail-toggle{width:100%;display:flex;align-items:center;justify-content:center;gap:6px;
+             font-family:var(--screen);font-weight:600;font-size:11px;letter-spacing:.06em;
+             padding:calc(var(--u)*1.5);color:var(--text-3);
+             border-bottom:2px solid var(--rule);margin-bottom:var(--u)}
+#rail-toggle:hover{color:var(--accent)}
+#rail-grip{position:absolute;top:0;right:-4px;width:8px;height:100%;cursor:ew-resize;z-index:20;
+           touch-action:none}
+#rail-grip:hover{background:var(--accent);opacity:.35}
 .nav:hover{background:var(--panel-hi)}
 .nav.on{background:var(--accent-2)}
 .nav.on::after{content:"";position:absolute;right:-6px;top:50%;transform:translateY(-50%);
@@ -144,7 +164,7 @@ label{font-family:var(--screen);font-size:9px;letter-spacing:.1em;color:var(--te
 
 #main{overflow:auto;padding:calc(var(--u)*4);min-width:0;-webkit-overflow-scrolling:touch}
 #toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:calc(var(--u)*2);margin-bottom:calc(var(--u)*4)}
-#toolbar h1{font-family:var(--screen);font-size:16px;letter-spacing:.08em;margin:0}
+#toolbar h1{font-family:var(--screen);font-weight:700;font-size:20px;letter-spacing:.06em;margin:0}
 .hint{font-size:12px;color:var(--text-3)}
 
 .page{display:none}
@@ -163,8 +183,9 @@ label{font-family:var(--screen);font-size:9px;letter-spacing:.1em;color:var(--te
 .w-head{display:flex;align-items:center;gap:calc(var(--u)*2);padding:calc(var(--u)*1.5) calc(var(--u)*2);
         background:var(--sunk);cursor:grab;flex:none;border-bottom:2px solid var(--bevel-dk);touch-action:none}
 .w.dragging .w-head{cursor:grabbing}
-.w-head img{width:16px;height:16px;flex:none}
-.w-head .t{font-family:var(--screen);font-size:9px;letter-spacing:.1em;color:var(--text-2);
+.w-head img{width:calc(20px * var(--ws,1));height:calc(20px * var(--ws,1));flex:none}
+.w-head .t{font-family:var(--screen);font-weight:600;font-size:calc(12px * var(--ws,1));
+           letter-spacing:.09em;color:var(--text-2);
            flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .w-x{font-family:var(--screen);font-size:10px;color:var(--text-3);width:18px;height:18px;display:grid;place-items:center;flex:none}
 .w-x:hover{color:var(--crit);background:var(--panel)}
@@ -172,24 +193,26 @@ label{font-family:var(--screen);font-size:9px;letter-spacing:.1em;color:var(--te
 .w-rs{position:absolute;right:0;bottom:0;width:18px;height:18px;cursor:nwse-resize;touch-action:none;
       background:repeating-linear-gradient(135deg,transparent 0 2px,var(--bevel-dk) 2px 4px)}
 
-.big{font-weight:700;font-size:34px;line-height:1;font-variant-numeric:tabular-nums;display:flex;align-items:baseline;gap:4px}
-.big .u{font-size:13px;color:var(--text-3);font-weight:400}
-.sub{font-family:var(--mono);font-size:11px;color:var(--text-3)}
+.big{font-weight:600;font-size:calc(34px * var(--ws,1));line-height:1;font-variant-numeric:tabular-nums;
+     display:flex;align-items:baseline;gap:4px;color:var(--wc,var(--text))}
+.big .u{font-size:calc(14px * var(--ws,1));color:var(--text-3);font-weight:400}
+.sub{font-family:var(--mono);font-size:calc(12px * var(--ws,1));color:var(--text-3)}
 .chart{width:100%;flex:1;min-height:0;display:block}
 .meter{display:flex;gap:2px;height:calc(var(--u)*4);padding:2px;flex:none}
 .meter i{flex:1;background:var(--rule)}
-.meter i.on{background:var(--accent)} .meter i.warn{background:var(--warn)} .meter i.crit{background:var(--crit)}
+.meter i.on{background:var(--wc,var(--accent))} .meter i.warn{background:var(--warn)} .meter i.crit{background:var(--crit)}
 .klist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:calc(var(--u)*1.5);overflow:auto;min-height:0}
-.klist li{display:flex;align-items:center;justify-content:space-between;gap:calc(var(--u)*2);font-size:13px}
+.klist li{display:flex;align-items:center;justify-content:space-between;gap:calc(var(--u)*2);
+          font-size:calc(14px * var(--ws,1))}
 .klist .k{color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.klist .v{font-family:var(--mono);font-size:11px;font-variant-numeric:tabular-nums;flex:none}
+.klist .v{font-family:var(--mono);font-size:calc(12px * var(--ws,1));font-variant-numeric:tabular-nums;flex:none}
 
 .term{background:#0D0916;padding:calc(var(--u)*2);flex:1;min-height:0;overflow:auto}
 .term pre{margin:0;font-family:var(--mono);font-size:12px;line-height:1.55;color:#C9C2DE;white-space:pre-wrap;word-break:break-word}
 .cur{display:inline-block;width:7px;height:13px;background:#5CE68A;vertical-align:-2px;animation:cb 1s steps(2,end) infinite}
 @keyframes cb{0%,50%{opacity:1}51%,100%{opacity:0}}
 
-.clockbig{font-family:var(--screen);font-size:clamp(20px,7cqw,38px);letter-spacing:.04em;
+.clockbig{font-family:var(--bitmap);font-size:clamp(20px,7cqw,38px);letter-spacing:.04em;
           font-variant-numeric:tabular-nums;text-align:center}
 .catwrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:calc(var(--u)*2);min-height:0}
 .catimg{width:64px;height:64px;animation:breathe 3.2s steps(2,end) infinite}
@@ -235,9 +258,9 @@ td.name{color:var(--text)}
       border-top:2px solid var(--bevel-lt);border-left:2px solid var(--bevel-lt);
       border-right:2px solid var(--bevel-dk);border-bottom:2px solid var(--bevel-dk)}
 .card:hover{background:var(--panel-hi)}
-.card img{width:20px;height:20px;flex:none}
-.card .cn{font-family:var(--screen);font-size:10px;letter-spacing:.06em;display:block;margin-bottom:3px}
-.card .cd{font-size:12px;color:var(--text-3);line-height:1.35}
+.card img{width:26px;height:26px;flex:none}
+.card .cn{font-family:var(--screen);font-weight:600;font-size:13px;letter-spacing:.04em;display:block;margin-bottom:3px}
+.card .cd{font-size:13px;color:var(--text-3);line-height:1.4}
 
 .empty{padding:calc(var(--u)*10);text-align:center;color:var(--text-3);font-family:var(--screen);font-size:11px;
        letter-spacing:.08em;background:var(--sunk)}
@@ -383,3 +406,119 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
   #xterm-host{height:56vh}
   .applead{flex-direction:column}
 }
+
+/* ============================================================
+   CONTEXT MENU  (right-click a widget)
+   ============================================================ */
+#ctx{
+  position:fixed;z-index:900;display:none;min-width:212px;background:var(--panel);
+  border-top:var(--u) solid var(--bevel-lt);border-left:var(--u) solid var(--bevel-lt);
+  border-right:var(--u) solid var(--bevel-dk);border-bottom:var(--u) solid var(--bevel-dk);
+  padding:calc(var(--u)*2);
+}
+#ctx.open{display:block}
+#ctx .ctxhead{
+  font-family:var(--screen);font-weight:700;font-size:12px;letter-spacing:.06em;
+  color:var(--text);padding:0 0 calc(var(--u)*2);margin-bottom:calc(var(--u)*2);
+  border-bottom:2px solid var(--rule);display:flex;align-items:center;gap:calc(var(--u)*2);
+}
+#ctx .ctxhead img{width:18px;height:18px}
+.ctxgroup{margin-bottom:calc(var(--u)*3)}
+.ctxlabel{
+  display:flex;align-items:center;gap:6px;
+  font-family:var(--screen);font-weight:600;font-size:10px;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--text-3);margin-bottom:calc(var(--u)*1.5);
+}
+.ctxlabel img{width:14px;height:14px;opacity:.85}
+.ctxrow{display:flex;gap:calc(var(--u));flex-wrap:wrap}
+.ctxopt{
+  font-family:var(--screen);font-weight:600;font-size:11px;letter-spacing:.04em;
+  padding:calc(var(--u)*1.25) calc(var(--u)*2);background:var(--panel);color:var(--text-2);
+  border-top:2px solid var(--bevel-lt);border-left:2px solid var(--bevel-lt);
+  border-right:2px solid var(--bevel-dk);border-bottom:2px solid var(--bevel-dk);
+}
+.ctxopt:hover{background:var(--panel-hi);color:var(--text)}
+.ctxopt.sel{background:var(--accent);color:var(--on-accent);
+  border-top-color:var(--bevel-dk);border-left-color:var(--bevel-dk);
+  border-right-color:var(--bevel-lt);border-bottom-color:var(--bevel-lt)}
+
+/* colour swatches — actual colour, not a name */
+.swatch{
+  width:26px;height:26px;padding:0;position:relative;
+  border-top:2px solid var(--bevel-lt);border-left:2px solid var(--bevel-lt);
+  border-right:2px solid var(--bevel-dk);border-bottom:2px solid var(--bevel-dk);
+}
+.swatch.sel::after{
+  content:"";position:absolute;inset:3px;border:2px solid var(--void);
+}
+.ctxfoot{border-top:2px solid var(--rule);padding-top:calc(var(--u)*2);display:flex;gap:calc(var(--u))}
+
+/* ============================================================
+   SENSOR BARS  (right-click a Sensors widget -> visual)
+   ============================================================ */
+.sbars{display:flex;flex-direction:column;gap:calc(var(--u)*2);overflow:auto;min-height:0}
+.sbar{display:flex;flex-direction:column;gap:3px}
+.sbar .srow{display:flex;justify-content:space-between;align-items:baseline;gap:calc(var(--u)*2)}
+.sbar .sname{font-size:calc(13px * var(--ws,1));color:var(--text-2);
+             overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sbar .sval{font-family:var(--mono);font-size:calc(12px * var(--ws,1));
+            font-variant-numeric:tabular-nums;flex:none}
+.sbar .strack{height:calc(var(--u)*3);background:var(--sunk);position:relative;
+  border-top:2px solid var(--bevel-dk);border-left:2px solid var(--bevel-dk);
+  border-right:2px solid var(--bevel-lt);border-bottom:2px solid var(--bevel-lt)}
+.sbar .sfill{position:absolute;left:0;top:0;bottom:0;background:var(--wc,var(--accent))}
+.sbar .sfill.warn{background:var(--warn)}
+.sbar .sfill.crit{background:var(--crit)}
+
+/* ============================================================
+   ANALOG CLOCK
+   ============================================================ */
+.analog{flex:1;display:grid;place-items:center;min-height:0}
+.analog svg{width:100%;height:100%;max-width:220px;max-height:220px}
+.cdate{font-family:var(--screen);font-weight:600;font-size:calc(12px * var(--ws,1));
+       letter-spacing:.05em;color:var(--text-3);text-align:center}
+
+/* Clock face keeps the bitmap font — that flourish was working. */
+.clockbig{color:var(--wc,var(--text))}
+
+/* ============================================================
+   WIDGET ACCENT PALETTE
+   Separate tokens from the status colours on purpose: green/amber/red keep
+   meaning "healthy / warning / failing", so a widget you tinted amber for
+   taste must not read as a warning.
+   ============================================================ */
+:root{
+  --wc-cyan:#0F6E85; --wc-orchid:#7B3FB8; --wc-amber:#9A6200;
+  --wc-green:#1F7A45; --wc-coral:#B3382C; --wc-blue:#2D5AA8;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --wc-cyan:#4EE1E8; --wc-orchid:#C77DFF; --wc-amber:#FFC145;
+  --wc-green:#5CE68A; --wc-coral:#FF7A87; --wc-blue:#7DA2FF;
+}}
+:root[data-theme="dark"]{
+  --wc-cyan:#4EE1E8; --wc-orchid:#C77DFF; --wc-amber:#FFC145;
+  --wc-green:#5CE68A; --wc-coral:#FF7A87; --wc-blue:#7DA2FF;
+}
+
+/* ---------------- topbar clock: time + day ---------------- */
+#clock{display:flex;flex-direction:column;line-height:1.15;align-items:flex-end}
+#clock .ctime{font-family:var(--screen);font-weight:600;font-size:15px;letter-spacing:.03em;
+              font-variant-numeric:tabular-nums;color:var(--text)}
+#clock .cday{font-family:var(--screen);font-weight:600;font-size:10px;letter-spacing:.09em;color:var(--text-3)}
+
+/* ---------------- network widget: both directions, equal billing ---------- */
+.netrow{display:flex;align-items:baseline;gap:calc(var(--u)*4);flex-wrap:wrap;flex:none}
+.netstat{display:flex;flex-direction:column;gap:1px}
+.netstat .nlbl{font-family:var(--screen);font-weight:600;font-size:calc(10px * var(--ws,1));
+               letter-spacing:.1em;color:var(--text-3)}
+.netstat .nval{font-family:var(--mono);font-size:calc(17px * var(--ws,1));
+               font-variant-numeric:tabular-nums;color:var(--wc,var(--text))}
+.netstat:nth-child(2) .nval{color:var(--text-2)}
+.npeak{font-family:var(--mono);font-size:calc(11px * var(--ws,1));color:var(--text-3);white-space:nowrap}
+
+/* ---------------- suggested libraries ---------------- */
+.libsug{display:flex;flex-direction:column;gap:calc(var(--u)*2)}
+.libsug .s{display:flex;gap:calc(var(--u)*2);align-items:center;padding:calc(var(--u)*2);
+           background:var(--sunk);flex-wrap:wrap}
+.libsug .sn{font-family:var(--screen);font-weight:600;font-size:12px;letter-spacing:.04em;flex:1 1 150px}
+.libsug .sd{font-size:12px;color:var(--text-3);width:100%;line-height:1.4}

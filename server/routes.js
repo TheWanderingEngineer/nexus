@@ -201,7 +201,11 @@ export default function routes() {
     db().widgets = w.map(x => ({
       id: Number(x.id) || 0, t: String(x.t || "").slice(0, 40),
       x: clampInt(x.x, 0, 11), y: clampInt(x.y, 0, 500),
-      w: clampInt(x.w, 1, 12), h: clampInt(x.h, 1, 40)
+      w: clampInt(x.w, 1, 12), h: clampInt(x.h, 1, 40),
+      // Per-widget appearance (scale, colour, display mode). Sanitised rather
+      // than stored verbatim so a crafted request cannot stuff arbitrary data
+      // into the state file through the layout endpoint.
+      cfg: sanitizeCfg(x.cfg)
     }));
     save();
     res.json({ ok: true });
@@ -220,6 +224,11 @@ export default function routes() {
   });
 
   r.get("/store/libraries", (_req, res) => res.json(library.listLibraries()));
+
+  r.get("/store/libraries/suggested", (_req, res) => {
+    const have = new Set(library.listLibraries().map(l => l.url));
+    res.json(library.SUGGESTED_LIBRARIES.map(s => ({ ...s, added: have.has(s.url) })));
+  });
 
   r.post("/store/libraries", wrap(async (req, res) => {
     const lib = await library.addLibrary({
@@ -329,4 +338,19 @@ export default function routes() {
 function clampInt(v, lo, hi) {
   const n = Math.round(Number(v) || 0);
   return Math.max(lo, Math.min(hi, n));
+}
+
+/** Widget appearance settings: a small, closed set of short scalar values. */
+function sanitizeCfg(cfg) {
+  if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) return {};
+  const out = {};
+  let n = 0;
+  for (const [k, v] of Object.entries(cfg)) {
+    if (n++ >= 12) break;
+    if (!/^[a-zA-Z][a-zA-Z0-9_]{0,24}$/.test(k)) continue;
+    if (typeof v === "number" && Number.isFinite(v)) out[k] = Math.max(-1e6, Math.min(1e6, v));
+    else if (typeof v === "boolean") out[k] = v;
+    else if (typeof v === "string") out[k] = v.slice(0, 40);
+  }
+  return out;
 }
