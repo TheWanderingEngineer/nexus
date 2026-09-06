@@ -597,3 +597,22 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
 .crow .cact:hover{background:var(--panel-hi)}
 .crow .cact[disabled]{opacity:.4}
 .csummary{display:flex;gap:calc(var(--u)*2);align-items:baseline;flex:none;flex-wrap:wrap}
+
+
+/* ---------------- file manager: root switcher ---------------- */
+.rootbar{display:flex;flex-wrap:wrap;gap:calc(var(--u)*2);align-items:center;
+         margin-bottom:calc(var(--u)*3)}
+.rootbtn{
+  display:flex;flex-direction:column;gap:1px;text-align:left;
+  padding:calc(var(--u)*1.5) calc(var(--u)*3);background:var(--panel);
+  border-top:2px solid var(--bevel-lt);border-left:2px solid var(--bevel-lt);
+  border-right:2px solid var(--bevel-dk);border-bottom:2px solid var(--bevel-dk);
+}
+.rootbtn:hover{background:var(--panel-hi)}
+.rootbtn.on{background:var(--accent);color:var(--on-accent)}
+.rootbtn.on .rp{color:var(--on-accent);opacity:.75}
+.rootbtn.missing{opacity:.45}
+.rootbtn .rn{font-family:var(--screen);font-weight:600;font-size:11px;letter-spacing:.06em}
+.rootbtn .rp{font-family:var(--mono);font-size:10px;color:var(--text-3)}
+.rootshint{flex:1 1 220px;min-width:0}
+.rootshint code{font-size:.9em}

@@ -936,6 +936,41 @@ function fileKind(en) {
   return { ic: "BIN", cls: "k-bin" };
 }
 
+/**
+ * The file manager can only reach configured roots, and until now the UI never
+ * showed what those were — so if the first root was /DATA you had no way to
+ * reach /root at all. These buttons make every root one click away.
+ */
+async function loadRoots() {
+  const bar = $("#f-roots");
+  if (!bar || bar.dataset.loaded) return;
+  try {
+    const roots = await api("/files/roots");
+    bar.dataset.loaded = "1";
+    bar.innerHTML = roots.map(r =>
+      `<button class="rootbtn${r.exists ? "" : " missing"}" data-root="${esc(r.path)}"
+               title="${esc(r.path)}"${r.exists ? "" : " disabled"}>
+         <span class="rn">${esc(r.name)}</span>
+         <span class="rp">${esc(r.path)}</span>
+       </button>`).join("") +
+      `<span class="hint rootshint">Only these paths are reachable — set <code>fileRoots</code> in
+        /etc/nexus/config.json to add more.</span>`;
+    bar.addEventListener("click", e => {
+      const b = e.target.closest("[data-root]");
+      if (b) loadFiles(b.dataset.root);
+    });
+  } catch { bar.innerHTML = ""; }
+}
+
+function markActiveRoot(p) {
+  $("#f-roots .rootbtn").forEach(b => {
+    const r = b.dataset.root;
+    // Longest matching root wins, so /DATA does not light up when you are in
+    // /DATA/Media under a separate /DATA/Media root.
+    b.classList.toggle("on", p === r || p.startsWith(r.endsWith("/") ? r : r + "/") || p.startsWith(r + "\\"));
+  });
+}
+
 async function loadFiles(dir) {
   const tb = $("#f-table tbody");
   try {
@@ -943,6 +978,7 @@ async function loadFiles(dir) {
     curDir = out.path;
     curParent = out.parent;
     renderCrumbs(out.path);
+    markActiveRoot(out.path);
 
     if (!out.entries.length) {
       tb.innerHTML = '<tr><td colspan="4" class="empty">EMPTY FOLDER &mdash; RIGHT-CLICK TO CREATE SOMETHING</td></tr>';
@@ -1738,7 +1774,7 @@ function go(page) {
   $("#tools-term").hidden = page !== "term";
 
   if (page === "containers") loadContainers();
-  if (page === "files") loadFiles(curDir);
+  if (page === "files") { loadRoots(); loadFiles(curDir); }
   if (page === "settings") loadSettings();
   if (page === "store") { refreshInstalled().then(() => { loadStoreStatus(); loadStore(true); }); }
   if (page === "term") {

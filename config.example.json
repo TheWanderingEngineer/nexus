@@ -13,7 +13,8 @@
 
   "docker": { "enabled": true, "socket": "/var/run/docker.sock" },
 
-  "//fileRoots": "The file manager cannot read or write outside these paths. Symlinks are resolved before the check.",
+  "//fileRoots": "The file manager cannot read or write outside these paths. Symlinks are resolved before the check. Each root appears as a button above the file list.",
+  "//fileRoots-whole-disk": "To browse the entire filesystem the way CasaOS does, add { \"name\": \"System\", \"path\": \"/\" }. That is a real widening: the file manager could then delete anything on the box. It is also roughly what the built-in terminal already allows, so if you keep the terminal enabled it changes little in practice — but if you ever set terminal.enabled to false, this is the setting that still hands out the whole disk.",
   "fileRoots": [
     { "name": "DATA", "path": "/DATA" },
     { "name": "root", "path": "/root" }
