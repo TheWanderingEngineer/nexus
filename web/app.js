@@ -302,7 +302,7 @@ const colorCss = key => (WCOLORS.find(c => c.key === key) || WCOLORS[0]).css;
 /** Defaults merged with whatever the widget has saved. */
 function cfgOf(it) {
   const def = REG[it.t]?.defaults || {};
-  return { scale: 1, color: "cyan", ...def, ...(it.cfg || {}) };
+  return { scale: 1, color: "cyan", bg: "none", ...def, ...(it.cfg || {}) };
 }
 
 /** Push the settings onto the element as CSS variables, so styling is pure CSS. */
@@ -310,6 +310,10 @@ function applyCfg(el, it) {
   const c = cfgOf(it);
   el.style.setProperty("--ws", String(c.scale));
   el.style.setProperty("--wc", colorCss(c.color));
+  // Background is a class rather than an inline value so the tint can be mixed
+  // against whichever panel colour the current theme is using.
+  el.classList.remove(...[...el.classList].filter(n => n.startsWith("bg-")));
+  el.classList.add("bg-" + (c.bg || "none"));
 }
 
 /* ============================ context menu ============================ */
@@ -354,6 +358,28 @@ function openCtx(it, x, y) {
   colorRow.appendChild(row);
   body.appendChild(colorRow);
 
+  // Background tint. "None" first, because the plain panel is the sane default
+  // and should be one click away rather than buried at the end.
+  const bgRow = document.createElement("div");
+  bgRow.className = "ctxgroup";
+  bgRow.innerHTML = `<span class="ctxlabel"><img src="${ICON("palette")}" alt="">Background tint</span>`;
+  const brow = document.createElement("div");
+  brow.className = "ctxrow";
+  [{ key: "none", label: "None", css: "var(--panel)" }, ...WCOLORS].forEach(c => {
+    const b = document.createElement("button");
+    b.className = "ctxopt swatch" + (cfgOf(it).bg === c.key ? " sel" : "");
+    b.style.background = c.key === "none"
+      ? "var(--panel)"
+      : `color-mix(in srgb, ${c.css} 45%, var(--panel))`;
+    if (c.key === "none") b.style.borderStyle = "dashed";
+    b.title = c.label;
+    b.setAttribute("aria-label", "Background " + c.label);
+    b.addEventListener("click", () => setCfg(it, { bg: c.key }));
+    brow.appendChild(b);
+  });
+  bgRow.appendChild(brow);
+  body.appendChild(bgRow);
+
   // …and anything the widget itself declares.
   for (const opt of def.options || []) {
     body.appendChild(ctxGroup(opt.label, opt.icon || null, opt.values.map(v => ({
@@ -362,6 +388,9 @@ function openCtx(it, x, y) {
       apply: () => setCfg(it, { [opt.key]: v.value })
     }))));
   }
+
+  // The file-manager menu hides the footer; put it back for widgets.
+  document.querySelector(".ctxfoot").hidden = false;
 
   // Place it on screen, nudged back inside the viewport if it would overflow.
   ctx.classList.add("open");
@@ -511,15 +540,70 @@ const REG = {
       }).join("");
     } },
 
-  containers: { name: "Containers", icon: ICON("containers"), desc: "Running services", w: 4, h: 4,
-    mount(b) { b.innerHTML = '<ul class="klist"></ul>'; return { l: $("ul", b) }; },
-    update(r) {
-      if (!LIVE.containers.length) { r.l.innerHTML = '<li><span class="k">no containers</span></li>'; return; }
-      r.l.innerHTML = LIVE.containers.slice(0, 8).map(c => {
+  containers: { name: "Containers", icon: ICON("containers"), desc: "Start, stop and watch your services", w: 5, h: 5,
+    defaults: { show: "all", limit: 10 },
+    options: [
+      { key: "show", label: "Show", values: [
+        { value: "all", label: "ALL" }, { value: "running", label: "RUNNING" }, { value: "stopped", label: "STOPPED" }] },
+      { key: "limit", label: "How many", values: [
+        { value: 5, label: "5" }, { value: 10, label: "10" }, { value: 20, label: "20" }, { value: 99, label: "ALL" }] }
+    ],
+    mount(b) {
+      b.innerHTML = '<div class="csummary"></div><div class="clist"></div>';
+      const el = { sum: $(".csummary", b), list: $(".clist", b), busy: new Set() };
+      // Delegated so the handler survives every re-render.
+      el.list.addEventListener("click", async e => {
+        const btn = e.target.closest("[data-act]");
+        if (!btn) return;
+        e.stopPropagation();
+        const { id, act, nm } = btn.dataset;
+        btn.disabled = true;
+        el.busy.add(id);
+        try {
+          await api(`/docker/containers/${encodeURIComponent(id)}/${act}`, { method: "POST" });
+          toast(`${act.toUpperCase()} ${nm}`, "ok");
+          const o = await api("/docker/containers");
+          if (o.available) LIVE.containers = o.containers;
+        } catch (ex) {
+          toast(ex.message.toUpperCase(), "err");
+        } finally {
+          el.busy.delete(id);
+          renderWidgets();
+        }
+      });
+      return el;
+    },
+    update(r, cfg) {
+      const all = LIVE.containers || [];
+      if (!all.length) {
+        r.sum.innerHTML = '<span class="pill idle">DOCKER UNAVAILABLE OR NO CONTAINERS</span>';
+        r.list.innerHTML = "";
+        return;
+      }
+      const running = all.filter(c => c.state === "running").length;
+      r.sum.innerHTML =
+        `<span class="pill ok"><i class="dot"></i>${running} UP</span>` +
+        (all.length - running ? `<span class="pill crit"><i class="dot"></i>${all.length - running} DOWN</span>` : "");
+
+      const rows = all
+        .filter(c => cfg.show === "all" || (cfg.show === "running") === (c.state === "running"))
+        .slice(0, cfg.limit || 10);
+
+      r.list.innerHTML = rows.map(c => {
         const up = c.state === "running";
-        return `<li><span class="k" style="color:${up ? "var(--ok)" : "var(--crit)"}">${up ? "▶" : "■"} ${esc(c.name)}</span>
-                <span class="v">${esc(c.state)}</span></li>`;
-      }).join(""); } },
+        const port = (c.ports || [])[0];
+        const busy = r.busy.has(c.id);
+        return `<div class="crow">
+          <i class="cdot ${up ? "up" : "down"}"></i>
+          <span class="cname" title="${esc(c.image)}">${esc(c.title || c.name)}</span>
+          ${port ? `<span class="cport">:${port.public}</span>` : ""}
+          <button class="cact" data-act="${up ? "stop" : "start"}" data-id="${esc(c.id)}"
+                  data-nm="${esc(c.name)}" ${busy ? "disabled" : ""}>${busy ? "…" : up ? "STOP" : "START"}</button>
+          <button class="cact" data-act="restart" data-id="${esc(c.id)}"
+                  data-nm="${esc(c.name)}" ${busy || !up ? "disabled" : ""}>RESTART</button>
+        </div>`;
+      }).join("") || '<div class="empty">NOTHING MATCHES THAT FILTER</div>';
+    } },
 
   uptime: { name: "Uptime", icon: ICON("power"), desc: "Time since last boot", w: 3, h: 2,
     mount(b) { b.innerHTML = '<div class="big"><span class="n" style="font-size:22px">--</span></div><span class="sub">since last boot</span>';
@@ -655,6 +739,7 @@ function resolve(movedId) {
     }
   }
 }
+/** Kept for the RESET action only — normal edits leave widgets where you put them. */
 function compact() {
   items.slice().sort((p, q) => p.y - q.y || p.x - q.x).forEach(it => {
     while (it.y > 0) { it.y--; if (items.some(o => o !== it && overlap(it, o))) { it.y++; break; } }
@@ -727,14 +812,13 @@ function removeWidget(id) {
   const el = document.getElementById("w" + id);
   if (el) el.remove();
   items = items.filter(i => i.id !== id);
-  delete mounted[id];
-  compact(); layout();
+  delete mounted[id]; layout();
 }
 function addWidget(type) {
   const maxY = items.reduce((m, i) => Math.max(m, i.y + i.h), 0);
   const d = REG[type];
   const it = { id: uid++, t: type, x: 0, y: maxY, w: d.w, h: d.h };
-  items.push(it); build(it, true); compact(); layout();
+  items.push(it); build(it, true); layout();
   $("#main").scrollTo({ top: 1e6, behavior: "smooth" });
 }
 function renderWidgets() {
@@ -761,7 +845,7 @@ function dragify(el, it) {
     const up = () => {
       head.releasePointerCapture(e.pointerId);
       head.removeEventListener("pointermove", mv); head.removeEventListener("pointerup", up); head.removeEventListener("pointercancel", up);
-      el.classList.remove("dragging"); compact(); layout();
+      el.classList.remove("dragging"); layout();
     };
     head.addEventListener("pointermove", mv); head.addEventListener("pointerup", up); head.addEventListener("pointercancel", up);
   });
@@ -782,7 +866,7 @@ function resizify(el, it) {
     const up = () => {
       h.releasePointerCapture(e.pointerId);
       h.removeEventListener("pointermove", mv); h.removeEventListener("pointerup", up); h.removeEventListener("pointercancel", up);
-      el.classList.remove("resizing"); compact(); layout();
+      el.classList.remove("resizing"); layout();
     };
     h.addEventListener("pointermove", mv); h.addEventListener("pointerup", up); h.addEventListener("pointercancel", up);
   });
@@ -831,47 +915,270 @@ on("#c-table", "click", async e => {
 });
 on("#c-refresh", "click", loadContainers);
 
-let curDir = null;
+/* ============================ file manager ============================ */
+let curDir = null, curParent = null;
+
+/** Glyph + colour by extension, so a folder listing is scannable at a glance. */
+const FILE_KINDS = [
+  { re: /\.(txt|md|markdown|rst)$/i,                                   ic: "TXT", cls: "k-doc"  },
+  { re: /\.(json|ya?ml|toml|ini|conf|cfg|env|properties|service)$/i,   ic: "CFG", cls: "k-cfg"  },
+  { re: /\.(js|mjs|cjs|ts|tsx|jsx|py|rb|go|rs|java|c|h|cpp|sh|bash)$/i, ic: "{ }", cls: "k-code" },
+  { re: /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i,                   ic: "IMG", cls: "k-img"  },
+  { re: /\.(mp4|mkv|avi|mov|webm|m4v)$/i,                              ic: "VID", cls: "k-vid"  },
+  { re: /\.(mp3|flac|wav|ogg|m4a|aac)$/i,                              ic: "SND", cls: "k-snd"  },
+  { re: /\.(zip|tar|gz|xz|bz2|7z|rar|tgz)$/i,                          ic: "ZIP", cls: "k-arc"  },
+  { re: /\.log$/i,                                                     ic: "LOG", cls: "k-log"  },
+  { re: /\.pdf$/i,                                                     ic: "PDF", cls: "k-pdf"  }
+];
+function fileKind(en) {
+  if (en.dir) return { ic: "DIR", cls: "k-dir" };
+  for (const k of FILE_KINDS) if (k.re.test(en.name)) return k;
+  return { ic: "BIN", cls: "k-bin" };
+}
+
 async function loadFiles(dir) {
   const tb = $("#f-table tbody");
   try {
     const out = await api("/files" + (dir ? "?path=" + encodeURIComponent(dir) : ""));
     curDir = out.path;
-    $("#f-crumbs").innerHTML = `<span class="mono">${esc(out.path)}</span>`;
-    tb.innerHTML = out.entries.map(en => `<tr>
-      <td class="name"><span class="fname"><i class="ic ${en.dir ? "" : "file"}"></i>
-        ${en.dir ? `<button data-dir="${esc(en.path)}">${esc(en.name)}/</button>` : esc(en.name)}</span></td>
-      <td class="mono">${en.dir ? "—" : bytes(en.size)}</td>
-      <td class="mono">${en.mtime ? since(en.mtime) : "—"}</td>
-      <td><div class="rowbtns">
-        ${en.dir ? "" : `<a class="btn sm" href="/api/files/download?path=${encodeURIComponent(en.path)}">GET</a>`}
-        <button class="btn sm danger" data-del="${esc(en.path)}">DEL</button>
-      </div></td></tr>`).join("") || `<tr><td colspan="4" class="empty">EMPTY DIRECTORY</td></tr>`;
+    curParent = out.parent;
+    renderCrumbs(out.path);
+
+    if (!out.entries.length) {
+      tb.innerHTML = '<tr><td colspan="4" class="empty">EMPTY FOLDER &mdash; RIGHT-CLICK TO CREATE SOMETHING</td></tr>';
+      return;
+    }
+
+    tb.innerHTML = out.entries.map(en => {
+      const k = fileKind(en);
+      return `<tr data-path="${esc(en.path)}" data-dir="${en.dir ? 1 : 0}" data-text="${en.text ? 1 : 0}" data-name="${esc(en.name)}">
+        <td class="name"><span class="fname">
+          <span class="fic ${k.cls}">${esc(k.ic)}</span>
+          <span class="ftxt">${esc(en.name)}${en.dir ? "/" : ""}</span>
+          ${en.symlink ? '<span class="pill idle">LINK</span>' : ""}
+        </span></td>
+        <td class="mono">${en.dir ? "—" : bytes(en.size)}</td>
+        <td class="mono">${en.mtime ? since(en.mtime) : "—"}</td>
+        <td class="mono dim">${en.mode ? en.mode.toString(8).padStart(3, "0") : ""}</td>
+      </tr>`;
+    }).join("") + (out.truncated
+      ? `<tr><td colspan="4" class="empty">SHOWING ${out.entries.length} OF ${out.total} —
+           OPEN A SUBFOLDER TO NARROW IT DOWN</td></tr>`
+      : "");
   } catch (e) {
     tb.innerHTML = `<tr><td colspan="4" class="empty">${esc(e.message).toUpperCase()}</td></tr>`;
   }
 }
-on("#f-table", "click", async e => {
-  const d = e.target.closest("button[data-dir]");
-  if (d) return loadFiles(d.dataset.dir);
-  const del = e.target.closest("button[data-del]");
-  if (del) {
-    if (!confirm("Delete " + del.dataset.del + " ?")) return;
-    try { await api("/files/delete", { method: "POST", body: { path: del.dataset.del } }); toast("DELETED", "ok"); loadFiles(curDir); }
-    catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+
+/** Clickable path segments — jump up several levels in one click. */
+function renderCrumbs(p) {
+  const sep = p.includes("\\") ? "\\" : "/";
+  const parts = p.split(sep).filter(Boolean);
+  const bits = [];
+  let acc = p.startsWith(sep) ? sep : "";
+  if (p.startsWith(sep)) bits.push(`<button data-go="${sep}">${sep}</button>`);
+  parts.forEach((seg, i) => {
+    acc = acc === sep ? sep + seg : (acc ? acc + sep + seg : seg);
+    bits.push(`<button data-go="${esc(acc)}">${esc(seg)}</button>`);
+    if (i < parts.length - 1) bits.push(`<span class="csep">${sep}</span>`);
+  });
+  $("#f-crumbs").innerHTML = bits.join("");
+}
+
+on("#f-crumbs", "click", e => {
+  const b = e.target.closest("[data-go]");
+  if (b) loadFiles(b.dataset.go);
+});
+
+// Single click selects; double click opens. Folders navigate, text files open
+// in the editor, anything else downloads.
+on("#f-table", "click", e => {
+  const tr = e.target.closest("tr[data-path]");
+  $$("#f-table tr.sel").forEach(x => x.classList.remove("sel"));
+  if (tr) tr.classList.add("sel");
+});
+
+on("#f-table", "dblclick", e => {
+  const tr = e.target.closest("tr[data-path]");
+  if (!tr) return;
+  if (tr.dataset.dir === "1") return loadFiles(tr.dataset.path);
+  if (tr.dataset.text === "1") return openEditor(tr.dataset.path, tr.dataset.name);
+  location.href = "/api/files/download?path=" + encodeURIComponent(tr.dataset.path);
+});
+
+/* ---- right-click, on a row or on empty space ---- */
+on("#page-files", "contextmenu", e => {
+  e.preventDefault();
+  const tr = e.target.closest("tr[data-path]");
+  if (tr) {
+    $$("#f-table tr.sel").forEach(x => x.classList.remove("sel"));
+    tr.classList.add("sel");
+    openFileMenu(e.clientX, e.clientY, {
+      path: tr.dataset.path, name: tr.dataset.name,
+      dir: tr.dataset.dir === "1", text: tr.dataset.text === "1"
+    });
+  } else {
+    openFileMenu(e.clientX, e.clientY, null);
   }
 });
-on("#f-up", "click", async () => {
-  if (!curDir) return;
-  try { const out = await api("/files?path=" + encodeURIComponent(curDir)); if (out.parent) loadFiles(out.parent); else toast("AT ROOT", "err"); }
-  catch (ex) { toast(ex.message.toUpperCase(), "err"); }
-});
-on("#f-mkdir", "click", async () => {
+
+function openFileMenu(x, y, entry) {
+  const body = $("#ctx-body");
+  $("#ctx-icon").src = ICON("files");
+  $("#ctx-title").textContent = entry ? entry.name.slice(0, 26).toUpperCase() : "THIS FOLDER";
+  body.innerHTML = "";
+  ctxItem = null;
+
+  const actions = [];
+  if (entry) {
+    if (entry.dir) actions.push({ label: "OPEN", go: () => loadFiles(entry.path) });
+    if (entry.text) actions.push({ label: "EDIT", go: () => openEditor(entry.path, entry.name) });
+    if (!entry.dir) actions.push({ label: "DOWNLOAD", go: () => { location.href = "/api/files/download?path=" + encodeURIComponent(entry.path); } });
+    actions.push({ label: "RENAME", go: () => renameEntry(entry) });
+    actions.push({ label: "DELETE", go: () => deleteEntry(entry), danger: true });
+  }
+  actions.push({ label: "NEW FOLDER", go: makeFolder });
+  actions.push({ label: "REFRESH", go: () => loadFiles(curDir) });
+  if (curParent) actions.push({ label: "GO UP", go: () => loadFiles(curParent) });
+
+  const g = document.createElement("div");
+  g.className = "ctxgroup ctxstack";
+  actions.forEach(a => {
+    const b = document.createElement("button");
+    b.className = "ctxopt wide" + (a.danger ? " danger" : "");
+    b.textContent = a.label;
+    b.addEventListener("click", () => { closeCtx(); a.go(); });
+    g.appendChild(b);
+  });
+  body.appendChild(g);
+
+  $(".ctxfoot").hidden = true;
+  ctx.classList.add("open");
+  const r = ctx.getBoundingClientRect();
+  ctx.style.left = Math.min(x, innerWidth - r.width - 8) + "px";
+  ctx.style.top = Math.min(y, innerHeight - r.height - 8) + "px";
+}
+
+async function makeFolder() {
   const name = prompt("New folder name:");
   if (!name) return;
-  try { await api("/files/mkdir", { method: "POST", body: { path: curDir + "/" + name } }); toast("CREATED", "ok"); loadFiles(curDir); }
-  catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+  try {
+    await api("/files/mkdir", { method: "POST", body: { path: curDir + "/" + name } });
+    toast("FOLDER CREATED", "ok");
+    loadFiles(curDir);
+  } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+}
+
+async function renameEntry(entry) {
+  const name = prompt("Rename to:", entry.name);
+  if (!name || name === entry.name) return;
+  const dir = entry.path.slice(0, entry.path.length - entry.name.length);
+  try {
+    await api("/files/rename", { method: "POST", body: { from: entry.path, to: dir + name } });
+    toast("RENAMED", "ok");
+    loadFiles(curDir);
+  } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+}
+
+async function deleteEntry(entry) {
+  // A folder takes its contents with it — say so rather than asking a generic
+  // "are you sure" that hides the real consequence.
+  const msg = entry.dir
+    ? `Delete the folder "${entry.name}" and everything inside it?\n\nThis cannot be undone.`
+    : `Delete "${entry.name}"?\n\nThis cannot be undone.`;
+  if (!confirm(msg)) return;
+  try {
+    await api("/files/delete", { method: "POST", body: { path: entry.path } });
+    toast("DELETED", "ok");
+    loadFiles(curDir);
+  } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+}
+
+/* ---- in-browser text editor ---- */
+let editorState = null;
+
+async function openEditor(path, name) {
+  openModal({ title: name.toUpperCase(), icon: ICON("files"), body: "<p>Loading…</p>" });
+  let file;
+  try {
+    file = await api("/files/read?path=" + encodeURIComponent(path));
+  } catch (e) {
+    const b = document.createElement("div");
+    b.innerHTML = `<div class="warnbox err">${esc(e.message)}</div>`;
+    const f = document.createElement("div");
+    f.innerHTML = '<button class="btn" id="ed-close2">CLOSE</button>';
+    openModal({ title: name.toUpperCase(), icon: ICON("files"), body: b, foot: f });
+    on("#ed-close2", "click", closeModal);
+    return;
+  }
+
+  editorState = { path: file.path, mtime: file.mtime, original: file.content };
+
+  const body = document.createElement("div");
+  body.innerHTML = `
+    <div class="edmeta">
+      <span class="mono">${esc(file.path)}</span>
+      <span class="spacer"></span>
+      <span class="mono" id="ed-stat">${bytes(file.size)}</span>
+    </div>
+    <textarea id="ed-area" spellcheck="false" wrap="off"></textarea>`;
+  body.querySelector("#ed-area").value = file.content;
+
+  const foot = document.createElement("div");
+  foot.innerHTML = `<span class="hint" id="ed-hint">Ctrl+S saves</span>
+                    <span class="spacer"></span>
+                    <button class="btn" id="ed-cancel">CLOSE</button>
+                    <button class="btn primary" id="ed-save">SAVE</button>`;
+
+  openModal({ title: name.toUpperCase(), icon: ICON("files"), body, foot });
+
+  const area = $("#ed-area");
+  area.addEventListener("input", () => {
+    const dirty = area.value !== editorState.original;
+    $("#ed-hint").textContent = dirty ? "unsaved changes" : "Ctrl+S saves";
+    $("#ed-hint").style.color = dirty ? "var(--warn)" : "";
+  });
+  area.addEventListener("keydown", e => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveEditor(); }
+  });
+  on("#ed-cancel", "click", () => {
+    if (area.value !== editorState.original && !confirm("Discard unsaved changes?")) return;
+    closeModal();
+  });
+  on("#ed-save", "click", saveEditor);
+  area.focus();
+}
+
+async function saveEditor() {
+  if (!editorState) return;
+  const area = $("#ed-area"), btn = $("#ed-save");
+  btn.disabled = true;
+  try {
+    const out = await api("/files/write", {
+      method: "POST",
+      body: { path: editorState.path, content: area.value, mtime: editorState.mtime }
+    });
+    // Adopt the new mtime, or our own save would look like someone else's edit
+    // the second time round and trip the conflict check.
+    editorState.mtime = out.mtime;
+    editorState.original = area.value;
+    $("#ed-stat").textContent = bytes(out.size);
+    $("#ed-hint").textContent = "saved";
+    $("#ed-hint").style.color = "var(--ok)";
+    toast("SAVED", "ok");
+    loadFiles(curDir);
+  } catch (e) {
+    toast(e.message.toUpperCase(), "err");
+    $("#ed-hint").textContent = e.message;
+    $("#ed-hint").style.color = "var(--crit)";
+  } finally { btn.disabled = false; }
+}
+
+on("#f-up", "click", () => {
+  if (curParent) loadFiles(curParent); else toast("ALREADY AT A ROOT", "err");
 });
+on("#f-mkdir", "click", makeFolder);
+
 
 /* ============================ terminal (xterm.js) ============================ */
 let term = null, fit = null, termWS = null, termReady = false;
@@ -1528,7 +1835,10 @@ on("#reset", "click", async () => {
   items = DEFAULT_LAYOUT.map((d, i) => ({ id: i + 1, ...d }));
   uid = items.length + 1;
   items.forEach(it => build(it, true));
-  compact(); layout();
+  // The only place gravity still applies: RESET exists to put things in order,
+  // so it closes gaps. Ordinary drags and deletions leave your spacing alone.
+  compact();
+  layout();
 });
 addEventListener("resize", () => { layout(false); renderWidgets(); });
 
@@ -1553,8 +1863,7 @@ async function start() {
   }
   items.forEach((it, i) => { if (!it.id) it.id = i + 1; });
   uid = Math.max(0, ...items.map(i => i.id)) + 1;
-  items.forEach(it => build(it, false));
-  compact(); layout(false);
+  items.forEach(it => build(it, false)); layout(false);
 
   api("/system/info").then(i => { LIVE.info = i; renderWidgets(); }).catch(() => {});
   api("/system/metrics").then(m => { LIVE.disks = m.disks || []; renderWidgets(); }).catch(() => {});

@@ -56,32 +56,64 @@ export async function list(dir) {
   const st = await fs.stat(safe);
   if (!st.isDirectory()) throw new PathError("not a directory");
 
-  const names = await fs.readdir(safe);
-  const out = [];
-  for (const name of names) {
-    const full = path.join(safe, name);
+  // `withFileTypes` gives directory/symlink flags straight from the directory
+  // read, so the per-entry stat is only needed for size and mtime.
+  const dirents = await fs.readdir(safe, { withFileTypes: true });
+  const truncated = dirents.length > MAX_ENTRIES;
+  const slice = truncated ? dirents.slice(0, MAX_ENTRIES) : dirents;
+
+  // Statting sequentially made a folder of a few thousand files take minutes —
+  // each stat is a round trip, and on Windows every one of them goes past the
+  // virus scanner. Run them in bounded parallel instead: fast everywhere,
+  // without opening thousands of handles at once.
+  const out = await mapLimit(slice, 64, async d => {
+    const full = path.join(safe, d.name);
+    const base = {
+      name: d.name,
+      path: full,
+      dir: d.isDirectory(),
+      symlink: d.isSymbolicLink(),
+      // Lets the UI offer "open in editor" only where that will actually work.
+      text: !d.isDirectory() && isTextFile(d.name)
+    };
     try {
       const s = await fs.lstat(full);
-      out.push({
-        name,
-        path: full,
-        dir: s.isDirectory(),
-        symlink: s.isSymbolicLink(),
-        size: s.isDirectory() ? null : s.size,
-        mtime: s.mtimeMs,
-        mode: s.mode & 0o777
-      });
+      return { ...base, size: d.isDirectory() ? null : s.size, mtime: s.mtimeMs, mode: s.mode & 0o777 };
     } catch {
-      // Unreadable entries (permissions, broken symlinks) are listed as-is
+      // Unreadable entries (permissions, broken symlinks) are still listed
       // rather than failing the whole directory.
-      out.push({ name, path: full, dir: false, error: true, size: null, mtime: 0 });
+      return { ...base, size: null, mtime: 0, error: true };
     }
-  }
+  });
+
   out.sort((a, b) => (b.dir - a.dir) || a.name.localeCompare(b.name));
 
   const parent = path.dirname(safe);
   const hasParent = roots().some(r => parent === r.path || parent.startsWith(r.path + path.sep));
-  return { path: safe, parent: hasParent ? parent : null, entries: out };
+  return {
+    path: safe,
+    parent: hasParent ? parent : null,
+    entries: out,
+    truncated,
+    total: dirents.length
+  };
+}
+
+const MAX_ENTRIES = 4000;
+
+/** Promise.all with a ceiling on how many run at once. */
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      out[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+  return out;
 }
 
 export async function mkdir(target) {
@@ -110,4 +142,70 @@ export async function statFile(target) {
   const safe = await resolveSafe(target);
   const s = await fs.stat(safe);
   return { path: safe, size: s.size, dir: s.isDirectory(), mtime: s.mtimeMs };
+}
+
+/* ---------------------------------------------------------- text editing */
+
+/** Editable in the browser. Anything else is offered as a download instead. */
+const TEXT_EXT = new Set([
+  "txt", "md", "markdown", "log", "json", "yaml", "yml", "toml", "ini", "conf", "cfg",
+  "env", "sh", "bash", "zsh", "js", "mjs", "cjs", "ts", "css", "html", "htm", "xml",
+  "csv", "tsv", "sql", "py", "rb", "go", "rs", "java", "c", "h", "cpp", "hpp",
+  "service", "gitignore", "dockerfile", "properties", "lock"
+]);
+
+const MAX_EDIT_BYTES = 2 * 1024 * 1024;   // 2 MB — past this a browser textarea is useless anyway
+
+export function isTextFile(name) {
+  const base = String(name).toLowerCase();
+  if (base === "dockerfile" || base === "makefile" || base.startsWith(".env")) return true;
+  const ext = base.includes(".") ? base.split(".").pop() : "";
+  return TEXT_EXT.has(ext);
+}
+
+export async function readText(target) {
+  const safe = await resolveSafe(target);
+  const st = await fs.stat(safe);
+  if (st.isDirectory()) throw Object.assign(new Error("that is a directory"), { status: 400 });
+  if (st.size > MAX_EDIT_BYTES) {
+    throw Object.assign(new Error(`file is ${(st.size / 1048576).toFixed(1)} MB — too large to edit in the browser`), { status: 413 });
+  }
+
+  const buf = await fs.readFile(safe);
+  // Sniff for binary rather than trusting the extension: a NUL byte in the
+  // first chunk means opening it in a textarea would corrupt it on save.
+  const probe = buf.subarray(0, 8000);
+  if (probe.includes(0)) {
+    throw Object.assign(new Error("this looks like a binary file, not text"), { status: 415 });
+  }
+
+  return { path: safe, content: buf.toString("utf8"), size: st.size, mtime: st.mtimeMs };
+}
+
+export async function writeText(target, content, expectedMtime) {
+  const safe = await resolveSafe(target);
+  const st = await fs.stat(safe).catch(() => null);
+  if (st?.isDirectory()) throw Object.assign(new Error("that is a directory"), { status: 400 });
+
+  // Refuse to clobber a file that changed underneath the editor.
+  if (st && expectedMtime && Math.abs(st.mtimeMs - Number(expectedMtime)) > 1) {
+    throw Object.assign(
+      new Error("the file changed on disk since you opened it — reopen it before saving"),
+      { status: 409 }
+    );
+  }
+  if (typeof content !== "string") throw Object.assign(new Error("content must be text"), { status: 400 });
+  if (Buffer.byteLength(content, "utf8") > MAX_EDIT_BYTES) {
+    throw Object.assign(new Error("that is larger than the 2 MB edit limit"), { status: 413 });
+  }
+
+  // Write to a sibling temp file then rename, so a failure mid-write cannot
+  // leave a half-written config behind.
+  const tmp = safe + ".nexus-tmp";
+  await fs.writeFile(tmp, content, "utf8");
+  if (st) await fs.chmod(tmp, st.mode & 0o777).catch(() => {});
+  await fs.rename(tmp, safe);
+
+  const after = await fs.stat(safe);
+  return { path: safe, size: after.size, mtime: after.mtimeMs };
 }

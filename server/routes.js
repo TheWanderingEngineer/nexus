@@ -167,6 +167,20 @@ export default function routes() {
     res.json(out);
   }));
 
+  r.get("/files/read", wrap(async (req, res) => {
+    res.json(await filesvc.readText(String(req.query.path || "")));
+  }));
+
+  r.post("/files/write", wrap(async (req, res) => {
+    const out = await filesvc.writeText(
+      String(req.body?.path || ""),
+      req.body?.content,
+      req.body?.mtime
+    );
+    audit("files.write", { path: out.path, bytes: out.size }, req);
+    res.json(out);
+  }));
+
   r.get("/files/download", wrap(async (req, res) => {
     const safe = await filesvc.resolveSafe(String(req.query.path || ""));
     const st = await fsp.stat(safe);

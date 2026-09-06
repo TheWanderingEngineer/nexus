@@ -172,7 +172,7 @@ label{font-family:var(--screen);font-size:9px;letter-spacing:.1em;color:var(--te
 
 /* ---------------- widget grid ---------------- */
 #grid{position:relative;min-height:120px}
-.w{position:absolute;background:var(--panel);overflow:hidden;display:flex;flex-direction:column;
+.w{position:absolute;background:var(--wbg,var(--panel));overflow:hidden;display:flex;flex-direction:column;
    border-top:var(--u) solid var(--bevel-lt);border-left:var(--u) solid var(--bevel-lt);
    border-right:var(--u) solid var(--bevel-dk);border-bottom:var(--u) solid var(--bevel-dk);
    transition:left .12s steps(3,end),top .12s steps(3,end),width .12s steps(3,end),height .12s steps(3,end)}
@@ -212,8 +212,8 @@ label{font-family:var(--screen);font-size:9px;letter-spacing:.1em;color:var(--te
 .cur{display:inline-block;width:7px;height:13px;background:#5CE68A;vertical-align:-2px;animation:cb 1s steps(2,end) infinite}
 @keyframes cb{0%,50%{opacity:1}51%,100%{opacity:0}}
 
-.clockbig{font-family:var(--bitmap);font-size:clamp(20px,7cqw,38px);letter-spacing:.04em;
-          font-variant-numeric:tabular-nums;text-align:center}
+.clockbig{font-family:var(--bitmap);font-size:calc(clamp(20px,7cqw,38px) * var(--ws,1));
+          letter-spacing:.04em;font-variant-numeric:tabular-nums;text-align:center}
 .catwrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:calc(var(--u)*2);min-height:0}
 .catimg{width:64px;height:64px;animation:breathe 3.2s steps(2,end) infinite}
 @keyframes breathe{0%,100%{transform:translateY(0)}50%{transform:translateY(2px)}}
@@ -474,7 +474,7 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
    ANALOG CLOCK
    ============================================================ */
 .analog{flex:1;display:grid;place-items:center;min-height:0}
-.analog svg{width:100%;height:100%;max-width:220px;max-height:220px}
+.analog svg{width:100%;height:100%;max-width:calc(220px * var(--ws,1));max-height:calc(220px * var(--ws,1))}
 .cdate{font-family:var(--screen);font-weight:600;font-size:calc(12px * var(--ws,1));
        letter-spacing:.05em;color:var(--text-3);text-align:center}
 
@@ -522,3 +522,78 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
            background:var(--sunk);flex-wrap:wrap}
 .libsug .sn{font-family:var(--screen);font-weight:600;font-size:12px;letter-spacing:.04em;flex:1 1 150px}
 .libsug .sd{font-size:12px;color:var(--text-3);width:100%;line-height:1.4}
+
+
+/* ============================================================
+   WIDGET BACKGROUND TINTS
+   Mixed against the panel colour rather than set flat, so a tint stays a tint
+   in both themes instead of becoming a solid block in one of them.
+   ============================================================ */
+.bg-none   { --wbg: var(--panel); }
+.bg-cyan   { --wbg: color-mix(in srgb, var(--wc-cyan)   14%, var(--panel)); }
+.bg-orchid { --wbg: color-mix(in srgb, var(--wc-orchid) 14%, var(--panel)); }
+.bg-amber  { --wbg: color-mix(in srgb, var(--wc-amber)  14%, var(--panel)); }
+.bg-green  { --wbg: color-mix(in srgb, var(--wc-green)  14%, var(--panel)); }
+.bg-coral  { --wbg: color-mix(in srgb, var(--wc-coral)  14%, var(--panel)); }
+.bg-blue   { --wbg: color-mix(in srgb, var(--wc-blue)   14%, var(--panel)); }
+
+/* ---------------- file manager ---------------- */
+.crumbs button{font-family:var(--mono);font-size:12px;color:var(--accent);padding:2px 5px}
+.crumbs button:hover{background:var(--panel-hi)}
+.crumbs .csep{color:var(--text-3);font-family:var(--mono)}
+#f-table tr{cursor:default}
+#f-table tr.sel td{background:var(--accent-soft,var(--panel-hi));box-shadow:inset 2px 0 0 var(--accent)}
+#f-table td.dim{color:var(--text-3)}
+.fname{display:flex;align-items:center;gap:calc(var(--u)*2);min-width:0}
+.fname .ftxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fic{
+  flex:none;width:34px;min-width:34px;text-align:center;
+  font-family:var(--screen);font-weight:700;font-size:9px;letter-spacing:.04em;
+  padding:3px 0;color:var(--void);background:var(--text-3);
+}
+.k-dir { background:var(--wc-amber);  }
+.k-doc { background:var(--wc-cyan);   }
+.k-cfg { background:var(--wc-orchid); }
+.k-code{ background:var(--wc-green);  }
+.k-img { background:var(--wc-coral);  }
+.k-vid { background:var(--wc-blue);   }
+.k-snd { background:var(--wc-blue);   }
+.k-arc { background:var(--text-3);    }
+.k-log { background:var(--text-3);    }
+.k-pdf { background:var(--wc-coral);  }
+.k-bin { background:var(--rule);      }
+
+/* ---------------- context menu: stacked action list ---------------- */
+.ctxstack{display:flex;flex-direction:column;gap:2px;margin-bottom:0}
+.ctxopt.wide{width:100%;text-align:left}
+.ctxopt.danger{color:var(--crit)}
+
+/* ---------------- text editor ---------------- */
+.edmeta{display:flex;gap:calc(var(--u)*2);align-items:center;font-size:11px;color:var(--text-3);
+        margin-bottom:calc(var(--u)*2);flex-wrap:wrap}
+#ed-area{
+  width:100%;min-height:min(56vh,460px);resize:vertical;
+  font-family:var(--mono);font-size:13px;line-height:1.55;
+  padding:calc(var(--u)*3);background:#0D0916;color:#C9C2DE;white-space:pre;overflow:auto;
+  border-top:2px solid var(--bevel-dk);border-left:2px solid var(--bevel-dk);
+  border-right:2px solid var(--bevel-lt);border-bottom:2px solid var(--bevel-lt);
+}
+:root[data-theme="light"] #ed-area{background:var(--sunk);color:var(--text)}
+.mw-foot .hint{margin-right:auto}
+
+/* ---------------- containers widget ---------------- */
+.clist{display:flex;flex-direction:column;gap:calc(var(--u)*1.5);overflow:auto;min-height:0}
+.crow{display:flex;align-items:center;gap:calc(var(--u)*2);padding:calc(var(--u)*1.5);
+      background:var(--sunk);min-width:0}
+.crow .cdot{width:8px;height:8px;flex:none}
+.crow .cdot.up{background:var(--ok)} .crow .cdot.down{background:var(--crit)}
+.crow .cname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+             font-size:calc(13px * var(--ws,1))}
+.crow .cport{font-family:var(--mono);font-size:calc(11px * var(--ws,1));color:var(--text-3);flex:none}
+.crow .cact{font-family:var(--screen);font-weight:600;font-size:calc(10px * var(--ws,1));
+            letter-spacing:.05em;padding:2px 6px;flex:none;
+            border-top:2px solid var(--bevel-lt);border-left:2px solid var(--bevel-lt);
+            border-right:2px solid var(--bevel-dk);border-bottom:2px solid var(--bevel-dk)}
+.crow .cact:hover{background:var(--panel-hi)}
+.crow .cact[disabled]{opacity:.4}
+.csummary{display:flex;gap:calc(var(--u)*2);align-items:baseline;flex:none;flex-wrap:wrap}
