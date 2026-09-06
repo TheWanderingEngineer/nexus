@@ -128,7 +128,7 @@ wssMetrics.on("connection", ws => {
 
   const send = () => {
     if (ws.readyState !== ws.OPEN) return;
-    try { ws.send(JSON.stringify({ type: "metrics", data: metrics.frame(60) })); } catch {}
+    try { ws.send(JSON.stringify({ type: "metrics", data: metrics.frame(240) })); } catch {}
   };
   send();
   const iv = setInterval(send, 2000);
@@ -161,7 +161,7 @@ wssTerminal.on("connection", (ws, req, auth) => {
     return ws.close();
   }
 
-  audit("terminal.open", { sessionId: session.id }, { ...req, user: auth.user });
+  audit("terminal.open", { sessionId: session.id }, req, auth.user);
 
   ws.on("message", (data, isBinary) => {
     if (!isBinary) {
@@ -179,7 +179,7 @@ wssTerminal.on("connection", (ws, req, auth) => {
   });
 
   ws.on("close", () => {
-    audit("terminal.close", { sessionId: session.id, durationSec: Math.round((Date.now() - session.startedAt) / 1000) }, { ...req, user: auth.user });
+    audit("terminal.close", { sessionId: session.id, durationSec: Math.round((Date.now() - session.startedAt) / 1000) }, req, auth.user);
     session.kill();
   });
   ws.on("error", () => session.kill());

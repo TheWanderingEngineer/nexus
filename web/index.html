@@ -13,7 +13,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Pixelify+Sans:wght@400;500;600;700&family=Silkscreen:wght@400;700&display=swap">
 <link rel="stylesheet" href="/vendor/xterm.css">
-<link rel="stylesheet" href="/style.css?v=0.2.0">
+<link rel="stylesheet" href="/style.css?v=0.4.0">
 </head>
 <body>
 
@@ -166,6 +166,13 @@
       <!-- settings -->
       <section class="page" id="page-settings">
         <div class="section">
+          <h2>DISPLAY</h2>
+          <div class="row" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <button class="btn" id="crt-toggle">CRT SCANLINES: OFF</button>
+            <span class="hint">Adds a subtle scanline overlay. Off by default &mdash; it looks good in screenshots and gets tiring to read.</span>
+          </div>
+        </div>
+        <div class="section">
           <h2>SYSTEM</h2>
           <dl class="kv" id="s-system"></dl>
         </div>
@@ -214,6 +221,6 @@
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/xterm-addon-fit.js"></script>
 <script src="/vendor/xterm-addon-web-links.js"></script>
-<script src="/app.js?v=0.2.0"></script>
+<script src="/app.js?v=0.4.0"></script>
 </body>
 </html>

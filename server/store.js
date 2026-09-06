@@ -67,12 +67,12 @@ export function db() { return state; }
 /* ---------- audit ---------- */
 const AUDIT_MAX = 2000;
 
-export function audit(action, detail, req) {
+export function audit(action, detail, req, userOverride) {
   const entry = {
     ts: new Date().toISOString(),
     action,
     detail: detail ?? null,
-    user: req?.user?.username ?? null,
+    user: userOverride?.username ?? req?.user?.username ?? null,
     ip: req ? clientIp(req) : null
   };
   state.audit.unshift(entry);
@@ -82,8 +82,9 @@ export function audit(action, detail, req) {
 }
 
 export function clientIp(req) {
-  const xff = req.headers["x-forwarded-for"];
-  const remote = req.socket?.remoteAddress || "";
+  // Defensive: an audit call must never be the thing that breaks a login.
+  const xff = req?.headers?.["x-forwarded-for"];
+  const remote = req?.socket?.remoteAddress || "";
   // Only believe X-Forwarded-For when the immediate peer is a configured proxy.
   if (xff && cfg.trustedProxies.some(p => remote.includes(p))) {
     return String(xff).split(",")[0].trim();

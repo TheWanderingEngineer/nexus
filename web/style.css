@@ -10,7 +10,7 @@
   --text:#1C1528; --text-2:#4A4063; --text-3:#7A6F96;
   --accent:#0F6E85; --accent-2:#7B3FB8; --on-accent:#FFFFFF;
   --ok:#1F7A45; --warn:#9A6200; --crit:#B32334;
-  --scan:rgba(28,21,40,.05); --scan-blend:multiply;
+  --scan:rgba(28,21,40,.025); --scan-blend:multiply;
   --u:4px;
   --pixel:"Pixelify Sans","Trebuchet MS",system-ui,sans-serif;
   --screen:"Silkscreen","Courier New",monospace;
@@ -23,7 +23,7 @@
   --text:#E8E2F5; --text-2:#A99CC4; --text-3:#6E6291;
   --accent:#4EE1E8; --accent-2:#C77DFF; --on-accent:#14101F;
   --ok:#5CE68A; --warn:#FFC145; --crit:#FF4D5E;
-  --scan:rgba(0,0,0,.22); --scan-blend:normal;
+  --scan:rgba(0,0,0,.10); --scan-blend:normal;
   color-scheme:dark;
 }}
 :root[data-theme="dark"]{
@@ -32,7 +32,7 @@
   --text:#E8E2F5; --text-2:#A99CC4; --text-3:#6E6291;
   --accent:#4EE1E8; --accent-2:#C77DFF; --on-accent:#14101F;
   --ok:#5CE68A; --warn:#FFC145; --crit:#FF4D5E;
-  --scan:rgba(0,0,0,.22); --scan-blend:normal;
+  --scan:rgba(0,0,0,.10); --scan-blend:normal;
   color-scheme:dark;
 }
 
@@ -50,9 +50,12 @@ a{color:var(--accent)}
 .spacer{flex:1}
 [hidden]{display:none!important}
 
-#scan{
+/* Off unless explicitly enabled in Settings. */
+#scan{display:none}
+:root[data-crt="on"] #scan{
+  display:block;
   position:fixed;inset:0;z-index:9999;pointer-events:none;
-  background:repeating-linear-gradient(var(--scan) 0 1px,transparent 1px 3px);
+  background:repeating-linear-gradient(var(--scan) 0 1px,transparent 1px 4px);
   mix-blend-mode:var(--scan-blend);
 }
 

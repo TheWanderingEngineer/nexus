@@ -181,26 +181,73 @@ setInterval(() => {
 }, 1000);
 
 /* ============================ charts ============================ */
-function stepPath(vals, w, h, maxV) {
+/**
+ * Charts are drawn at the element's REAL pixel size — viewBox matches the
+ * measured box 1:1, so nothing is scaled.
+ *
+ * The previous version drew into a fixed 120x40 viewBox and stretched it with
+ * preserveAspectRatio="none". On a 1000px-wide widget that magnified every
+ * sample into an ~8px block: not a stylistic choice, just a low-resolution
+ * image scaled up. Matching the viewBox to the box, and feeding it more
+ * samples, gives a crisp line that still steps — the aesthetic survives, the
+ * blockiness does not.
+ */
+function linePath(vals, w, h, maxV, pad) {
   if (!vals.length) return "";
-  const n = vals.length, sw = w / Math.max(1, n - 1);
+  const n = vals.length;
+  const sw = w / Math.max(1, n - 1);
+  const usable = h - pad * 2;
   let d = "";
   for (let i = 0; i < n; i++) {
-    const y = Math.round(h - (clamp(vals[i], 0, maxV) / maxV) * (h - 2)) - 1;
-    const x = Math.round(i * sw);
-    d += i === 0 ? `M${x},${y}` : `H${x}V${y}`;
+    // Sub-pixel coordinates on purpose: rounding to integers is what made the
+    // old chart look like a staircase. Anti-aliasing does the rest.
+    const y = (pad + usable - (clamp(vals[i], 0, maxV) / maxV) * usable).toFixed(1);
+    const x = (i * sw).toFixed(1);
+    d += i === 0 ? `M${x},${y}` : `L${x},${y}`;
   }
   return d;
 }
-function drawChart(svg, vals, maxV, color) {
-  const w = 120, h = 40;
+
+function drawChart(svg, vals, maxV, color, opts = {}) {
+  const r = svg.getBoundingClientRect();
+  // A hidden or not-yet-laid-out widget measures zero; skip rather than draw junk.
+  if (r.width < 8 || r.height < 8) return;
+
+  const w = Math.round(r.width);
+  const h = Math.round(r.height);
+  const pad = 3;
+  const max = maxV || 1;
+
   svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
   svg.setAttribute("preserveAspectRatio", "none");
-  svg.setAttribute("shape-rendering", "crispEdges");
-  const line = stepPath(vals, w, h, maxV || 1);
-  svg.innerHTML = line
-    ? `<path d="${line} V${h} H0 Z" fill="${color}" fill-opacity="0.16"/><path d="${line}" fill="none" stroke="${color}" stroke-width="2"/>`
-    : "";
+  // geometricPrecision, not crispEdges: we want the line anti-aliased and smooth.
+  svg.setAttribute("shape-rendering", "geometricPrecision");
+
+  if (!vals.length) { svg.innerHTML = ""; return; }
+
+  const line = linePath(vals, w, h, max, pad);
+
+  // Grid stays on crisp integer pixels so it reads as a ruled background rather
+  // than a set of blurry grey smears.
+  const grid = [0.25, 0.5, 0.75]
+    .map(f => {
+      const y = Math.round(pad + (h - pad * 2) * f) + 0.5;
+      return `<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="${cssv("--rule")}" stroke-width="1" opacity="0.45" shape-rendering="crispEdges"/>`;
+    }).join("");
+
+  const lastY = (pad + (h - pad * 2) - (clamp(vals[vals.length - 1], 0, max) / max) * (h - pad * 2)).toFixed(1);
+
+  svg.innerHTML =
+    grid +
+    `<path d="${line} L${w},${h} L0,${h} Z" fill="${color}" fill-opacity="0.13"/>` +
+    `<path d="${line}" fill="none" stroke="${color}" stroke-width="1.75"
+           stroke-linejoin="round" stroke-linecap="round"/>` +
+    // Current value, marked so you can read the number off the end of the line.
+    `<circle cx="${w - 2}" cy="${lastY}" r="2.25" fill="${color}"/>` +
+    (opts.maxLabel
+      ? `<text x="3" y="${pad + 9}" font-family="IBM Plex Mono, monospace" font-size="9.5"
+               fill="${cssv("--text-3")}">${esc(opts.maxLabel)}</text>`
+      : "");
 }
 const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 
@@ -221,7 +268,7 @@ const REG = {
     mount(b) { b.innerHTML = '<div class="big"><span class="n">--</span><span class="u">%</span></div><svg class="chart"></svg><span class="sub"></span>';
       return { n: $(".n", b), svg: $("svg", b), sub: $(".sub", b) }; },
     update(r) { r.n.textContent = Math.round(LIVE.cpu);
-      drawChart(r.svg, LIVE.history.cpu, 100, cssv("--accent"));
+      drawChart(r.svg, LIVE.history.cpu, 100, cssv("--accent"), { maxLabel: "100%" });
       const t = LIVE.sensors.find(s => s.kind === "temperature");
       r.sub.textContent = `${LIVE.info?.cpu?.cores || "?"} cores${t ? " · " + Math.round(t.value) + "°C" : ""}`; } },
 
@@ -248,7 +295,7 @@ const REG = {
     update(r) {
       r.n.textContent = rate(LIVE.net.rx).replace("/s", "");
       const max = Math.max(1024, ...(LIVE.history.rx || [0]));
-      drawChart(r.svg, LIVE.history.rx, max, cssv("--accent-2"));
+      drawChart(r.svg, LIVE.history.rx, max, cssv("--accent-2"), { maxLabel: bytes(max) + "/s" });
       r.sub.textContent = `↑ ${rate(LIVE.net.tx)}`; } },
 
   sensors: { name: "Sensors", icon: ICON("temp"), desc: "Temperatures and fans", w: 4, h: 4,
@@ -643,6 +690,17 @@ on("#t-clear", "click", () => { if (term) term.clear(); });
 addEventListener("resize", () => { if (term && $("#page-term").classList.contains("on")) fitTerm(); });
 
 async function loadSettings() {
+  const crtBtn = $("#crt-toggle");
+  if (crtBtn && !crtBtn.dataset.wired) {
+    crtBtn.dataset.wired = "1";
+    const paint = () => {
+      crtBtn.textContent = "CRT SCANLINES: " +
+        (document.documentElement.getAttribute("data-crt") === "on" ? "ON" : "OFF");
+    };
+    paint();
+    crtBtn.addEventListener("click", () => { toggleCRT(); paint(); });
+  }
+
   const i = LIVE.info || (LIVE.info = await api("/system/info").catch(() => null));
   if (!i) return;
   $("#s-system").innerHTML = [
@@ -1088,6 +1146,15 @@ on("#theme", "click", () => {
   if (term) { term.options.theme = termTheme(); }
 });
 try { const t = localStorage.getItem("nexus.theme"); if (t) document.documentElement.setAttribute("data-theme", t); } catch {}
+try { if (localStorage.getItem("nexus.crt") === "on") document.documentElement.setAttribute("data-crt", "on"); } catch {}
+
+function toggleCRT() {
+  const r = document.documentElement;
+  const on = r.getAttribute("data-crt") === "on";
+  if (on) r.removeAttribute("data-crt"); else r.setAttribute("data-crt", "on");
+  try { localStorage.setItem("nexus.crt", on ? "off" : "on"); } catch {}
+  return !on;
+}
 
 on("#add", "click", () => $("#drawer").classList.add("open"));
 on("#dclose", "click", () => $("#drawer").classList.remove("open"));
@@ -1100,7 +1167,7 @@ on("#reset", "click", async () => {
   items.forEach(it => build(it, true));
   compact(); layout();
 });
-addEventListener("resize", () => layout(false));
+addEventListener("resize", () => { layout(false); renderWidgets(); });
 
 /* ============================ start ============================ */
 async function start() {

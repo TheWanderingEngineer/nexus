@@ -71,7 +71,7 @@ export default function routes() {
     user.lastLoginAt = Date.now();
     const s = createSession(user, req);
     setSessionCookies(req, res, s);
-    audit("auth.login", null, { ...req, user });
+    audit("auth.login", null, req, user);
     res.json({ ok: true, user: { id: user.id, username: user.username }, csrf: s.csrf });
   }));
 
