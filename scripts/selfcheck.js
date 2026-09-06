@@ -51,6 +51,12 @@ function waitForPort(port, timeoutMs = 600000) {
   const started = Date.now();
   return new Promise((resolve, reject) => {
     (function attempt() {
+      // If the server process has already died there is nothing to wait for.
+      // Without this the harness sat here for ten minutes while the real answer
+      // ("Cannot find package 'yaml'") was already sitting in its stderr.
+      if (childExited !== null) {
+        return reject(new Error(`server process exited with code ${childExited} before it could listen`));
+      }
       const s = net.connect(port, "127.0.0.1");
       s.on("connect", () => { s.destroy(); resolve(); });
       s.on("error", () => {
@@ -62,13 +68,27 @@ function waitForPort(port, timeoutMs = 600000) {
   });
 }
 
+// Dependencies must exist before anything else is worth trying. `install.sh`
+// installs into /opt/nexus, so a fresh git clone you run tests from has no
+// node_modules of its own — an easy and confusing thing to trip over.
+if (!fs.existsSync(path.join(ROOT, "node_modules"))) {
+  console.error("\n  Dependencies are not installed in this directory.\n");
+  console.error("  Run this first:\n");
+  console.error("      npm install\n");
+  console.error("  (scripts/install.sh installs into /opt/nexus, not into your clone.)\n");
+  process.exit(1);
+}
+
 const child = spawn(process.execPath, [path.join(ROOT, "server", "index.js")], {
   env: { ...process.env, NEXUS_PORT: String(PORT), NEXUS_HOST: "127.0.0.1", NEXUS_DATA_DIR: DATA },
   stdio: ["ignore", "pipe", "pipe"]
 });
 let serverLog = "";
+let childExited = null;
 child.stdout.on("data", d => { serverLog += d; });
 child.stderr.on("data", d => { serverLog += d; });
+child.on("exit", code => { childExited = code ?? 0; });
+child.on("error", err => { childExited = -1; serverLog += `\nfailed to spawn server: ${err.message}\n`; });
 
 function cleanup(code) {
   try { child.kill("SIGTERM"); } catch {}

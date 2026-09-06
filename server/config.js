@@ -39,12 +39,28 @@ const DEFAULTS = {
 };
 
 function readFileIfPresent(p) {
+  let raw;
   try {
-    if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, "utf8"));
+    if (!fs.existsSync(p)) return null;
+    raw = fs.readFileSync(p, "utf8");
+  } catch (err) {
+    // Reporting "not valid JSON" for a permission error sends you looking for a
+    // syntax mistake that is not there. Say what actually happened.
+    if (err.code === "EACCES" || err.code === "EPERM") {
+      console.error(`[config] cannot read ${p}: permission denied — using defaults.`);
+      console.error("[config] the config is root-owned (mode 600) because it can hold secrets;");
+      console.error("[config] running a dev script as a normal user cannot read it. That is expected.");
+    } else {
+      console.error(`[config] cannot read ${p}: ${err.message} — using defaults.`);
+    }
+    return null;
+  }
+  try {
+    return JSON.parse(raw);
   } catch (err) {
     console.error(`[config] ${p} is not valid JSON — ignoring it: ${err.message}`);
+    return null;
   }
-  return null;
 }
 
 function deepMerge(base, over) {

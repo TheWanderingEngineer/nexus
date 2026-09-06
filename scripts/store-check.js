@@ -12,6 +12,28 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { fileURLToPath } from "node:url";
+
+// Dependencies must exist before the dynamic imports below are attempted.
+// scripts/install.sh installs into /opt/nexus, so a fresh clone you run tests
+// from has no node_modules of its own — otherwise you get a raw
+// ERR_MODULE_NOT_FOUND stack trace instead of a useful instruction.
+const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+if (!fs.existsSync(path.join(ROOT, "node_modules"))) {
+  console.error([
+    "",
+    "  Dependencies are not installed in this directory.",
+    "",
+    "  Run this first:",
+    "",
+    "      npm install",
+    "",
+    "  (scripts/install.sh installs into /opt/nexus, not into your clone.)",
+    ""
+  ].join("\n"));
+  process.exit(1);
+}
+
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-store-"));
 process.env.NEXUS_DATA_DIR = DATA;
 process.env.NEXUS_PORT = "8199";

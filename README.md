@@ -164,11 +164,23 @@ can be switched off with `terminal.enabled: false`.
 ## Development
 
 ```bash
-npm install
+npm install          # REQUIRED FIRST — see note below
 npm run dev          # auto-restarts on change
 npm run check        # end-to-end self test
 npm run store-check  # clones the real CasaOS store and validates the adapter
 ```
+
+> **`scripts/install.sh` does not install dependencies into your clone.** It
+> copies the app to `/opt/nexus` and runs `npm ci` *there*, because that is what
+> the systemd service executes. Your git checkout keeps no `node_modules` of its
+> own, so `npm install` is a separate step before any of the dev scripts will
+> run. Both test scripts now check for this and say so rather than failing with
+> a module-resolution stack trace.
+
+Running a dev script as your normal user will also print a line about not being
+able to read `/etc/nexus/config.json`. That is correct and harmless — the config
+is root-owned `600` because it can contain secrets, so the scripts fall back to
+defaults with a scratch data directory.
 
 `npm run check` boots a real server on a scratch port and exercises the auth
 flow, CSRF enforcement, the path jail, the WebSocket origin check and the store
