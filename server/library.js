@@ -291,6 +291,28 @@ export function getApp(libraryId, slug) {
   return (db().catalog || []).find(a => a.libraryId === libraryId && a.slug === slug) || null;
 }
 
+/**
+ * Every placeholder a compose file expects somebody else to fill in.
+ *
+ * CasaOS substitutes these before compose ever sees the file, so its templates
+ * are full of `$PUID`, `$TZ` and `$AppID` with nothing behind them. Listing them
+ * lets the install dialog show what an app is actually asking for, instead of
+ * rendering blanks and leaving you to find the warnings afterwards.
+ */
+export function detectVars(text) {
+  const found = new Set();
+  // ${NAME}, ${NAME:-default}, or bare $NAME.
+  const re = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?-[^}]*)?\}|\$([A-Za-z_][A-Za-z0-9_]*)/g;
+  let m;
+  while ((m = re.exec(String(text || "")))) {
+    const name = m[1] || m[2];
+    // Compose's own runtime variables are not ours to prompt for.
+    if (/^(COMPOSE_|DOCKER_)/.test(name)) continue;
+    found.add(name);
+  }
+  return [...found].slice(0, 20);
+}
+
 export async function readCompose(app) {
   return fsp.readFile(app.composePath, "utf8");
 }

@@ -21,6 +21,61 @@ const ICON = n => `/assets/brand/icons/ui-${n}.png`;
 
 let CSRF = null;
 
+/* ============================ tooltips ============================ */
+/**
+ * One floating tip, driven by `data-tip` anywhere in the document.
+ *
+ * Delegated rather than per-element, so markup rendered later (widgets, table
+ * rows, control-panel rules) gets tooltips for free. Native `title` was the
+ * alternative: it cannot be styled to match anything, and its delay is a browser
+ * preference rather than ours.
+ */
+const tipEl = document.createElement("div");
+tipEl.id = "tip";
+tipEl.setAttribute("role", "tooltip");
+document.body.appendChild(tipEl);
+
+let tipTimer = null, tipFor = null;
+
+function hideTip() {
+  clearTimeout(tipTimer);
+  tipFor = null;
+  tipEl.classList.remove("on");
+}
+
+function showTip(target) {
+  const text = target.getAttribute("data-tip");
+  if (!text) return;
+  tipEl.textContent = text;
+  tipEl.classList.add("on");
+
+  const r = target.getBoundingClientRect();
+  const t = tipEl.getBoundingClientRect();
+  // Prefer below; flip above when there is no room, which is what happens to
+  // anything in the top bar.
+  let top = r.bottom + 8;
+  if (top + t.height > innerHeight - 8) top = r.top - t.height - 8;
+  const left = clamp(r.left + r.width / 2 - t.width / 2, 8, innerWidth - t.width - 8);
+  tipEl.style.left = Math.round(left) + "px";
+  tipEl.style.top = Math.round(Math.max(8, top)) + "px";
+}
+
+addEventListener("pointerover", e => {
+  const t = e.target?.closest?.("[data-tip]");
+  if (!t || t === tipFor) return;
+  hideTip();
+  tipFor = t;
+  // Long enough that tips do not flicker up while the pointer crosses the page.
+  tipTimer = setTimeout(() => { if (tipFor === t && t.isConnected) showTip(t); }, 380);
+});
+addEventListener("pointerout", e => {
+  const t = e.target?.closest?.("[data-tip]");
+  if (t && t === tipFor) hideTip();
+});
+addEventListener("pointerdown", hideTip, true);
+addEventListener("scroll", hideTip, true);
+addEventListener("keydown", e => { if (e.key === "Escape") hideTip(); });
+
 function toast(msg, kind) {
   const el = document.createElement("div");
   el.className = "toast" + (kind ? " " + kind : "");
@@ -356,7 +411,21 @@ function closeCtx() { ctx.classList.remove("open"); ctxItems = []; }
 ctx.addEventListener("click", e => { e.nexusInCtx = true; }, true);
 addEventListener("click", e => { if (!e.nexusInCtx && !e.target.closest("#ctx")) closeCtx(); });
 addEventListener("keydown", e => { if (e.key === "Escape") closeCtx(); });
-addEventListener("scroll", closeCtx, true);
+
+/**
+ * Scrolling the page closes the menu, because the menu is fixed to the viewport
+ * and the widget it belongs to would slide out from under it.
+ *
+ * Scrolling INSIDE the menu must not. The tick list is its own scroll container,
+ * and this listener is in the capture phase, so without the check a host with a
+ * dozen sensors gets a menu that shuts itself the instant you try to reach the
+ * channel at the bottom of the list.
+ */
+addEventListener("scroll", e => {
+  const t = e.target;
+  if (t && t.nodeType === 1 && t.closest && t.closest("#ctx")) return;
+  closeCtx();
+}, true);
 
 /**
  * Opens the widget menu for one widget or for a whole selection.
@@ -997,7 +1066,13 @@ function build(it, animate) {
   const el = document.createElement("div");
   el.className = "w" + (animate ? " spawn" : "") + (selection.has(it.id) ? " selected" : "");
   el.id = "w" + it.id;
-  el.innerHTML = `<div class="w-head"><img src="${def.icon}" alt=""><span class="t">${esc(def.name.toUpperCase())}</span><button class="w-x" title="Remove">X</button></div><div class="w-body"></div><div class="w-rs"></div>`;
+  el.innerHTML =
+    `<div class="w-head" data-tip="${esc(def.desc)} — drag anywhere on the widget to move it, right-click for settings">` +
+      `<img src="${def.icon}" alt=""><span class="t">${esc(def.name.toUpperCase())}</span>` +
+      `<button class="w-x" data-tip="Remove this widget">X</button>` +
+    `</div>` +
+    `<div class="w-body"></div>` +
+    `<div class="w-rs" data-tip="Drag to resize"></div>`;
   gridEl.appendChild(el);
   applyCfg(el, it);
   mounted[it.id] = { def, ref: def.mount($(".w-body", el), cfgOf(it)), it };
@@ -1096,13 +1171,18 @@ function renderWidgets() {
   }
 }
 
+/** Things inside a widget that own their own click and must not start a drag. */
+const NO_DRAG = "button, a, input, select, textarea, .w-rs, [contenteditable]";
+
 function dragify(el, it) {
-  const head = $(".w-head", el);
-  head.addEventListener("pointerdown", e => {
-    if (e.target.closest(".w-x")) return;
+  // The whole widget is the drag handle, not just its title bar. The guards
+  // below are what make that safe: interactive children keep their click, and
+  // nothing moves until the pointer has actually travelled, so a plain click
+  // inside a widget still behaves like a click.
+  el.addEventListener("pointerdown", e => {
+    if (e.button !== 0) return;
+    if (e.target.closest(NO_DRAG)) return;
     if (e.ctrlKey || e.metaKey) return;      // that gesture is "select", not "move"
-    e.preventDefault();
-    head.setPointerCapture(e.pointerId);
 
     // Dragging any member of a selection moves the whole selection by the same
     // offset. Everything is computed from one shared delta so the group keeps
@@ -1118,9 +1198,26 @@ function dragify(el, it) {
     const maxRight = Math.max(...group.map(g => g.x + g.w));
     const minY = Math.min(...group.map(g => g.y));
 
-    group.forEach(g => document.getElementById("w" + g.id)?.classList.add("dragging"));
+    // 5px of slack. Without it, one stray pixel between press and release on a
+    // widget body counts as a drag, and widgets creep every time you click one.
+    const THRESHOLD = 5;
+    let dragging = false;
+
+    // Capture straight away, before the threshold is crossed. Without it, a fast
+    // flick off the widget delivers its pointermove and pointerup somewhere else
+    // entirely — the drag never starts and the listeners below never come off.
+    try { el.setPointerCapture(e.pointerId); } catch {}
+
+    const begin = () => {
+      dragging = true;
+      group.forEach(g => document.getElementById("w" + g.id)?.classList.add("dragging"));
+    };
 
     const mv = ev => {
+      if (!dragging) {
+        if (Math.abs(ev.clientX - sx) < THRESHOLD && Math.abs(ev.clientY - sy) < THRESHOLD) return;
+        begin();
+      }
       const dx = clamp(Math.round((ev.clientX - sx) / (cw + GAP)), -minX, COLS - maxRight);
       const dy = Math.max(-minY, Math.round((ev.clientY - sy) / (ROW + GAP)));
       let changed = false;
@@ -1132,13 +1229,20 @@ function dragify(el, it) {
       if (changed) { resolve(ids); layout(false); }
       group.forEach(g => { const ge = document.getElementById("w" + g.id); if (ge) place(ge, g); });
     };
+
     const up = () => {
-      head.releasePointerCapture(e.pointerId);
-      head.removeEventListener("pointermove", mv); head.removeEventListener("pointerup", up); head.removeEventListener("pointercancel", up);
+      el.removeEventListener("pointermove", mv);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+      try { el.releasePointerCapture(e.pointerId); } catch {}
+      if (!dragging) return;                 // it was a click after all
       group.forEach(g => document.getElementById("w" + g.id)?.classList.remove("dragging"));
       layout();
     };
-    head.addEventListener("pointermove", mv); head.addEventListener("pointerup", up); head.addEventListener("pointercancel", up);
+
+    el.addEventListener("pointermove", mv);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
   });
 }
 function resizify(el, it) {
@@ -1184,17 +1288,43 @@ async function loadContainers() {
         <td class="mono">${esc(c.image)}</td>
         <td><span class="pill ${up ? "ok" : "crit"}"><i class="dot"></i>${esc(c.state.toUpperCase())}</span></td>
         <td class="mono">${esc(ports)}</td>
-        <td><span class="pill idle">${esc((c.managedBy || "manual").toUpperCase())}</span></td>
+        <td><span class="pill idle" data-tip="${esc(managedTip(c.managedBy))}">${esc((c.managedBy || "manual").toUpperCase())}</span></td>
         <td><div class="rowbtns">
-          <button class="btn sm" data-act="${up ? "stop" : "start"}" data-id="${esc(c.id)}">${up ? "STOP" : "START"}</button>
-          <button class="btn sm" data-act="restart" data-id="${esc(c.id)}">RESTART</button>
+          <button class="btn sm" data-act="${up ? "stop" : "start"}" data-id="${esc(c.id)}"
+                  data-tip="${up ? "Stop this container" : "Start this container"}">${up ? "STOP" : "START"}</button>
+          <button class="btn sm" data-act="restart" data-id="${esc(c.id)}"
+                  data-tip="Stop and start it again">RESTART</button>
+          <button class="btn sm danger" data-rm="${esc(c.id)}" data-nm="${esc(c.name)}"
+                  data-tip="Delete the container. Images and volumes are kept.">REMOVE</button>
         </div></td></tr>`;
     }).join("") || `<tr><td colspan="6" class="empty">NO CONTAINERS</td></tr>`;
   } catch (e) {
     box.innerHTML = `<div class="empty">${esc(e.message).toUpperCase()}</div>`;
   }
 }
+/** Where a container came from, in one line. */
+function managedTip(kind) {
+  if (kind === "nexus") return "Installed through the Nexus app store.";
+  if (kind === "casaos") return "Installed through CasaOS. Nexus reads its labels but does not manage it.";
+  return "Started by hand or by another tool. Nexus will not touch it unless you ask.";
+}
+
 on("#c-table", "click", async e => {
+  const rm = e.target.closest("button[data-rm]");
+  if (rm) {
+    // The list also shows containers Nexus did not create — including debris
+    // from an install that failed partway — so removal has to be available here
+    // rather than only through the app store's uninstall.
+    if (!confirm(`Delete the container "${rm.dataset.nm}"?\n\nIts image and any named volumes stay on disk. This does not uninstall an app that Nexus manages — use the app store for that.`)) return;
+    rm.disabled = true;
+    try {
+      await api(`/docker/containers/${encodeURIComponent(rm.dataset.rm)}`, { method: "DELETE" });
+      toast("CONTAINER REMOVED", "ok");
+      setTimeout(loadContainers, 500);
+    } catch (ex) { toast(ex.message.toUpperCase(), "err"); rm.disabled = false; }
+    return;
+  }
+
   const b = e.target.closest("button[data-act]");
   if (!b) return;
   b.disabled = true;
@@ -1926,7 +2056,13 @@ async function openAppDetail(a) {
   let full = a;
   try { full = await api(`/store/apps/${encodeURIComponent(a.libraryId)}/${encodeURIComponent(a.slug)}`); } catch {}
 
-  const params = full.params || [];
+  // Nexus-format apps declare their own params. CasaOS templates declare
+  // nothing, so the server reports the placeholders it found in the compose file
+  // along with what it would substitute — shown here as editable fields so PUID
+  // and TZ are a decision rather than a surprise.
+  const params = (full.params || []).length
+    ? full.params
+    : (full.vars || []).map(v => ({ key: v.name, label: v.name, default: v.value }));
   const body = document.createElement("div");
   body.style.cssText = "display:flex;flex-direction:column;gap:16px";
   body.innerHTML = `
@@ -1977,14 +2113,54 @@ async function openAppDetail(a) {
 }
 
 /* ---- install with live job output ---- */
+
+/**
+ * Progress ring.
+ *
+ * The number is real: the server parses Docker's own per-layer pull output and
+ * averages it. Nothing here animates on a timer — if the ring is not moving,
+ * neither is the download, and that is worth being able to see.
+ */
+const RING_R = 52;
+const RING_C = 2 * Math.PI * RING_R;
+
 function jobModal(title) {
   const body = document.createElement("div");
-  body.innerHTML = `<div class="joblog" id="job-log"><pre></pre></div>`;
+  body.innerHTML = `
+    <div class="jobwrap">
+      <div class="donut">
+        <svg viewBox="0 0 128 128" role="img" aria-label="Install progress">
+          <circle class="track" cx="64" cy="64" r="${RING_R}"></circle>
+          <circle class="fill" id="job-ring" cx="64" cy="64" r="${RING_R}"
+                  stroke-dasharray="${RING_C.toFixed(1)}" stroke-dashoffset="${RING_C.toFixed(1)}"></circle>
+        </svg>
+        <div class="dnum"><span id="job-pct">0</span><i>%</i></div>
+      </div>
+      <div class="jobmeta">
+        <span class="jphase" id="job-phase">preparing…</span>
+        <span class="hint">Layers are pulled first, then the containers are created and started.</span>
+      </div>
+    </div>
+    <div class="joblog" id="job-log"><pre></pre></div>`;
   const foot = document.createElement("div");
   foot.innerHTML = `<button class="btn" id="job-close">CLOSE</button>`;
   openModal({ title, body, foot });
   on("#job-close", "click", closeModal);
   return $("#job-log pre");
+}
+
+/** Moves the ring. `state` tints it for the terminal outcomes. */
+function setJobProgress(pct, phase, state) {
+  const ring = $("#job-ring");
+  if (!ring) return;                       // the modal was closed mid-install
+  const p = clamp(Number(pct) || 0, 0, 100);
+  ring.style.strokeDashoffset = String(RING_C * (1 - p / 100));
+  const num = $("#job-pct");
+  if (num) num.textContent = Math.round(p);
+  const ph = $("#job-phase");
+  if (ph && phase) ph.textContent = phase;
+  const wrap = $(".jobwrap");
+  if (wrap && state) wrap.className = "jobwrap " + state;
 }
 
 const activeJobs = new Map();
@@ -2052,9 +2228,13 @@ function connectEvents() {
     const d = msg.data;
     const write = activeJobs.get(String(d.id));
     if (write) {
+      if (typeof d.progress === "number") setJobProgress(d.progress, d.phase);
       if (d.line) write(d.line, d.status === "error" ? "errl" : d.done ? "okl" : "");
       if (d.done) {
         activeJobs.delete(String(d.id));
+        setJobProgress(d.status === "success" ? 100 : (d.progress ?? 0),
+                       d.status === "success" ? "done" : "failed",
+                       d.status === "success" ? "ok" : "err");
         refreshInstalled();
         if (d.status === "success") toast("DONE", "ok"); else toast("FAILED", "err");
       }

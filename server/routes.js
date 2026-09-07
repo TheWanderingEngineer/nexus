@@ -282,7 +282,16 @@ export default function routes() {
     if (!app) return res.status(404).json({ error: "not found" });
     let compose = null;
     try { compose = await library.readCompose(app); } catch {}
-    res.json({ ...app, compose });
+
+    // What the template expects somebody to fill in, and what we would use if
+    // nobody did. Sent together so the install dialog can show real values
+    // rather than the app quietly rendering blanks.
+    const defaults = apps.defaultVars(app.slug);
+    const vars = compose
+      ? library.detectVars(compose).map(name => ({ name, value: defaults[name] ?? "" }))
+      : [];
+
+    res.json({ ...app, compose, vars });
   }));
 
   r.post("/store/install", wrap(async (req, res) => {

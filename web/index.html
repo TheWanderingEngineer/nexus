@@ -13,7 +13,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Silkscreen:wght@400;700&display=swap">
 <link rel="stylesheet" href="/vendor/xterm.css">
-<link rel="stylesheet" href="/style.css?v=0.8.0">
+<link rel="stylesheet" href="/style.css?v=0.9.0">
 </head>
 <body>
 
@@ -52,13 +52,13 @@
     <img id="logo" src="/assets/brand/nexus-logo.png" alt="Nexus">
     <span class="brand">NEXUS<span class="v">v0.1</span></span>
     <span class="spacer"></span>
-    <span class="stat" id="st-state"><i class="dot live" style="color:var(--ok)"></i><span>LIVE</span></span>
-    <span class="stat">CPU <b id="tb-cpu">--</b></span>
-    <span class="stat opt">RAM <b id="tb-mem">--</b></span>
-    <span class="stat opt">TEMP <b id="tb-temp">--</b></span>
-    <span id="clock">--:--:--</span>
-    <button class="btn" id="theme">THEME</button>
-    <button class="btn" id="logout">EXIT</button>
+    <span class="stat" id="st-state" data-tip="Live metrics stream. Goes red if the connection to the server drops."><i class="dot live" style="color:var(--ok)"></i><span>LIVE</span></span>
+    <span class="stat" data-tip="Whole-host CPU usage, refreshed every 2 seconds.">CPU <b id="tb-cpu">--</b></span>
+    <span class="stat opt" data-tip="Memory in use, not counting cache.">RAM <b id="tb-mem">--</b></span>
+    <span class="stat opt" data-tip="The hottest temperature sensor on the box right now.">TEMP <b id="tb-temp">--</b></span>
+    <span id="clock" data-tip="Your local time, from this browser.">--:--:--</span>
+    <button class="btn" id="theme" data-tip="Switch between the dark CRT and the light workstation theme.">THEME</button>
+    <button class="btn" id="logout" data-tip="Sign out of Nexus.">EXIT</button>
   </div>
 
   <div id="body">
@@ -80,28 +80,28 @@
         <h1 id="page-title">DASHBOARD</h1>
         <span class="spacer"></span>
         <div id="tools-dash">
-          <button class="btn" id="add">+ ADD WIDGET</button>
-          <button class="btn" id="reset">RESET</button>
+          <button class="btn" id="add" data-tip="Open the widget library.">+ ADD WIDGET</button>
+          <button class="btn" id="reset" data-tip="Restore the default layout and close any gaps. Your widget styling is discarded.">RESET</button>
         </div>
         <div id="tools-containers" hidden>
-          <button class="btn" id="c-refresh">REFRESH</button>
+          <button class="btn" id="c-refresh" data-tip="Re-read the container list from Docker.">REFRESH</button>
         </div>
         <div id="tools-files" hidden>
-          <button class="btn" id="f-up">PARENT</button>
-          <button class="btn" id="f-mkdir">NEW FOLDER</button>
+          <button class="btn" id="f-up" data-tip="Go up one folder. Stops at your configured roots.">PARENT</button>
+          <button class="btn" id="f-mkdir" data-tip="Create a folder here.">NEW FOLDER</button>
         </div>
         <div id="tools-store" hidden>
-          <button class="btn" id="st-installed-btn">INSTALLED</button>
-          <button class="btn" id="st-github">+ FROM GITHUB</button>
-          <button class="btn" id="st-libs">LIBRARIES</button>
+          <button class="btn" id="st-installed-btn" data-tip="Apps installed through Nexus, and how to remove them.">INSTALLED</button>
+          <button class="btn" id="st-github" data-tip="Install from a repo, a compose URL, or pasted YAML.">+ FROM GITHUB</button>
+          <button class="btn" id="st-libs" data-tip="Add or sync the git repositories the catalogue is built from.">LIBRARIES</button>
         </div>
         <div id="tools-term" hidden>
-          <button class="btn" id="t-new">NEW SESSION</button>
-          <button class="btn" id="t-clear">CLEAR</button>
+          <button class="btn" id="t-new" data-tip="Close this shell and open a fresh one.">NEW SESSION</button>
+          <button class="btn" id="t-clear" data-tip="Wipe the screen. The session keeps running.">CLEAR</button>
         </div>
         <div id="tools-control" hidden>
-          <button class="btn" id="cp-new-rule">+ NEW RULE</button>
-          <button class="btn" id="cp-new-task">+ NEW TASK</button>
+          <button class="btn" id="cp-new-rule" data-tip="Watch something and act when it stays wrong.">+ NEW RULE</button>
+          <button class="btn" id="cp-new-task" data-tip="Restart a container on a schedule.">+ NEW TASK</button>
         </div>
       </div>
 
@@ -186,8 +186,8 @@
           <p class="hint">What has tripped, newest first. Kept on the server, so this survives a reload
              &mdash; and a restart.</p>
           <div class="rowbtns" style="margin:8px 0 12px">
-            <button class="btn" id="cp-ack">MARK ALL READ</button>
-            <button class="btn danger" id="cp-clear">CLEAR HISTORY</button>
+            <button class="btn" id="cp-ack" data-tip="Mark every alert as seen. Nothing is deleted.">MARK ALL READ</button>
+            <button class="btn danger" id="cp-clear" data-tip="Delete the alert history permanently.">CLEAR HISTORY</button>
           </div>
           <div id="cp-alerts"></div>
         </div>
@@ -221,7 +221,7 @@
         <div class="section">
           <h2>DISPLAY</h2>
           <div class="row" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-            <button class="btn" id="crt-toggle">CRT SCANLINES: OFF</button>
+            <button class="btn" id="crt-toggle" data-tip="A scanline overlay. Looks good in screenshots, tiring to read through.">CRT SCANLINES: OFF</button>
             <span class="hint">Adds a subtle scanline overlay. Off by default &mdash; it looks good in screenshots and gets tiring to read.</span>
           </div>
         </div>
@@ -284,6 +284,6 @@
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/xterm-addon-fit.js"></script>
 <script src="/vendor/xterm-addon-web-links.js"></script>
-<script src="/app.js?v=0.8.0"></script>
+<script src="/app.js?v=0.9.0"></script>
 </body>
 </html>

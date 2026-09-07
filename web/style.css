@@ -792,3 +792,70 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
    to start a rubber-band drag from. Without this, a short listing has no empty
    space inside #page-files at all and the marquee has nowhere to begin. */
 #page-files .tw{min-height:56vh}
+
+/* ============================================================
+   TOOLTIPS
+   One floating element, driven by [data-tip]. Native title= could not be
+   styled to match anything here, and its delay is the browser's preference
+   rather than ours.
+   ============================================================ */
+#tip{
+  position:fixed;z-index:1200;max-width:290px;
+  padding:calc(var(--u)*1.5) calc(var(--u)*2.5);
+  background:var(--panel-hi);color:var(--text);
+  font-size:12px;line-height:1.45;
+  border-top:2px solid var(--bevel-lt);border-left:2px solid var(--bevel-lt);
+  border-right:2px solid var(--bevel-dk);border-bottom:2px solid var(--bevel-dk);
+  opacity:0;visibility:hidden;pointer-events:none;
+  transition:opacity .09s steps(2,end);
+}
+#tip.on{opacity:1;visibility:visible}
+
+/* ============================================================
+   DRAG THE WHOLE WIDGET
+   The body is a drag handle now, so it must not look like selectable text —
+   but everything inside it that owns a click keeps its own cursor.
+   ============================================================ */
+.w{cursor:grab;user-select:none}
+.w.dragging{cursor:grabbing}
+.w button,.w a,.w input,.w select,.w textarea{cursor:pointer}
+.w .w-rs{cursor:nwse-resize}
+#grid.stack .w{cursor:default}
+
+/* ============================================================
+   INSTALL PROGRESS RING
+   The number is parsed from Docker's own per-layer pull output, so an idle
+   ring means an idle download. Nothing here is on a timer.
+   ============================================================ */
+.jobwrap{
+  display:flex;align-items:center;gap:calc(var(--u)*5);flex-wrap:wrap;
+  padding:calc(var(--u)*3);margin-bottom:calc(var(--u)*3);background:var(--sunk);
+}
+.donut{position:relative;width:128px;height:128px;flex:none}
+.donut svg{width:100%;height:100%;transform:rotate(-90deg)}
+.donut circle{fill:none;stroke-width:12}
+.donut .track{stroke:var(--rule);opacity:.5}
+.donut .fill{
+  stroke:var(--accent);stroke-linecap:butt;
+  transition:stroke-dashoffset .25s linear,stroke .2s;
+}
+.jobwrap.ok  .fill{stroke:var(--ok)}
+.jobwrap.err .fill{stroke:var(--crit)}
+.dnum{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:1px;
+  font-family:var(--screen);font-weight:700;font-size:26px;
+  font-variant-numeric:tabular-nums;color:var(--text);
+}
+.dnum i{font-style:normal;font-size:13px;color:var(--text-3)}
+.jobmeta{display:flex;flex-direction:column;gap:calc(var(--u));flex:1 1 200px;min-width:0}
+.jphase{
+  font-family:var(--screen);font-weight:600;font-size:12px;letter-spacing:.06em;
+  color:var(--accent);text-transform:uppercase;
+}
+.jobwrap.ok  .jphase{color:var(--ok)}
+.jobwrap.err .jphase{color:var(--crit)}
+
+@media (max-width:520px){
+  .donut{width:96px;height:96px}
+  .dnum{font-size:20px}
+}

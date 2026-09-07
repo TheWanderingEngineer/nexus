@@ -52,9 +52,12 @@ function needCompose() {
 
 function newJob(title) {
   const id = String(nextJob++);
-  const job = { id, title, status: "running", lines: [], startedAt: Date.now() };
+  const job = {
+    id, title, status: "running", lines: [], startedAt: Date.now(),
+    progress: 0, phase: "preparing", layers: new Map()
+  };
   jobs.set(id, job);
-  bus.emit("job", { ...job });
+  bus.emit("job", { id, title, status: job.status, progress: 0, phase: job.phase });
   return job;
 }
 function jobLog(job, line) {
@@ -64,13 +67,38 @@ function jobLog(job, line) {
   if (job.lines.length > 400) job.lines.shift();
   bus.emit("job", { id: job.id, title: job.title, status: job.status, line: text });
 }
+
+/**
+ * Progress is only emitted when the whole number or the phase actually changes.
+ * Docker emits a progress line per layer several times a second; forwarding all
+ * of them would push hundreds of frames a second down the events socket to
+ * redraw a ring that moved by a tenth of a percent.
+ */
+function jobProgress(job, pct, phase) {
+  const next = Math.max(0, Math.min(100, Math.round(pct)));
+  if (next === job.progress && phase === job.phase) return;
+  job.progress = next;
+  job.phase = phase;
+  bus.emit("job", { id: job.id, title: job.title, status: job.status, progress: next, phase });
+}
+
 function jobDone(job, status, message) {
   job.status = status;
   if (message) jobLog(job, message);
   job.finishedAt = Date.now();
-  bus.emit("job", { id: job.id, title: job.title, status, line: message || null, done: true });
+  job.progress = status === "success" ? 100 : job.progress;
+  job.phase = status === "success" ? "done" : "failed";
+  bus.emit("job", {
+    id: job.id, title: job.title, status, line: message || null, done: true,
+    progress: job.progress, phase: job.phase
+  });
 }
-export function getJob(id) { return jobs.get(String(id)) || null; }
+export function getJob(id) {
+  const j = jobs.get(String(id));
+  if (!j) return null;
+  const { layers, ...rest } = j;      // the layer map is bookkeeping, not payload
+  return rest;
+}
 
 /* --------------------------------------------------------- port conflicts */
 
@@ -113,11 +141,86 @@ export async function checkPorts(doc) {
 
 function applyParams(text, params) {
   let out = text;
-  for (const [k, v] of Object.entries(params || {})) {
-    const safe = String(v);
+  // Longest key first. Replacing "$APP" before "$APPDATA" would leave a stray
+  // "DATA" glued to the end of the substituted value.
+  const keys = Object.keys(params || {}).sort((a, b) => b.length - a.length);
+  for (const k of keys) {
+    const safe = String(params[k]);
     out = out.replaceAll("${" + k + "}", safe).replaceAll("$" + k, safe);
   }
   return out;
+}
+
+/**
+ * The variables every CasaOS template assumes somebody has already set.
+ *
+ * CasaOS substitutes these itself before handing the file to compose, so its
+ * store is full of `$PUID`, `$AppID` and `$TZ` with nothing to fill them. Left
+ * empty, compose warns "variable is not set, defaulting to a blank string" for
+ * each one and the container comes up with a blank user id and no timezone.
+ */
+export function defaultVars(slug) {
+  let tz = "Etc/UTC";
+  try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || tz; } catch {}
+  return {
+    PUID: "1000",
+    PGID: "1000",
+    UID: "1000",
+    GID: "1000",
+    TZ: tz,
+    AppID: slug,
+    APPID: slug,
+    DATA: "/DATA"
+  };
+}
+
+/**
+ * Drop device bindings the host does not actually have.
+ *
+ * CasaOS templates are written to cover Raspberry Pi as well as x86, so a media
+ * app asks for `/dev/vcsm`, `/dev/vchiq` and `/dev/video10` — Pi-only video
+ * nodes. Docker refuses to create a container with a device that does not exist
+ * ("error gathering device information ... no such file or directory"), so on a
+ * normal mini PC the install dies before it starts.
+ *
+ * Dropping the missing ones is what makes these templates portable. It is done
+ * loudly — every skipped device is written to the job log — because the one case
+ * that matters is `/dev/dri` missing, where the app will run but transcode on
+ * the CPU, and you want to know that rather than wonder why it is slow.
+ */
+function pruneDevices(doc) {
+  const skipped = [];
+  for (const [name, svc] of Object.entries(doc?.services || {})) {
+    if (!Array.isArray(svc.devices) || !svc.devices.length) continue;
+    svc.devices = svc.devices.filter(entry => {
+      const host = typeof entry === "string"
+        ? entry.split(":")[0]
+        : (entry && typeof entry === "object" ? entry.source : null);
+      // Anything that is not an absolute /dev path is left alone — it is not
+      // ours to judge, and compose will complain about it more clearly than we would.
+      if (!host || !String(host).startsWith("/dev")) return true;
+      if (fs.existsSync(host)) return true;
+      skipped.push({ service: name, device: String(host) });
+      return false;
+    });
+    if (!svc.devices.length) delete svc.devices;
+  }
+  return skipped;
+}
+
+/**
+ * Applies both fixups and reports what it changed, so every install path gets
+ * the same treatment rather than each one growing its own copy.
+ */
+function hostFixups(doc, job) {
+  const skipped = pruneDevices(doc);
+  for (const s of skipped) {
+    jobLog(job, `skipped device ${s.device} (${s.service}) — not present on this host`);
+  }
+  if (skipped.some(s => s.device.startsWith("/dev/dri"))) {
+    jobLog(job, "note: /dev/dri is missing, so hardware transcoding will not be available.");
+  }
+  return skipped;
 }
 
 /* ------------------------------------------------------------- installed */
@@ -136,16 +239,132 @@ function recordInstall(entry) {
 
 /* --------------------------------------------------------------- install */
 
-async function composeUp(job, dir, project) {
+/* ------------------------------------------------------ progress parsing */
+
+/**
+ * Real progress, read out of what Docker is already telling us.
+ *
+ * Without a TTY, `docker compose up` prints one line per image layer per state
+ * change, prefixed with the layer id:
+ *
+ *     8a1e25ce7c4f Pulling fs layer
+ *     8a1e25ce7c4f Downloading [====>       ]  4.5MB/52.34MB
+ *     8a1e25ce7c4f Extracting  [=========>  ]  24.1MB/52.34MB
+ *     8a1e25ce7c4f Pull complete
+ *
+ * Averaging each layer's own fraction gives a number that means something, as
+ * opposed to a bar that fills on a timer. The pull is the long part, so it owns
+ * most of the range and container creation gets the tail.
+ */
+const PULL_SHARE = 0.88;
+
+const LAYER_RE = /^\s*([0-9a-f]{8,64})\s+(Pulling fs layer|Waiting|Downloading|Verifying Checksum|Download complete|Extracting|Pull complete|Already exists)\b(?:.*?([\d.]+\s*[kKMGT]?i?B)\s*\/\s*([\d.]+\s*[kKMGT]?i?B))?/;
+const STEP_RE = /^\s*(?:Container|Network|Volume|Image)\s+\S+\s+(Creating|Created|Starting|Started|Running|Pulling|Pulled|Recreating|Recreated)\b/i;
+
+function parseSize(s) {
+  const m = /^([\d.]+)\s*([kKMGT]?)i?B$/.exec(String(s).trim());
+  if (!m) return null;
+  const mult = { "": 1, k: 1e3, K: 1e3, M: 1e6, G: 1e9, T: 1e12 }[m[2]] ?? 1;
+  return parseFloat(m[1]) * mult;
+}
+
+/** How far along one layer is, 0..1. */
+function layerFraction(state, done, total) {
+  switch (state) {
+    case "Already exists":
+    case "Pull complete": return 1;
+    case "Extracting": {
+      const f = done && total ? done / total : 0;
+      return 0.9 + Math.min(1, f) * 0.1;          // extraction is the last tenth
+    }
+    case "Verifying Checksum":
+    case "Download complete": return 0.9;
+    case "Downloading": {
+      const f = done && total ? done / total : 0;
+      return Math.min(0.9, f * 0.9);
+    }
+    default: return 0;                             // Pulling fs layer, Waiting
+  }
+}
+
+/**
+ * One line of compose output -> what it tells us, or null if it tells us nothing.
+ * Pure and exported so it can be tested without a Docker daemon.
+ */
+export function parseComposeLine(line) {
+  const m = LAYER_RE.exec(String(line));
+  if (m) {
+    const [, layer, state, doneRaw, totalRaw] = m;
+    return {
+      kind: "layer", layer, state,
+      fraction: layerFraction(state, parseSize(doneRaw), parseSize(totalRaw))
+    };
+  }
+  const s = STEP_RE.exec(String(line));
+  if (s) return { kind: "step", step: s[1].toLowerCase() };
+  return null;
+}
+
+function feedProgress(job, line) {
+  const parsed = parseComposeLine(line);
+  if (!parsed) return;
+
+  if (parsed.kind === "layer") {
+    job.layers.set(parsed.layer, parsed.fraction);
+    let sum = 0;
+    for (const v of job.layers.values()) sum += v;
+    const pct = (sum / job.layers.size) * 100 * PULL_SHARE;
+    jobProgress(job, pct, `pulling image · ${job.layers.size} layer${job.layers.size === 1 ? "" : "s"}`);
+    return;
+  }
+
+  // Once containers are being made the pull is finished, however many layers
+  // reported — an image already on disk emits no layer lines at all.
+  const step = parsed.step;
+  if (step.startsWith("creat")) jobProgress(job, PULL_SHARE * 100 + 4, "creating containers");
+  else if (step.startsWith("start") || step === "running") jobProgress(job, PULL_SHARE * 100 + 9, "starting containers");
+}
+
+async function composeUp(job, dir, project, vars = {}) {
   const [bin, ...pre] = needCompose();
   const args = [...pre, "-f", path.join(dir, "docker-compose.yml"), "-p", project, "up", "-d", "--remove-orphans"];
 
+  // The same variables also go into compose's environment, not just through our
+  // own text substitution — that is what makes `${TZ:-Etc/UTC}` style defaults
+  // resolve, which a plain string replace never sees.
+  const env = { ...process.env, ...vars };
+
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { cwd: dir, env: { ...process.env } });
-    child.stdout.on("data", d => String(d).split("\n").forEach(l => jobLog(job, l)));
-    child.stderr.on("data", d => String(d).split("\n").forEach(l => jobLog(job, l)));
+    const child = spawn(bin, args, { cwd: dir, env });
+    const onChunk = d => String(d).split("\n").forEach(l => {
+      if (!l.trim()) return;
+      feedProgress(job, l);
+      jobLog(job, l);
+    });
+    child.stdout.on("data", onChunk);
+    child.stderr.on("data", onChunk);
     child.on("error", reject);
     child.on("exit", code => code === 0 ? resolve() : reject(new Error(`compose exited with code ${code}`)));
+  });
+}
+
+/**
+ * Tear down whatever a failed `up` managed to create.
+ *
+ * Compose creates the containers and then starts them, so a failure at start
+ * time leaves them behind in `Created`. Nothing records them as installed —
+ * they are not in the Installed list and there is no compose project the UI
+ * knows about — so they sit in `docker ps -a` as debris with no button to
+ * remove them. Cleaning up is part of failing.
+ */
+async function composeDownQuiet(dir, project) {
+  const [bin, ...pre] = composeCmd || [];
+  if (!bin) return;
+  const args = [...pre, "-f", path.join(dir, "docker-compose.yml"), "-p", project, "down", "--remove-orphans"];
+  await new Promise(resolve => {
+    const child = spawn(bin, args, { cwd: dir, env: { ...process.env } });
+    child.on("error", () => resolve());
+    child.on("exit", () => resolve());
   });
 }
 
@@ -159,7 +378,10 @@ export async function installFromCatalog({ libraryId, slug, params = {}, force =
   needCompose();
 
   const raw = await library.readCompose(app);
-  const rendered = applyParams(raw, params);
+  // User-supplied values win over the defaults; the defaults exist so a CasaOS
+  // template that assumes $PUID/$TZ/$AppID does not render with blanks.
+  const vars = { ...defaultVars(slug), ...params };
+  const rendered = applyParams(raw, vars);
 
   let doc;
   try { doc = YAML.parse(rendered); }
@@ -188,14 +410,17 @@ export async function installFromCatalog({ libraryId, slug, params = {}, force =
     svc.labels = { ...(svc.labels || {}), "io.nexus.managed": "true", "io.nexus.app": slug };
   }
 
+  const job = newJob(`Installing ${app.name}`);
+  // Host fixups need the job so they can report what they dropped, so the file
+  // is written after they have run rather than before.
+  hostFixups(doc, job);
   await fsp.writeFile(path.join(dir, "docker-compose.yml"), YAML.stringify(doc), "utf8");
 
-  const job = newJob(`Installing ${app.name}`);
   (async () => {
     try {
       jobLog(job, `project ${project}`);
       if (wanted.length) jobLog(job, `ports ${wanted.join(", ")}`);
-      await composeUp(job, dir, project);
+      await composeUp(job, dir, project, vars);
       recordInstall({
         id: slug, slug, name: app.name, icon: app.icon || null,
         project, dir, libraryId, source: "library",
@@ -203,6 +428,8 @@ export async function installFromCatalog({ libraryId, slug, params = {}, force =
       });
       jobDone(job, "success", `${app.name} is running.`);
     } catch (err) {
+      jobLog(job, "install failed — removing what was created…");
+      await composeDownQuiet(dir, project).catch(() => {});
       jobDone(job, "error", err.message);
     }
   })();
@@ -270,7 +497,9 @@ function toRawUrl(u) {
 
 export async function installFromComposeText({ name, composeText, params = {}, force = false, source = "manual" }) {
   needCompose();
-  const rendered = applyParams(composeText, params);
+  const seedSlug = String(name || "app").toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "app";
+  const vars = { ...defaultVars(seedSlug), ...params };
+  const rendered = applyParams(composeText, vars);
 
   let doc;
   try { doc = YAML.parse(rendered); }
@@ -282,7 +511,7 @@ export async function installFromComposeText({ name, composeText, params = {}, f
   delete doc["x-casaos"];
   for (const svc of Object.values(doc.services)) delete svc["x-casaos"];
 
-  const slug = String(name || "app").toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "app";
+  const slug = seedSlug;
   const { wanted, conflicts } = await checkPorts(doc);
   if (conflicts.length && !force) {
     throw Object.assign(new Error(`port ${conflicts.join(", ")} already in use on this host`), { status: 409, conflicts, wanted });
@@ -295,19 +524,23 @@ export async function installFromComposeText({ name, composeText, params = {}, f
   for (const svc of Object.values(doc.services)) {
     svc.labels = { ...(svc.labels || {}), "io.nexus.managed": "true", "io.nexus.app": slug };
   }
-  await fsp.writeFile(path.join(dir, "docker-compose.yml"), YAML.stringify(doc), "utf8");
 
   const job = newJob(`Installing ${slug}`);
+  hostFixups(doc, job);
+  await fsp.writeFile(path.join(dir, "docker-compose.yml"), YAML.stringify(doc), "utf8");
+
   (async () => {
     try {
       if (wanted.length) jobLog(job, `ports ${wanted.join(", ")}`);
-      await composeUp(job, dir, project);
+      await composeUp(job, dir, project, vars);
       recordInstall({
         id: slug, slug, name: slug, icon: null, project, dir,
         libraryId: null, source, ports: wanted, installedAt: Date.now(), managedBy: "nexus"
       });
       jobDone(job, "success", `${slug} is running.`);
     } catch (err) {
+      jobLog(job, "install failed — removing what was created…");
+      await composeDownQuiet(dir, project).catch(() => {});
       jobDone(job, "error", err.message);
     }
   })();
