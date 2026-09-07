@@ -51,6 +51,73 @@ export async function resolveSafe(input, { mustExist = true } = {}) {
   return mustExist ? real : path.join(real, path.basename(abs));
 }
 
+/**
+ * Resolve a path that does not exist yet, and whose parents may not either.
+ *
+ * `resolveSafe({ mustExist: false })` only tolerates a missing final component —
+ * it still realpaths the parent, so it cannot help with `uploads/2026/holiday/`
+ * where none of those directories exist. Uploading a folder needs exactly that.
+ *
+ * The jail still holds: we walk up to the nearest component that DOES exist,
+ * realpath and jail-check that, then append the missing tail. Components that do
+ * not exist cannot be symlinks, so there is nothing left for a symlink to escape
+ * through, and `path.resolve` has already collapsed any `..` before we start.
+ */
+export async function resolveForCreate(input) {
+  if (typeof input !== "string" || !input.length) throw new PathError("path required");
+  if (input.includes("\0")) throw new PathError("invalid path");
+
+  const abs = path.resolve(input);
+  const tail = [];
+  let probe = abs;
+
+  while (true) {
+    try { await fs.stat(probe); break; }
+    catch {
+      const parent = path.dirname(probe);
+      // Reached the filesystem root without finding anything that exists.
+      if (parent === probe) throw new PathError("path is outside the configured roots");
+      tail.unshift(path.basename(probe));
+      probe = parent;
+    }
+  }
+
+  let real;
+  try { real = await fs.realpath(probe); }
+  catch { throw new PathError("path not accessible"); }
+
+  const inside = roots().some(r => real === r.path || real.startsWith(r.path + path.sep));
+  if (!inside) throw new PathError("path is outside the configured roots");
+
+  return tail.length ? path.join(real, ...tail) : real;
+}
+
+/** mkdir -p, jailed. Used by folder uploads to rebuild the tree as it arrives. */
+export async function mkdirp(target) {
+  const safe = await resolveForCreate(target);
+  await fs.mkdir(safe, { recursive: true });
+  return { path: safe };
+}
+
+/**
+ * Which of these paths already have a file at them.
+ *
+ * Asked once before an upload starts, so a folder with forty clashes prompts
+ * once instead of forty times — and so the answer arrives before any bytes have
+ * been sent rather than after.
+ */
+export async function existing(paths) {
+  const out = [];
+  for (const p of paths.slice(0, 5000)) {
+    try {
+      const safe = await resolveForCreate(String(p));
+      const st = await fs.stat(safe);
+      if (st.isFile()) out.push(safe);
+    } catch { /* missing, or outside the jail — either way, not a clash */ }
+  }
+  return out;
+}
+
 export async function list(dir) {
   const safe = await resolveSafe(dir);
   const st = await fs.stat(safe);

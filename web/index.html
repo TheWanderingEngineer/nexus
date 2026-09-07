@@ -13,7 +13,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Silkscreen:wght@400;700&display=swap">
 <link rel="stylesheet" href="/vendor/xterm.css">
-<link rel="stylesheet" href="/style.css?v=0.9.0">
+<link rel="stylesheet" href="/style.css?v=0.10.0">
 </head>
 <body>
 
@@ -89,6 +89,10 @@
         <div id="tools-files" hidden>
           <button class="btn" id="f-up" data-tip="Go up one folder. Stops at your configured roots.">PARENT</button>
           <button class="btn" id="f-mkdir" data-tip="Create a folder here.">NEW FOLDER</button>
+          <button class="btn primary" id="f-upload" data-tip="Upload files into this folder. You can also drop them anywhere on this page.">UPLOAD</button>
+          <button class="btn" id="f-upload-dir" data-tip="Upload a whole folder, keeping its structure.">UPLOAD FOLDER</button>
+          <input id="f-file-input" type="file" multiple hidden>
+          <input id="f-dir-input" type="file" webkitdirectory directory multiple hidden>
         </div>
         <div id="tools-store" hidden>
           <button class="btn" id="st-installed-btn" data-tip="Apps installed through Nexus, and how to remove them.">INSTALLED</button>
@@ -136,7 +140,34 @@
           <thead><tr><th>Name</th><th>Size</th><th>Modified</th><th></th></tr></thead>
           <tbody></tbody>
         </table></div>
+
+        <!-- Shown while a file is dragged over the page -->
+        <div id="f-drop" hidden>
+          <div class="dropcard">
+            <img src="/assets/brand/icons/ui-upload.png" alt="">
+            <span class="dt">DROP TO UPLOAD</span>
+            <span class="dp" id="f-drop-path"></span>
+            <span class="hint">Folders are uploaded with their structure intact.</span>
+          </div>
+        </div>
       </section>
+
+      <!-- Upload progress. Fixed, so it never shifts the list underneath it. -->
+      <div id="uploader" hidden>
+        <div class="donut sm">
+          <svg viewBox="0 0 128 128" role="img" aria-label="Upload progress">
+            <circle class="track" cx="64" cy="64" r="52"></circle>
+            <circle class="fill" id="up-ring" cx="64" cy="64" r="52"></circle>
+          </svg>
+          <div class="dnum"><span id="up-pct">0</span><i>%</i></div>
+        </div>
+        <div class="upmeta">
+          <span class="uptitle" id="up-title">UPLOADING</span>
+          <span class="upname mono" id="up-name">&nbsp;</span>
+          <span class="hint" id="up-stat">&nbsp;</span>
+        </div>
+        <button class="btn danger" id="up-cancel" data-tip="Stop after the current file.">CANCEL</button>
+      </div>
 
       <!-- app store -->
       <section class="page" id="page-store">
@@ -284,6 +315,6 @@
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/xterm-addon-fit.js"></script>
 <script src="/vendor/xterm-addon-web-links.js"></script>
-<script src="/app.js?v=0.9.0"></script>
+<script src="/app.js?v=0.10.0"></script>
 </body>
 </html>

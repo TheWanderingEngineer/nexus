@@ -191,19 +191,55 @@ export default function routes() {
     fs.createReadStream(safe).pipe(res);
   }));
 
+  r.post("/files/mkdirp", wrap(async (req, res) => {
+    const out = await filesvc.mkdirp(String(req.body?.path || ""));
+    res.json(out);
+  }));
+
+  r.post("/files/exists", wrap(async (req, res) => {
+    const paths = Array.isArray(req.body?.paths) ? req.body.paths : [];
+    res.json({ existing: await filesvc.existing(paths) });
+  }));
+
   // Raw-body upload: avoids a multipart dependency. The client PUTs the file
   // bytes with the destination in the query string.
+  //
+  // Streamed to a sibling temp file and renamed on completion, so a connection
+  // that drops halfway cannot leave a truncated file sitting where a good one
+  // used to be — the same reasoning as the text editor's save.
   r.put("/files/upload", wrap(async (req, res) => {
-    const dest = await filesvc.resolveSafe(String(req.query.path || ""), { mustExist: false });
-    await new Promise((resolve, reject) => {
-      const out = fs.createWriteStream(dest, { flags: "w", mode: 0o644 });
-      req.pipe(out);
-      out.on("finish", resolve);
-      out.on("error", reject);
-      req.on("error", reject);
-    });
-    audit("files.upload", { path: dest }, req);
-    res.json({ ok: true, path: dest });
+    const dest = await filesvc.resolveForCreate(String(req.query.path || ""));
+    const overwrite = req.query.overwrite === "1";
+
+    const existing = await fsp.stat(dest).catch(() => null);
+    if (existing?.isDirectory()) {
+      return res.status(409).json({ error: "a folder already exists at that path" });
+    }
+    if (existing && !overwrite) {
+      return res.status(409).json({ error: "a file already exists there" });
+    }
+
+    await fsp.mkdir(path.dirname(dest), { recursive: true });
+
+    const tmp = dest + ".nexus-upload";
+    try {
+      await new Promise((resolve, reject) => {
+        const out = fs.createWriteStream(tmp, { flags: "w", mode: 0o644 });
+        req.pipe(out);
+        out.on("finish", resolve);
+        out.on("error", reject);
+        req.on("error", reject);
+        req.on("aborted", () => reject(new Error("upload aborted")));
+      });
+      await fsp.rename(tmp, dest);
+    } catch (err) {
+      await fsp.rm(tmp, { force: true }).catch(() => {});
+      throw err;
+    }
+
+    const st = await fsp.stat(dest);
+    audit("files.upload", { path: dest, bytes: st.size }, req);
+    res.json({ ok: true, path: dest, size: st.size });
   }));
 
   /* ---------------- dashboard layout ---------------- */

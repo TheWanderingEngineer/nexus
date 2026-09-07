@@ -187,6 +187,30 @@ Shift+click for a run, or drag a box over empty space. Delete removes the
 selection, and the right-click menu collapses to the operations that make sense
 for a set. Downloads are issued one file at a time — there is no server-side zip.
 
+### Uploads
+
+**UPLOAD** and **UPLOAD FOLDER** in the toolbar, or drop files and folders
+anywhere on the page. A dropped folder keeps its structure — the directory tree
+is rebuilt on the server as the files arrive.
+
+Bytes go up as a raw `PUT` with the destination in the query string, so there is
+no multipart dependency on either side, and progress is read from the browser's
+own upload events rather than guessed at. Uploads run one file at a time so the
+percentage means something, and **CANCEL** stops after the file in flight.
+
+Three things worth knowing:
+
+- **Nothing is overwritten silently.** Clashes are detected before any bytes move
+  and you are asked once for the whole batch — overwrite everything, or skip the
+  ones that already exist and upload the rest.
+- **Each file is streamed to a temp file and renamed on completion**, so a
+  connection that drops halfway cannot leave a truncated file where a good one
+  used to be.
+- **The path jail applies to uploads too.** Destinations are resolved against the
+  nearest existing ancestor, which is then checked against your `fileRoots`;
+  missing intermediate directories cannot be symlinks, so there is nothing left
+  to escape through.
+
 ## Control panel
 
 Automations, in three parts.

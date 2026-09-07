@@ -1809,6 +1809,277 @@ on("#f-up", "click", () => {
 });
 on("#f-mkdir", "click", makeFolder);
 
+/* ============================ uploads ============================ */
+/**
+ * Files and folders, by button or by drop.
+ *
+ * XMLHttpRequest rather than fetch: fetch still has no upload progress event, and
+ * a progress bar that only knows "started" and "finished" is not worth drawing.
+ * The server takes raw bytes with the destination in the query string, so there
+ * is no multipart dependency on either side.
+ */
+const UP = { running: false, cancelled: false, xhr: null };
+
+const joinPath = (dir, rel) => {
+  const sep = dir.includes("\\") && !dir.includes("/") ? "\\" : "/";
+  return dir.replace(/[\\/]+$/, "") + sep + rel.replace(/^[\\/]+/, "");
+};
+
+/** Strip anything that would let a crafted name climb out of the target folder. */
+function safeRel(rel) {
+  return String(rel)
+    .split(/[\\/]+/)
+    .filter(seg => seg && seg !== "." && seg !== "..")
+    .join("/");
+}
+
+/**
+ * Walk a drop into a flat list of files with their relative paths.
+ *
+ * `readEntries` returns at most 100 entries per call and gives an empty array
+ * when it is finished, so it has to be called in a loop — read it once and a
+ * folder of 300 files quietly uploads the first 100.
+ */
+async function collectDrop(dt) {
+  const roots = [...(dt.items || [])]
+    .map(i => (i.webkitGetAsEntry ? i.webkitGetAsEntry() : null))
+    .filter(Boolean);
+
+  // No FileSystemEntry support: fall back to the plain file list, no folders.
+  if (!roots.length) {
+    return [...(dt.files || [])].map(f => ({ file: f, rel: f.name }));
+  }
+
+  const out = [];
+  const walk = async (entry, prefix) => {
+    if (out.length > 5000) return;
+    if (entry.isFile) {
+      const file = await new Promise((res, rej) => entry.file(res, rej)).catch(() => null);
+      if (file) out.push({ file, rel: prefix + entry.name });
+      return;
+    }
+    if (!entry.isDirectory) return;
+    const reader = entry.createReader();
+    while (true) {
+      const batch = await new Promise((res, rej) => reader.readEntries(res, rej)).catch(() => []);
+      if (!batch.length) break;
+      for (const e of batch) await walk(e, prefix + entry.name + "/");
+    }
+  };
+  for (const r of roots) await walk(r, "");
+  return out;
+}
+
+function uploadOne(file, dest, overwrite, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    UP.xhr = xhr;
+    const q = `?path=${encodeURIComponent(dest)}${overwrite ? "&overwrite=1" : ""}`;
+    xhr.open("PUT", "/api/files/upload" + q);
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    if (CSRF) xhr.setRequestHeader("X-CSRF-Token", CSRF);
+    xhr.upload.onprogress = e => { if (e.lengthComputable) onProgress(e.loaded); };
+    xhr.onload = () => {
+      UP.xhr = null;
+      if (xhr.status >= 200 && xhr.status < 300) return resolve();
+      let msg = `HTTP ${xhr.status}`;
+      try { msg = JSON.parse(xhr.responseText).error || msg; } catch {}
+      reject(Object.assign(new Error(msg), { status: xhr.status }));
+    };
+    xhr.onerror = () => { UP.xhr = null; reject(new Error("network error")); };
+    xhr.onabort = () => { UP.xhr = null; reject(Object.assign(new Error("cancelled"), { cancelled: true })); };
+    xhr.send(file);
+  });
+}
+
+const UP_RING_C = 2 * Math.PI * 52;
+
+function upPaint(pct, name, stat, title) {
+  const ring = $("#up-ring");
+  if (ring) {
+    ring.setAttribute("stroke-dasharray", UP_RING_C.toFixed(1));
+    ring.style.strokeDashoffset = String(UP_RING_C * (1 - clamp(pct, 0, 100) / 100));
+  }
+  const p = $("#up-pct"); if (p) p.textContent = Math.round(clamp(pct, 0, 100));
+  const n = $("#up-name"); if (n) n.textContent = name ?? "";
+  const s = $("#up-stat"); if (s) s.textContent = stat ?? "";
+  const t = $("#up-title"); if (t && title) t.textContent = title;
+}
+
+function upShow(on) {
+  const el = $("#uploader");
+  if (el) el.hidden = !on;
+  if (on) el.className = "";
+}
+
+async function startUpload(items, targetDir) {
+  if (UP.running) return toast("AN UPLOAD IS ALREADY RUNNING", "err");
+  items = items.filter(i => i.file && safeRel(i.rel));
+  if (!items.length) return;
+
+  const dir = targetDir || curDir;
+  if (!dir) return toast("OPEN A FOLDER FIRST", "err");
+
+  const planned = items.map(i => ({ ...i, rel: safeRel(i.rel), dest: joinPath(dir, safeRel(i.rel)) }));
+
+  // Ask about clashes once, before any bytes move, rather than stopping on each
+  // one halfway through a folder.
+  let overwrite = false;
+  try {
+    const { existing } = await api("/files/exists", { method: "POST", body: { paths: planned.map(p => p.dest) } });
+    if (existing.length) {
+      const names = existing.slice(0, 5).map(p => p.split(/[\\/]/).pop()).join(", ");
+      overwrite = confirm(
+        `${existing.length} file${existing.length === 1 ? "" : "s"} already exist here:\n\n${names}` +
+        `${existing.length > 5 ? `\n…and ${existing.length - 5} more` : ""}\n\n` +
+        `OK = overwrite them.\nCancel = skip those and upload the rest.`
+      );
+      if (!overwrite) {
+        const clash = new Set(existing);
+        for (const p of planned) p.skip = clash.has(p.dest);
+      }
+    }
+  } catch { /* the precheck is a courtesy; a clash still 409s below */ }
+
+  const queue = planned.filter(p => !p.skip);
+  if (!queue.length) { toast("NOTHING TO UPLOAD — EVERYTHING WAS SKIPPED", "err"); return; }
+
+  // Directories first, so a file never races the folder it belongs in.
+  const dirs = [...new Set(queue.map(p => p.rel).filter(r => r.includes("/"))
+    .map(r => joinPath(dir, r.slice(0, r.lastIndexOf("/")))))];
+
+  UP.running = true; UP.cancelled = false;
+  upShow(true);
+  const cancelBtn = $("#up-cancel");
+  if (cancelBtn) cancelBtn.hidden = false;
+  upPaint(0, "", "preparing…", "UPLOADING");
+
+  const totalBytes = queue.reduce((n, p) => n + (p.file.size || 0), 0);
+  let doneBytes = 0, doneCount = 0, failed = 0;
+
+  try {
+    for (const d of dirs) {
+      if (UP.cancelled) break;
+      await api("/files/mkdirp", { method: "POST", body: { path: d } }).catch(() => {});
+    }
+
+    for (const p of queue) {
+      if (UP.cancelled) break;
+      const label = `${doneCount + 1} of ${queue.length}`;
+      upPaint(totalBytes ? (doneBytes / totalBytes) * 100 : 0, p.rel,
+              `${label} · ${bytes(doneBytes)} of ${bytes(totalBytes)}`);
+      try {
+        await uploadOne(p.file, p.dest, overwrite, loaded => {
+          const pct = totalBytes ? ((doneBytes + loaded) / totalBytes) * 100 : 0;
+          upPaint(pct, p.rel, `${label} · ${bytes(doneBytes + loaded)} of ${bytes(totalBytes)}`);
+        });
+      } catch (ex) {
+        if (ex.cancelled) break;
+        failed++;
+        console.warn("[nexus] upload failed:", p.rel, ex.message);
+      }
+      doneBytes += p.file.size || 0;
+      doneCount++;
+    }
+  } finally {
+    UP.running = false;
+    UP.xhr = null;
+    const el = $("#uploader");
+    // Nothing left to cancel, so the button stops offering to.
+    if (cancelBtn) cancelBtn.hidden = true;
+
+    if (UP.cancelled) {
+      if (el) el.className = "err";
+      upPaint(totalBytes ? (doneBytes / totalBytes) * 100 : 0, "", `cancelled after ${doneCount} file${doneCount === 1 ? "" : "s"}`, "CANCELLED");
+      toast("UPLOAD CANCELLED", "err");
+    } else if (failed) {
+      if (el) el.className = "err";
+      upPaint(100, "", `${doneCount - failed} uploaded, ${failed} failed`, "FINISHED WITH ERRORS");
+      toast(`${failed} FILE${failed === 1 ? "" : "S"} FAILED`, "err");
+    } else {
+      if (el) el.className = "ok";
+      upPaint(100, "", `${doneCount} file${doneCount === 1 ? "" : "s"} · ${bytes(doneBytes)}`, "DONE");
+      toast(`UPLOADED ${doneCount} FILE${doneCount === 1 ? "" : "S"}`, "ok");
+    }
+
+    // Leave the result on screen briefly rather than snapping it away.
+    setTimeout(() => { if (!UP.running) upShow(false); }, failed || UP.cancelled ? 6000 : 2600);
+    loadFiles(curDir);
+  }
+}
+
+on("#up-cancel", "click", () => {
+  if (!UP.running) return;
+  UP.cancelled = true;
+  try { UP.xhr?.abort(); } catch {}
+});
+
+on("#f-upload", "click", () => $("#f-file-input")?.click());
+on("#f-upload-dir", "click", () => $("#f-dir-input")?.click());
+
+on("#f-file-input", "change", e => {
+  const files = [...e.target.files].map(f => ({ file: f, rel: f.name }));
+  e.target.value = "";                      // so picking the same file twice works
+  startUpload(files);
+});
+on("#f-dir-input", "change", e => {
+  const files = [...e.target.files].map(f => ({ file: f, rel: f.webkitRelativePath || f.name }));
+  e.target.value = "";
+  startUpload(files);
+});
+
+/* ---- drag and drop ---- */
+(function dropZone() {
+  const page = $("#page-files");
+  const overlay = $("#f-drop");
+  if (!page || !overlay) return;
+
+  // dragenter/dragleave fire for every child the pointer crosses, so a plain
+  // boolean flickers the overlay on and off across the whole table. Counting
+  // enters against leaves is the standard cure.
+  let depth = 0;
+
+  const hasFiles = e => [...(e.dataTransfer?.types || [])].includes("Files");
+
+  const show = () => {
+    overlay.hidden = false;
+    const p = $("#f-drop-path");
+    if (p) p.textContent = curDir || "";
+  };
+  const hide = () => { depth = 0; overlay.hidden = true; };
+
+  page.addEventListener("dragenter", e => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth++;
+    show();
+  });
+  page.addEventListener("dragover", e => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  });
+  page.addEventListener("dragleave", e => {
+    if (!hasFiles(e)) return;
+    depth = Math.max(0, depth - 1);
+    if (!depth) hide();
+  });
+  page.addEventListener("drop", async e => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    hide();
+    const dropDir = curDir;                 // pin it: the listing may refresh mid-walk
+    const items = await collectDrop(e.dataTransfer);
+    if (!items.length) return toast("NOTHING USABLE IN THAT DROP", "err");
+    startUpload(items, dropDir);
+  });
+
+  // A file dropped anywhere else in the window would otherwise be opened by the
+  // browser, navigating away from Nexus and losing whatever you were doing.
+  addEventListener("dragover", e => { if (hasFiles(e)) e.preventDefault(); });
+  addEventListener("drop", e => { if (hasFiles(e) && !page.contains(e.target)) e.preventDefault(); });
+})();
+
 
 /* ============================ terminal (xterm.js) ============================ */
 let term = null, fit = null, termWS = null, termReady = false;

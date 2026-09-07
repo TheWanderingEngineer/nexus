@@ -859,3 +859,59 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
   .donut{width:96px;height:96px}
   .dnum{font-size:20px}
 }
+
+/* ============================================================
+   UPLOADS
+   ============================================================ */
+
+/* Drop target. Covers the file page only — dropping anywhere else in the
+   window is swallowed so the browser does not navigate away from Nexus. */
+#f-drop{
+  position:absolute;inset:0;z-index:150;
+  display:grid;place-items:center;
+  background:color-mix(in srgb, var(--void) 78%, transparent);
+  pointer-events:none;                     /* the drop is handled by the page */
+}
+.dropcard{
+  display:flex;flex-direction:column;align-items:center;gap:calc(var(--u)*2);
+  padding:calc(var(--u)*8) calc(var(--u)*12);text-align:center;
+  background:var(--panel);
+  border:var(--u) dashed var(--accent);
+}
+.dropcard img{width:48px;height:48px}
+.dropcard .dt{font-family:var(--screen);font-weight:700;font-size:15px;letter-spacing:.1em;color:var(--accent)}
+.dropcard .dp{font-family:var(--mono);font-size:12px;color:var(--text-2);
+              max-width:60ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Progress panel. Fixed for the same reason the selection bar is: it appears
+   because of something you did, and must not move what you are looking at. */
+#uploader{
+  position:fixed;z-index:220;
+  right:calc(var(--u)*4);bottom:calc(var(--u)*4);
+  width:min(420px,calc(100vw - var(--u)*8));
+  display:flex;align-items:center;gap:calc(var(--u)*4);
+  padding:calc(var(--u)*3);background:var(--panel);
+  border-top:var(--u) solid var(--bevel-lt);border-left:var(--u) solid var(--accent);
+  border-right:var(--u) solid var(--bevel-dk);border-bottom:var(--u) solid var(--bevel-dk);
+}
+#uploader.ok{border-left-color:var(--ok)}
+#uploader.err{border-left-color:var(--crit)}
+#uploader.ok  .donut .fill{stroke:var(--ok)}
+#uploader.err .donut .fill{stroke:var(--crit)}
+
+.donut.sm{width:64px;height:64px}
+.donut.sm .dnum{font-size:15px}
+.donut.sm .dnum i{font-size:9px}
+.donut.sm circle{stroke-width:14}
+
+.upmeta{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.uptitle{font-family:var(--screen);font-weight:700;font-size:11px;letter-spacing:.08em;color:var(--accent)}
+#uploader.ok  .uptitle{color:var(--ok)}
+#uploader.err .uptitle{color:var(--crit)}
+.upname{font-size:11.5px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#uploader .hint{font-size:11px}
+
+@media (max-width:640px){
+  #uploader{left:calc(var(--u)*4);right:calc(var(--u)*4);width:auto}
+  .dropcard{padding:calc(var(--u)*6)}
+}
