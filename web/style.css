@@ -286,15 +286,13 @@ td.name{color:var(--text)}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
 /* ---------------- responsive ---------------- */
+/* Tablets keep the vertical rail. At 768px it costs 72px and leaves ~700px for
+   the canvas, which the 12-column grid handles fine — collapsing it to a
+   horizontal strip here (as this rule used to) threw away a working layout and
+   hit the same width:100% bug the phone bar did, leaving one reachable icon. */
 @media (max-width:860px){
   #topbar{gap:calc(var(--u)*2);padding:calc(var(--u)*2)}
   .brand .v{display:none}
-  .stat.opt{display:none}
-  #body{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}
-  #rail{flex-direction:row;overflow-x:auto;border-right:none;border-bottom:var(--u) solid var(--bevel-dk);
-        padding:calc(var(--u)*2)}
-  #rail .spacer{display:none}
-  .nav .tip{display:none}
   #main{padding:calc(var(--u)*3)}
 }
 @media (max-width:560px){
@@ -914,4 +912,191 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
 @media (max-width:640px){
   #uploader{left:calc(var(--u)*4);right:calc(var(--u)*4);width:auto}
   .dropcard{padding:calc(var(--u)*6)}
+}
+
+/* ============================================================
+   DEVICES
+   Three axes, kept separate on purpose:
+     - width      decides layout (how many columns, where the nav goes)
+     - pointer    decides hit-target size (a 1024px iPad is not a desktop)
+     - viewport   decides reading size on a TV across a room
+   Mixing them is why "mobile styles" usually break on tablets.
+   ============================================================ */
+
+/* iOS: keep content clear of the notch, the home indicator and rounded corners. */
+#topbar{padding-left:max(calc(var(--u)*3),env(safe-area-inset-left));
+        padding-right:max(calc(var(--u)*3),env(safe-area-inset-right))}
+#main{padding-left:max(calc(var(--u)*4),env(safe-area-inset-left));
+      padding-right:max(calc(var(--u)*4),env(safe-area-inset-right))}
+
+/* ---------------- widget header controls ---------------- */
+.w-cfg{
+  font-size:13px;line-height:1;color:var(--text-3);flex:none;
+  width:22px;height:22px;display:grid;place-items:center;
+}
+.w-cfg:hover{color:var(--accent);background:var(--panel)}
+.w-x{font-size:15px;line-height:1}
+
+/* Picked up by a long press: lifted, so it is obvious which one is in hand. */
+.w.held{
+  outline:3px solid var(--accent-2);outline-offset:-3px;
+  filter:brightness(1.12);z-index:200;
+}
+#grid.stack .w.dragging{opacity:.9;outline:3px solid var(--accent);outline-offset:-3px}
+
+/* ============================================================
+   TOUCH  (any device driven by a finger, whatever its width)
+   Apple and Google both land on ~44px as the smallest reliable target.
+   ============================================================ */
+@media (pointer:coarse){
+  .btn{min-height:40px;padding:calc(var(--u)*2) calc(var(--u)*3);font-size:11px}
+  .btn.sm{min-height:34px;font-size:10px}
+  .nav{min-height:52px}
+  .ctxopt{min-height:38px;padding:calc(var(--u)*2) calc(var(--u)*3)}
+  .ctxcheck{min-height:44px}
+  .swatch{width:36px;height:36px}
+  .dayb{width:40px;height:40px}
+  .toggle{width:52px;height:28px}
+  .toggle i{width:20px;height:18px}
+  .toggle.on i{transform:translateX(24px)}
+  .w-cfg,.w-x{width:34px;height:34px;font-size:16px}
+  .w-head{padding:calc(var(--u)*2)}
+  /* A resize corner you can actually hit with a thumb. */
+  .w-rs{width:30px;height:30px}
+  #f-table td,#c-table td,.tw td{padding-top:calc(var(--u)*2.5);padding-bottom:calc(var(--u)*2.5)}
+  .crumbs button{padding:calc(var(--u)*1.5) calc(var(--u)*2)}
+  .rootbtn{min-height:46px}
+  input[type=text],input[type=password],input[type=search],select,.sel{min-height:42px}
+  /* Hover states are noise on touch — they latch on after a tap. */
+  .btn:hover,.nav:hover,.ctxopt:hover,.rootbtn:hover{background:inherit}
+}
+
+/* ============================================================
+   PHONES
+   ============================================================ */
+@media (max-width:640px){
+  /* The nav becomes a bottom bar: the top of a phone screen is the hardest
+     place to reach, and this is the control you press most. */
+  #body{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}
+  #main{grid-row:1;padding:calc(var(--u)*3);padding-bottom:calc(var(--u)*10);
+        padding-left:max(calc(var(--u)*3),env(safe-area-inset-left));
+        padding-right:max(calc(var(--u)*3),env(safe-area-inset-right))}
+  #rail{
+    grid-row:2;flex-direction:row;width:auto;gap:0;
+    padding:calc(var(--u)) calc(var(--u)) max(calc(var(--u)),env(safe-area-inset-bottom));
+    border-right:none;border-top:var(--u) solid var(--bevel-dk);
+    overflow-x:auto;overscroll-behavior-x:contain;
+  }
+  #rail .spacer,#rail-toggle,#rail-grip{display:none}
+  /* The base .nav is width:100% for the vertical rail. Left in place here it
+     makes every item as wide as the whole bar, so only the first one is on
+     screen and the rest are a horizontal scroll away. */
+  .nav{width:auto;flex:1 1 0;min-width:52px;flex-direction:column;gap:2px;padding:calc(var(--u)) 2px}
+  .nav img{width:24px;height:24px;margin:0 auto}
+  .nlabel{display:block!important;font-size:9px;letter-spacing:0;text-align:center;
+          max-width:100%;line-height:1.1}
+  .nav .tip{display:none!important}
+  .nav.on::after{display:none}
+
+  #topbar{gap:calc(var(--u)*1.5);padding:calc(var(--u)*1.5) calc(var(--u)*2)}
+  #logo{width:24px;height:24px}
+  .brand{font-size:11px}
+  .stat.opt{display:none}
+  #toolbar{gap:calc(var(--u))}
+  #toolbar h1{font-size:12px}
+
+  /* Toolbar actions scroll sideways rather than wrapping into three ragged
+     rows and pushing the content off the bottom of the screen. */
+  #toolbar > div{display:flex;gap:var(--u);overflow-x:auto;max-width:100%;
+                 padding-bottom:2px;scrollbar-width:none}
+  #toolbar > div::-webkit-scrollbar{display:none}
+
+  .section{padding:calc(var(--u)*3)}
+  .kv{grid-template-columns:1fr;gap:calc(var(--u))}
+  .kv dt{margin-top:calc(var(--u)*2)}
+  #f-drop .dropcard{padding:calc(var(--u)*5) calc(var(--u)*4)}
+  .dropcard .dp{max-width:80vw}
+  /* Clear of the bottom nav. Both of these are position:fixed, so without the
+     offset they land on top of the navigation — which is the one control you
+     need while a selection or an upload is in progress. */
+  .selbar,#uploader{
+    left:calc(var(--u)*2);right:calc(var(--u)*2);width:auto;
+    bottom:calc(76px + env(safe-area-inset-bottom));
+  }
+  #page-files .tw{min-height:auto}
+}
+
+/* Full-height sheets beat tiny centred boxes on a phone. */
+@media (max-width:560px){
+  #modal{padding:0}
+  .mw{max-width:none;max-height:100dvh;height:100dvh}
+  .mw-body{padding:calc(var(--u)*3)}
+  .mw-foot{padding:calc(var(--u)*3);padding-bottom:max(calc(var(--u)*3),env(safe-area-inset-bottom))}
+  .mw-foot .btn{flex:1 1 auto}
+
+  #ctx.sheet{
+    left:0;right:0;bottom:0;top:auto;
+    width:100%;max-width:none;min-width:0;max-height:76dvh;
+    padding-bottom:max(calc(var(--u)*2),env(safe-area-inset-bottom));
+    border-left-width:0;border-right-width:0;border-bottom-width:0;
+    animation:sheetin .16s steps(3,end);
+  }
+  #ctx.sheet .ctxchecks{max-height:34dvh}
+  #ctx.sheet .ctxfoot{position:sticky;bottom:0;background:var(--panel);padding-bottom:calc(var(--u)*2)}
+  @keyframes sheetin{from{transform:translateY(24px)}to{transform:translateY(0)}}
+
+  #drawer{padding:0}
+  .dw{max-height:100dvh;height:100dvh;max-width:none}
+  .appgrid{grid-template-columns:1fr}
+  .jobwrap{gap:calc(var(--u)*3)}
+}
+
+/* ============================================================
+   TABLETS  (iPad portrait sits right here)
+   The 12-column canvas still works at this width; it just needs the chrome
+   to stop eating a third of it.
+   ============================================================ */
+@media (min-width:641px) and (max-width:1024px){
+  #main{padding:calc(var(--u)*3)}
+  .appgrid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
+  .frow > .field{flex:1 1 100%}
+}
+
+/* ============================================================
+   TV AND LARGE DISPLAYS
+   Read from three metres away, driven by a D-pad rather than a pointer.
+   ============================================================ */
+@media (min-width:1800px){
+  body{font-size:17px}
+  #topbar{padding:calc(var(--u)*3) calc(var(--u)*6)}
+  #logo{width:40px;height:40px}
+  .brand{font-size:18px}
+  .stat{font-size:12px;padding:calc(var(--u)*1.5) calc(var(--u)*3)}
+  #clock{min-width:140px}
+  #clock .ctime{font-size:20px}
+  #clock .cday{font-size:12px}
+  .btn{font-size:12px;padding:calc(var(--u)*2) calc(var(--u)*4)}
+  #toolbar h1{font-size:26px}
+  /* Keep the overscan margin a TV panel may be cropping into. */
+  #main{padding:calc(var(--u)*6);
+        padding-left:max(calc(var(--u)*6),env(safe-area-inset-left));
+        padding-right:max(calc(var(--u)*6),env(safe-area-inset-right))}
+  .section h2{font-size:14px}
+  .nlabel{font-size:15px}
+  #tip{font-size:15px;max-width:380px}
+}
+
+/* A TV is driven by arrow keys, so focus has to be unmissable — the default
+   2px offset disappears against a bevel at viewing distance. */
+@media (min-width:1800px), (hover:none) and (pointer:coarse){
+  :focus-visible{outline:calc(var(--u)*1.5) solid var(--accent);outline-offset:3px}
+}
+
+/* Landscape phones are short, not narrow. Give the content the height back. */
+@media (max-height:460px) and (orientation:landscape){
+  #topbar{padding:var(--u) calc(var(--u)*2)}
+  #logo{width:22px;height:22px}
+  .brand,.stat.opt{display:none}
+  #toolbar{margin-bottom:calc(var(--u)*2)}
+  #ctx{max-height:88dvh}
 }

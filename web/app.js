@@ -61,6 +61,10 @@ function showTip(target) {
 }
 
 addEventListener("pointerover", e => {
+  // Touch has no hover. A tap fires pointerover, so without this a tooltip pops
+  // up over whatever you just pressed and then sits there with nothing to
+  // dismiss it — the classic hover-tooltip-on-mobile failure.
+  if (e.pointerType === "touch") return;
   const t = e.target?.closest?.("[data-tip]");
   if (!t || t === tipFor) return;
   hideTip();
@@ -506,12 +510,29 @@ function openCtx(list, x, y) {
   $(".ctxfoot").hidden = false;
   $("#ctx-remove").textContent = many ? `REMOVE ${sel.length}` : "REMOVE";
 
+  // Ctrl-click is how a selection is built with a mouse; touch has no modifier
+  // key, so the menu carries the same action as a button.
+  const selBtn = $("#ctx-select");
+  selBtn.hidden = false;
+  selBtn.textContent = many ? "CLEAR SELECTION"
+    : selection.has(sel[0].id) ? "DESELECT" : "SELECT";
+
   placeCtx(x, y);
 }
 
-/** Place on screen, nudged back inside the viewport if it would overflow. */
+/**
+ * Place on screen, nudged back inside the viewport if it would overflow.
+ *
+ * Below the sheet breakpoint it stops being a context menu and becomes a bottom
+ * sheet instead: a 212px-wide menu anchored to a fingertip on a 390px screen
+ * lands half off the edge and leaves no room for the tick lists.
+ */
+const SHEET_AT = 560;
 function placeCtx(x, y) {
+  const sheet = innerWidth <= SHEET_AT;
+  ctx.classList.toggle("sheet", sheet);
   ctx.classList.add("open");
+  if (sheet) { ctx.style.left = ctx.style.top = ""; return; }
   const r = ctx.getBoundingClientRect();
   ctx.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + "px";
   ctx.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + "px";
@@ -638,6 +659,12 @@ on("#ctx-reset", "click", () => {
   if (!ctxItems.length) return;
   ctxItems.forEach(it => { it.cfg = {}; });
   setCfg({});
+});
+on("#ctx-select", "click", () => {
+  if (!ctxItems.length) return;
+  if (ctxItems.length > 1) { clearSelection(); closeCtx(); return; }
+  toggleSelect(ctxItems[0].id);
+  openCtx(ctxItems, ctxAt.x, ctxAt.y);
 });
 
 /* ============================ widget registry ============================ */
@@ -1010,7 +1037,7 @@ function layout(persist = true) {
 
   if (narrow) {
     // Static flow: DOM order is visual order, so sort the nodes themselves.
-    items.slice().sort((a, b) => a.y - b.y || a.x - b.x).forEach(it => {
+    stackSorted().forEach(it => {
       const el = document.getElementById("w" + it.id);
       if (!el) return;
       el.style.left = el.style.top = el.style.width = "";
@@ -1066,10 +1093,13 @@ function build(it, animate) {
   const el = document.createElement("div");
   el.className = "w" + (animate ? " spawn" : "") + (selection.has(it.id) ? " selected" : "");
   el.id = "w" + it.id;
+  // The gear is not decoration: touch has no right-click, so without a visible
+  // control there is no way to reach a widget's settings on a phone or an iPad.
   el.innerHTML =
-    `<div class="w-head" data-tip="${esc(def.desc)} — drag anywhere on the widget to move it, right-click for settings">` +
+    `<div class="w-head" data-tip="${esc(def.desc)} — drag to move, right-click or press the gear for settings">` +
       `<img src="${def.icon}" alt=""><span class="t">${esc(def.name.toUpperCase())}</span>` +
-      `<button class="w-x" data-tip="Remove this widget">X</button>` +
+      `<button class="w-cfg" aria-label="Widget settings" data-tip="Size, colour and options">&#9881;</button>` +
+      `<button class="w-x" aria-label="Remove widget" data-tip="Remove this widget">&times;</button>` +
     `</div>` +
     `<div class="w-body"></div>` +
     `<div class="w-rs" data-tip="Drag to resize"></div>`;
@@ -1077,6 +1107,12 @@ function build(it, animate) {
   applyCfg(el, it);
   mounted[it.id] = { def, ref: def.mount($(".w-body", el), cfgOf(it)), it };
   $(".w-x", el).addEventListener("click", e => { e.stopPropagation(); removeWidgets([it.id]); });
+  $(".w-cfg", el).addEventListener("click", e => {
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect();
+    const group = selection.has(it.id) && selection.size > 1 ? selectedItems() : [it];
+    openCtx(group, r.left, r.bottom + 4);
+  });
 
   // Ctrl/Cmd-click toggles selection from anywhere in the widget, including over
   // its buttons. Capture phase and stopPropagation, so a ctrl-click on a
@@ -1174,52 +1210,44 @@ function renderWidgets() {
 /** Things inside a widget that own their own click and must not start a drag. */
 const NO_DRAG = "button, a, input, select, textarea, .w-rs, [contenteditable]";
 
-function dragify(el, it) {
-  // The whole widget is the drag handle, not just its title bar. The guards
-  // below are what make that safe: interactive children keep their click, and
-  // nothing moves until the pointer has actually travelled, so a plain click
-  // inside a widget still behaves like a click.
-  el.addEventListener("pointerdown", e => {
-    if (e.button !== 0) return;
-    if (e.target.closest(NO_DRAG)) return;
-    if (e.ctrlKey || e.metaKey) return;      // that gesture is "select", not "move"
+/**
+ * One drag, shared by mouse and touch.
+ *
+ * Returns { move, end }. The two input paths differ only in when a drag is
+ * allowed to start — a mouse commits after 5px of travel, a finger has to hold
+ * still for a moment first — so everything after that point is this function.
+ */
+function startDragSession(el, it, sx, sy) {
+  const group = selection.has(it.id) && selection.size > 1 ? selectedItems() : [it];
+  const ids = new Set(group.map(g => g.id));
 
-    // Dragging any member of a selection moves the whole selection by the same
-    // offset. Everything is computed from one shared delta so the group keeps
-    // its internal spacing exactly.
-    const group = selection.has(it.id) && selection.size > 1 ? selectedItems() : [it];
-    const ids = new Set(group.map(g => g.id));
-    const origin = new Map(group.map(g => [g.id, { x: g.x, y: g.y }]));
-    const cw = cellW(), sx = e.clientX, sy = e.clientY;
+  group.forEach(g => document.getElementById("w" + g.id)?.classList.add("dragging"));
 
-    // Clamp the delta against the group's bounding box, not each widget, or the
-    // leftmost one would stop while the rest kept going and the shape collapsed.
-    const minX = Math.min(...group.map(g => g.x));
-    const maxRight = Math.max(...group.map(g => g.x + g.w));
-    const minY = Math.min(...group.map(g => g.y));
-
-    // 5px of slack. Without it, one stray pixel between press and release on a
-    // widget body counts as a drag, and widgets creep every time you click one.
-    const THRESHOLD = 5;
-    let dragging = false;
-
-    // Capture straight away, before the threshold is crossed. Without it, a fast
-    // flick off the widget delivers its pointermove and pointerup somewhere else
-    // entirely — the drag never starts and the listeners below never come off.
-    try { el.setPointerCapture(e.pointerId); } catch {}
-
-    const begin = () => {
-      dragging = true;
-      group.forEach(g => document.getElementById("w" + g.id)?.classList.add("dragging"));
-    };
-
-    const mv = ev => {
-      if (!dragging) {
-        if (Math.abs(ev.clientX - sx) < THRESHOLD && Math.abs(ev.clientY - sy) < THRESHOLD) return;
-        begin();
+  // Stacked (phone) mode is a list, not a canvas: there is one column, so the
+  // only meaningful drag is reordering. Position is decided by which widget the
+  // finger is currently over rather than by a grid delta.
+  if (isNarrow()) {
+    return {
+      move(_cx, cy) { stackDragTo(el, cy); },
+      end() {
+        group.forEach(g => document.getElementById("w" + g.id)?.classList.remove("dragging"));
+        commitStackOrder();
       }
-      const dx = clamp(Math.round((ev.clientX - sx) / (cw + GAP)), -minX, COLS - maxRight);
-      const dy = Math.max(-minY, Math.round((ev.clientY - sy) / (ROW + GAP)));
+    };
+  }
+
+  const origin = new Map(group.map(g => [g.id, { x: g.x, y: g.y }]));
+  const cw = cellW();
+  // Clamp the delta against the group's bounding box, not each widget, or the
+  // leftmost one would stop while the rest kept going and the shape collapsed.
+  const minX = Math.min(...group.map(g => g.x));
+  const maxRight = Math.max(...group.map(g => g.x + g.w));
+  const minY = Math.min(...group.map(g => g.y));
+
+  return {
+    move(cx, cy) {
+      const dx = clamp(Math.round((cx - sx) / (cw + GAP)), -minX, COLS - maxRight);
+      const dy = Math.max(-minY, Math.round((cy - sy) / (ROW + GAP)));
       let changed = false;
       for (const g of group) {
         const o = origin.get(g.id);
@@ -1228,22 +1256,135 @@ function dragify(el, it) {
       }
       if (changed) { resolve(ids); layout(false); }
       group.forEach(g => { const ge = document.getElementById("w" + g.id); if (ge) place(ge, g); });
-    };
+    },
+    end() {
+      group.forEach(g => document.getElementById("w" + g.id)?.classList.remove("dragging"));
+      layout();
+    }
+  };
+}
 
+/** Move the dragged node to wherever the pointer sits in the stacked list. */
+function stackDragTo(el, clientY) {
+  const others = [...gridEl.children].filter(n => n !== el && n.classList.contains("w"));
+  let before = null;
+  for (const o of others) {
+    const r = o.getBoundingClientRect();
+    if (clientY < r.top + r.height / 2) { before = o; break; }
+  }
+  if (before) gridEl.insertBefore(el, before);
+  else gridEl.appendChild(el);
+}
+
+/**
+ * Freeze the stacked order into an explicit `order` field.
+ *
+ * Deliberately NOT written back into x/y. Reordering on a phone would otherwise
+ * flatten the desktop canvas — every widget to one column — and you would find
+ * your dashboard rearranged next time you opened it on a real screen. The two
+ * arrangements are allowed to differ; `order` only decides the phone one, and
+ * falls back to the desktop y/x reading order until you have touched it.
+ */
+function commitStackOrder() {
+  [...gridEl.children].filter(n => n.classList.contains("w")).forEach((node, i) => {
+    const item = items.find(x => "w" + x.id === node.id);
+    if (item) item.order = i;
+  });
+  saveLayout();
+}
+
+/** Reading order for the stacked list. */
+const stackSorted = () =>
+  items.slice().sort((a, b) =>
+    (a.order ?? a.y * 100 + a.x) - (b.order ?? b.y * 100 + b.x));
+
+function dragify(el, it) {
+  /* ---- mouse and pen: the whole widget is the handle ---- */
+  el.addEventListener("pointerdown", e => {
+    if (e.pointerType === "touch") return;   // handled by the touch path below
+    if (e.button !== 0) return;
+    if (e.target.closest(NO_DRAG)) return;
+    if (e.ctrlKey || e.metaKey) return;      // that gesture is "select", not "move"
+
+    const sx = e.clientX, sy = e.clientY;
+    // 5px of slack. Without it, one stray pixel between press and release on a
+    // widget body counts as a drag, and widgets creep every time you click one.
+    const THRESHOLD = 5;
+    let session = null;
+
+    // Capture straight away, before the threshold is crossed. Without it, a fast
+    // flick off the widget delivers its pointermove and pointerup somewhere else
+    // entirely — the drag never starts and the listeners below never come off.
+    try { el.setPointerCapture(e.pointerId); } catch {}
+
+    const mv = ev => {
+      if (!session) {
+        if (Math.abs(ev.clientX - sx) < THRESHOLD && Math.abs(ev.clientY - sy) < THRESHOLD) return;
+        session = startDragSession(el, it, sx, sy);
+      }
+      session.move(ev.clientX, ev.clientY);
+    };
     const up = () => {
       el.removeEventListener("pointermove", mv);
       el.removeEventListener("pointerup", up);
       el.removeEventListener("pointercancel", up);
       try { el.releasePointerCapture(e.pointerId); } catch {}
-      if (!dragging) return;                 // it was a click after all
-      group.forEach(g => document.getElementById("w" + g.id)?.classList.remove("dragging"));
-      layout();
+      session?.end();                        // no session means it was a click
     };
 
     el.addEventListener("pointermove", mv);
     el.addEventListener("pointerup", up);
     el.addEventListener("pointercancel", up);
   });
+
+  /* ---- touch: hold to pick up ---- */
+  /**
+   * A finger cannot both scroll the page and drag a widget, and the browser
+   * decides which at the start of the gesture. So the rule is: a press that
+   * moves is a scroll, a press that stays put becomes a drag.
+   *
+   * These are touch events rather than pointer events because stopping the page
+   * from scrolling means preventDefault() on touchmove, which needs a
+   * non-passive listener. touch-action alone cannot express "sometimes".
+   */
+  let holdTimer = null, held = false, startPt = null, session = null;
+
+  const cancelHold = () => { clearTimeout(holdTimer); holdTimer = null; };
+
+  el.addEventListener("touchstart", e => {
+    if (e.touches.length !== 1) return;      // pinch/zoom is not ours
+    if (e.target.closest(NO_DRAG)) return;
+    const t = e.touches[0];
+    startPt = { x: t.clientX, y: t.clientY };
+    held = false;
+    cancelHold();
+    holdTimer = setTimeout(() => {
+      held = true;
+      el.classList.add("held");
+      // A short buzz is the only feedback that the widget is now in your hand.
+      try { navigator.vibrate?.(18); } catch {}
+      session = startDragSession(el, it, startPt.x, startPt.y);
+    }, 380);
+  }, { passive: true });
+
+  el.addEventListener("touchmove", e => {
+    if (!held) {
+      // Still deciding. Any real travel means the user meant to scroll.
+      const t = e.touches[0];
+      if (startPt && Math.hypot(t.clientX - startPt.x, t.clientY - startPt.y) > 12) cancelHold();
+      return;
+    }
+    e.preventDefault();                      // the gesture is ours now
+    session?.move(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: false });
+
+  const endTouch = () => {
+    cancelHold();
+    if (held) { session?.end(); el.classList.remove("held"); }
+    held = false; session = null; startPt = null;
+  };
+  el.addEventListener("touchend", endTouch);
+  el.addEventListener("touchcancel", endTouch);
 }
 function resizify(el, it) {
   const h = $(".w-rs", el);

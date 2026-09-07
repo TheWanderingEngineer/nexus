@@ -253,6 +253,10 @@ export default function routes() {
       id: Number(x.id) || 0, t: String(x.t || "").slice(0, 40),
       x: clampInt(x.x, 0, 11), y: clampInt(x.y, 0, 500),
       w: clampInt(x.w, 1, 12), h: clampInt(x.h, 1, 40),
+      // Phone reading order. Kept separate from x/y so reordering the stacked
+      // list on a phone does not flatten the desktop canvas; null means "not
+      // set yet", and the client falls back to the y/x order.
+      order: x.order == null ? null : clampInt(x.order, 0, 500),
       // Per-widget appearance (scale, colour, display mode). Sanitised rather
       // than stored verbatim so a crafted request cannot stuff arbitrary data
       // into the state file through the layout endpoint.

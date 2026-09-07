@@ -180,6 +180,26 @@ drop `/boot/efi` from the disk list or hide the four hwmon channels that only ev
 report 0 V. The list stores what is *hidden*, not what is shown — a drive you plug
 in next month appears on its own rather than being silently excluded.
 
+### On a phone or a tablet
+
+The gear in each widget's header opens the same settings menu, because touch has
+no right-click. On phones it opens as a bottom sheet rather than a menu pinned to
+a fingertip.
+
+**Hold a widget to pick it up.** A press that moves is a scroll; a press that
+stays still for a moment becomes a drag, with a short buzz to say so. Below
+640px the canvas becomes a single column and dragging reorders the list.
+
+That phone order is stored separately from the desktop x/y, so rearranging on
+your phone does not flatten the layout you built on a real screen. The two are
+allowed to differ; until you drag something on a phone, the phone order simply
+follows the desktop reading order.
+
+Layout, hit targets and reading size are decided independently — by width, by
+whether a finger is driving, and by how large the display is. That is why a
+1024px iPad gets desktop layout with touch-sized controls, and a 1080p TV gets
+desktop layout at a size you can read from a sofa.
+
 ## Files
 
 Selection works the way it does everywhere else: click, Ctrl/⌘+click to add,
