@@ -1,6 +1,10 @@
 # MCP config carries the Pixel Lab API key in plaintext — never commit it.
 .mcp.json
 
+# Local working notes: project context, the mini PC's details, environment
+# gotchas. Useful to keep, not something to publish.
+*.local.md
+
 # Dependencies
 node_modules/
 

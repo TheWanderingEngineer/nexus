@@ -13,7 +13,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Silkscreen:wght@400;700&display=swap">
 <link rel="stylesheet" href="/vendor/xterm.css">
-<link rel="stylesheet" href="/style.css?v=0.7.0">
+<link rel="stylesheet" href="/style.css?v=0.8.0">
 </head>
 <body>
 
@@ -69,6 +69,7 @@
       <button class="nav" data-page="containers"><img src="/assets/brand/icons/ui-containers.png" alt=""><span class="nlabel">Containers</span><span class="tip">CONTAINERS</span></button>
       <button class="nav" data-page="files"><img src="/assets/brand/icons/ui-files.png" alt=""><span class="nlabel">Files</span><span class="tip">FILES</span></button>
       <button class="nav" data-page="term"><img src="/assets/brand/icons/ui-terminal.png" alt=""><span class="nlabel">Terminal</span><span class="tip">TERMINAL</span></button>
+      <button class="nav" data-page="control"><img src="/assets/brand/icons/ui-power.png" alt=""><span class="nlabel">Control Panel</span><span class="tip">CONTROL PANEL</span></button>
       <span class="spacer"></span>
       <button class="nav" data-page="settings"><img src="/assets/brand/icons/ui-settings.png" alt=""><span class="nlabel">Settings</span><span class="tip">SETTINGS</span></button>
       <div id="rail-grip" title="Drag to resize the menu"></div>
@@ -98,10 +99,18 @@
           <button class="btn" id="t-new">NEW SESSION</button>
           <button class="btn" id="t-clear">CLEAR</button>
         </div>
+        <div id="tools-control" hidden>
+          <button class="btn" id="cp-new-rule">+ NEW RULE</button>
+          <button class="btn" id="cp-new-task">+ NEW TASK</button>
+        </div>
       </div>
 
       <!-- dashboard -->
       <section class="page on" id="page-dash">
+        <div class="selbar" id="selbar" hidden>
+          <span class="selc" id="selcount">0 WIDGETS SELECTED</span>
+          <span class="hint">Ctrl/&#8984;+click to add &middot; drag any of them to move the group &middot; right-click for shared settings &middot; Delete removes them</span>
+        </div>
         <div id="grid"></div>
         <div class="empty" id="grid-empty" hidden>NO WIDGETS &mdash; PRESS &ldquo;+ ADD WIDGET&rdquo;</div>
       </section>
@@ -119,6 +128,10 @@
       <section class="page" id="page-files">
         <div class="rootbar" id="f-roots"></div>
         <div class="crumbs" id="f-crumbs"></div>
+        <div class="selbar" id="f-selbar" hidden>
+          <span class="selc" id="f-selcount">0 ITEMS SELECTED</span>
+          <span class="hint">Ctrl/&#8984;+click to add &middot; Shift+click for a run &middot; drag a box over empty space &middot; Delete removes them</span>
+        </div>
         <div class="tw"><table id="f-table">
           <thead><tr><th>Name</th><th>Size</th><th>Modified</th><th></th></tr></thead>
           <tbody></tbody>
@@ -163,6 +176,43 @@
             Full PTY — arrow keys, tab completion, colours and curses apps all work.
             Every session is written to the audit log.
           </p>
+        </div>
+      </section>
+
+      <!-- control panel -->
+      <section class="page" id="page-control">
+        <div class="section">
+          <h2>ALERTS</h2>
+          <p class="hint">What has tripped, newest first. Kept on the server, so this survives a reload
+             &mdash; and a restart.</p>
+          <div class="rowbtns" style="margin:8px 0 12px">
+            <button class="btn" id="cp-ack">MARK ALL READ</button>
+            <button class="btn danger" id="cp-clear">CLEAR HISTORY</button>
+          </div>
+          <div id="cp-alerts"></div>
+        </div>
+
+        <div class="section">
+          <h2>WATCH RULES</h2>
+          <p class="hint">A rule watches one thing and does something when it stays wrong for long enough.
+             Sustain and cooldown are what keep this useful rather than noisy.</p>
+          <div id="cp-rules"></div>
+        </div>
+
+        <div class="section">
+          <h2>SCHEDULED TASKS</h2>
+          <p class="hint">Container restarts on a clock, in the server&rsquo;s local time.</p>
+          <div id="cp-schedules"></div>
+        </div>
+
+        <div class="section">
+          <h2>NOTIFICATIONS</h2>
+          <div id="cp-notify"></div>
+        </div>
+
+        <div class="section">
+          <h2>POWER</h2>
+          <div id="cp-power"></div>
         </div>
       </section>
 
@@ -234,6 +284,6 @@
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/xterm-addon-fit.js"></script>
 <script src="/vendor/xterm-addon-web-links.js"></script>
-<script src="/app.js?v=0.7.0"></script>
+<script src="/app.js?v=0.8.0"></script>
 </body>
 </html>

@@ -11,6 +11,7 @@ import * as filesvc from "./files.js";
 import * as terminal from "./terminal.js";
 import * as library from "./library.js";
 import * as apps from "./apps.js";
+import * as automation from "./automation.js";
 import {
   hashPassword, verifyPassword, createSession, destroySession,
   setSessionCookies, clearSessionCookies, requireAuth, requireCsrf,
@@ -331,6 +332,69 @@ export default function routes() {
     res.json(j);
   });
 
+  /* ---------------- control panel: automation ---------------- */
+  r.get("/automation", (_req, res) => res.json(automation.getConfig()));
+
+  r.put("/automation/rules", (req, res) => {
+    const rule = automation.saveRule(req.body || {});
+    audit("automation.rule.save", { id: rule.id, name: rule.name }, req);
+    res.json(rule);
+  });
+
+  r.delete("/automation/rules/:id", (req, res) => {
+    automation.deleteRule(req.params.id);
+    audit("automation.rule.delete", { id: req.params.id }, req);
+    res.json({ ok: true });
+  });
+
+  r.put("/automation/schedules", (req, res) => {
+    const s = automation.saveSchedule(req.body || {});
+    audit("automation.schedule.save", { id: s.id, name: s.name, time: s.time }, req);
+    res.json(s);
+  });
+
+  r.delete("/automation/schedules/:id", (req, res) => {
+    automation.deleteSchedule(req.params.id);
+    audit("automation.schedule.delete", { id: req.params.id }, req);
+    res.json({ ok: true });
+  });
+
+  r.put("/automation/notify", (req, res) => {
+    const n = automation.saveNotify(req.body || {});
+    // The URL can carry a token (ntfy topics, Discord webhooks), so log that it
+    // changed without writing the secret itself into the audit log.
+    audit("automation.notify.save", { configured: !!n.webhookUrl, format: n.webhookFormat }, req);
+    res.json(n);
+  });
+
+  r.post("/automation/notify/test", wrap(async (req, res) => {
+    const out = await automation.sendWebhook({
+      level: "info",
+      title: "Nexus test notification",
+      message: `If you are reading this, alerts from ${metrics.snapshot.host?.hostname || "this host"} will reach you.`
+    }, req.body?.webhookUrl || undefined);
+    audit("automation.notify.test", out, req);
+    res.json(out);
+  }));
+
+  r.put("/automation/power", (req, res) => {
+    const p = automation.savePower(req.body || {});
+    audit("automation.power.arm", p, req);
+    res.json(p);
+  });
+
+  r.get("/automation/alerts", (req, res) => {
+    res.json(automation.listAlerts(Math.min(Number(req.query.limit) || 60, 200)));
+  });
+
+  r.post("/automation/alerts/ack", (_req, res) => res.json(automation.ackAlerts()));
+  r.delete("/automation/alerts", (req, res) => { audit("automation.alerts.clear", null, req); res.json(automation.clearAlerts()); });
+
+  r.post("/system/power/:action", wrap(async (req, res) => {
+    const out = await automation.power(req.params.action, req, req.user);
+    res.json(out);
+  }));
+
   /* ---------------- settings + audit ---------------- */
   r.get("/settings", (_req, res) => res.json(db().settings || {}));
 
@@ -354,17 +418,29 @@ function clampInt(v, lo, hi) {
   return Math.max(lo, Math.min(hi, n));
 }
 
-/** Widget appearance settings: a small, closed set of short scalar values. */
+/**
+ * Widget appearance settings: a small, closed set of short scalars, plus short
+ * string lists.
+ *
+ * The lists exist for the per-item visibility pickers (which mount points a
+ * Storage widget shows, which channels a Sensors widget shows). Those hold real
+ * filesystem paths and hwmon channel ids, so they need more than the 40-char
+ * scalar budget — but they are still bounded on both count and length so the
+ * layout endpoint cannot be used to stuff arbitrary data into the state file.
+ */
 function sanitizeCfg(cfg) {
   if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) return {};
   const out = {};
   let n = 0;
   for (const [k, v] of Object.entries(cfg)) {
-    if (n++ >= 12) break;
+    if (n++ >= 14) break;
     if (!/^[a-zA-Z][a-zA-Z0-9_]{0,24}$/.test(k)) continue;
     if (typeof v === "number" && Number.isFinite(v)) out[k] = Math.max(-1e6, Math.min(1e6, v));
     else if (typeof v === "boolean") out[k] = v;
     else if (typeof v === "string") out[k] = v.slice(0, 40);
+    else if (Array.isArray(v)) {
+      out[k] = v.filter(x => typeof x === "string").slice(0, 64).map(x => x.slice(0, 200));
+    }
   }
   return out;
 }

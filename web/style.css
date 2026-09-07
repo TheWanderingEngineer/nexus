@@ -162,7 +162,9 @@ label{font-family:var(--screen);font-size:9px;letter-spacing:.1em;color:var(--te
           opacity:0;pointer-events:none;transition:opacity .1s;z-index:50}
 .nav:hover .tip{opacity:1}
 
-#main{overflow:auto;padding:calc(var(--u)*4);min-width:0;-webkit-overflow-scrolling:touch}
+/* Extra room at the bottom so the floating selection bar never sits on top of
+   the last row of a list or the last widget in the grid. */
+#main{overflow:auto;padding:calc(var(--u)*4) calc(var(--u)*4) calc(var(--u)*16);min-width:0;-webkit-overflow-scrolling:touch}
 #toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:calc(var(--u)*2);margin-bottom:calc(var(--u)*4)}
 #toolbar h1{font-family:var(--screen);font-weight:700;font-size:20px;letter-spacing:.06em;margin:0}
 .hint{font-size:12px;color:var(--text-3)}
@@ -500,11 +502,22 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
   --wc-green:#5CE68A; --wc-coral:#FF7A87; --wc-blue:#7DA2FF;
 }
 
-/* ---------------- topbar clock: time + day ---------------- */
-#clock{display:flex;flex-direction:column;line-height:1.15;align-items:flex-end}
+/* ---------------- topbar clock: time + day ----------------
+   Fixed width, centred, tabular figures.
+
+   The clock sits between two buttons in a flex row, so anything that changes
+   its measured width shoves them sideways. Three separate things were doing
+   that: the seconds digit (now gone), the hour crossing 9 -> 10, and the day
+   line going from "MON 7 SEP" to "WED 27 SEP". A min-width wide enough for the
+   longest of those pins the whole block, and centring keeps both lines looking
+   deliberate inside it rather than ragged. */
+#clock{display:flex;flex-direction:column;line-height:1.15;align-items:center;
+       min-width:104px;text-align:center}
 #clock .ctime{font-family:var(--screen);font-weight:600;font-size:15px;letter-spacing:.03em;
-              font-variant-numeric:tabular-nums;color:var(--text)}
-#clock .cday{font-family:var(--screen);font-weight:600;font-size:10px;letter-spacing:.09em;color:var(--text-3)}
+              font-variant-numeric:tabular-nums;color:var(--text);white-space:nowrap}
+#clock .cday{font-family:var(--screen);font-weight:600;font-size:10px;letter-spacing:.09em;
+             color:var(--text-3);white-space:nowrap}
+@media (max-width:820px){ #clock{min-width:88px} }
 
 /* ---------------- network widget: both directions, equal billing ---------- */
 .netrow{display:flex;align-items:baseline;gap:calc(var(--u)*4);flex-wrap:wrap;flex:none}
@@ -616,3 +629,166 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
 .rootbtn .rp{font-family:var(--mono);font-size:10px;color:var(--text-3)}
 .rootshint{flex:1 1 220px;min-width:0}
 .rootshint code{font-size:.9em}
+
+
+/* ============================================================
+   MULTI-SELECT  (widgets and files)
+   ============================================================ */
+
+/* The bevel is already doing work on every edge, so selection is marked with an
+   inset outline rather than another border — it reads as "picked up" without
+   changing the widget's box or nudging the grid. */
+.w.selected{outline:3px solid var(--accent);outline-offset:-3px}
+.w.selected .w-head{background:color-mix(in srgb, var(--accent) 26%, var(--sunk))}
+.w.selected .w-head .t{color:var(--text)}
+.w.selected.dragging{outline-color:var(--accent-2)}
+
+/* Floats over the content rather than sitting in the flow.
+   As an in-flow bar it appeared on the first click and pushed everything below
+   it down by its own height — so the second ctrl-click of a multi-select landed
+   on the row above the one you were pointing at. Nothing that appears *because*
+   you clicked may move what you are clicking on. */
+.selbar{
+  position:fixed;z-index:200;
+  left:calc(var(--rail-w,72px) + var(--u)*8);
+  right:calc(var(--u)*8);
+  bottom:calc(var(--u)*4);
+  /* It floats over the list, so it must not swallow clicks meant for the rows
+     underneath it. There is nothing interactive in here — it only reports. */
+  pointer-events:none;
+  display:flex;align-items:center;gap:calc(var(--u)*3);flex-wrap:wrap;
+  padding:calc(var(--u)*2) calc(var(--u)*3);
+  background:var(--panel);
+  border-top:var(--u) solid var(--bevel-lt);border-left:var(--u) solid var(--accent);
+  border-right:var(--u) solid var(--bevel-dk);border-bottom:var(--u) solid var(--bevel-dk);
+}
+.selbar .selc{font-family:var(--screen);font-weight:700;font-size:11px;letter-spacing:.08em;
+              color:var(--accent);white-space:nowrap}
+.selbar .hint{font-size:11px}
+@media (max-width:640px){ .selbar .hint{display:none} }
+
+/* Rubber band. Positioned inside #page-files, which is why that gets a
+   containing block below. */
+.page{position:relative}
+#f-band{
+  position:absolute;z-index:60;pointer-events:none;
+  border:2px solid var(--accent);
+  background:color-mix(in srgb, var(--accent) 16%, transparent);
+}
+#page-files{user-select:none}
+
+/* ============================================================
+   CONTEXT MENU: tick lists and notes
+   ============================================================ */
+
+/* A host with a dozen sensors makes this menu taller than the viewport, so it
+   scrolls internally instead of running off the bottom of the screen. */
+#ctx{max-height:min(78vh,660px);overflow:auto;overscroll-behavior:contain}
+
+.ctxnote{margin:0;font-size:11px;line-height:1.45;color:var(--text-3)}
+.ctxchecks{display:flex;flex-direction:column;gap:2px;max-height:238px;overflow:auto;
+           background:var(--sunk);padding:2px}
+.ctxcheck{
+  display:flex;align-items:center;gap:calc(var(--u)*2);width:100%;text-align:left;
+  padding:calc(var(--u)*1.25) calc(var(--u)*1.5);background:var(--panel);color:var(--text-2);
+  border-top:2px solid var(--bevel-lt);border-left:2px solid var(--bevel-lt);
+  border-right:2px solid var(--bevel-dk);border-bottom:2px solid var(--bevel-dk);
+}
+.ctxcheck:hover{background:var(--panel-hi);color:var(--text)}
+.ctxcheck .tick{
+  flex:none;width:16px;height:16px;display:grid;place-items:center;
+  font-family:var(--screen);font-size:11px;line-height:1;
+  background:var(--sunk);color:var(--on-accent);
+  border-top:2px solid var(--bevel-dk);border-left:2px solid var(--bevel-dk);
+  border-right:2px solid var(--bevel-lt);border-bottom:2px solid var(--bevel-lt);
+}
+.ctxcheck.on .tick{background:var(--accent)}
+.ctxcheck .ct{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
+.ctxcheck .cl{font-family:var(--mono);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ctxcheck .cs{font-size:10px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ctxcheck.on .cl{color:var(--text)}
+.ctxallrow{margin-top:calc(var(--u)*1.5)}
+
+/* ============================================================
+   CONTROL PANEL
+   ============================================================ */
+.cpform{display:flex;flex-direction:column;gap:calc(var(--u)*4)}
+.cpform h3{font-family:var(--screen);font-size:10px;letter-spacing:.1em;color:var(--accent);
+           margin:0;padding-bottom:calc(var(--u));border-bottom:2px solid var(--rule)}
+.frow{display:flex;gap:calc(var(--u)*4);flex-wrap:wrap}
+.frow > .field{flex:1 1 210px;min-width:0}
+.checkrow{display:flex;flex-direction:column;gap:2px}
+
+/* --- rules and scheduled tasks share a row shape --- */
+.rulelist{display:flex;flex-direction:column;gap:calc(var(--u)*2)}
+.rule{
+  display:flex;align-items:center;gap:calc(var(--u)*3);flex-wrap:wrap;
+  padding:calc(var(--u)*3);background:var(--sunk);
+  border-left:var(--u) solid var(--accent);
+}
+.rule.off{border-left-color:var(--rule);opacity:.62}
+.rule .rtxt{display:flex;flex-direction:column;gap:2px;flex:1 1 260px;min-width:0}
+.rule .rn{font-family:var(--screen);font-weight:700;font-size:12px;letter-spacing:.05em;color:var(--text)}
+.rule .rd{font-size:12px;color:var(--text-2);line-height:1.45}
+.rule .rd.dim{color:var(--text-3);font-size:11px}
+.rule .rd b{font-family:var(--mono);font-weight:400;color:var(--text)}
+
+/* A switch, not a checkbox: these turn real automations on and off, and the
+   state needs to read across the room. */
+.toggle{
+  flex:none;width:42px;height:22px;padding:2px;position:relative;background:var(--void);
+  border-top:2px solid var(--bevel-dk);border-left:2px solid var(--bevel-dk);
+  border-right:2px solid var(--bevel-lt);border-bottom:2px solid var(--bevel-lt);
+}
+.toggle i{display:block;width:16px;height:14px;background:var(--text-3);
+          transition:transform .1s steps(2,end),background .1s}
+.toggle.on{background:color-mix(in srgb, var(--ok) 30%, var(--void))}
+.toggle.on i{transform:translateX(20px);background:var(--ok)}
+
+/* --- day picker --- */
+.daypick{display:flex;gap:var(--u);flex-wrap:wrap}
+.dayb{
+  width:30px;height:30px;flex:none;
+  font-family:var(--screen);font-weight:700;font-size:11px;color:var(--text-3);background:var(--panel);
+  border-top:2px solid var(--bevel-lt);border-left:2px solid var(--bevel-lt);
+  border-right:2px solid var(--bevel-dk);border-bottom:2px solid var(--bevel-dk);
+}
+.dayb:hover{background:var(--panel-hi);color:var(--text)}
+.dayb.on{background:var(--accent);color:var(--on-accent);
+  border-top-color:var(--bevel-dk);border-left-color:var(--bevel-dk);
+  border-right-color:var(--bevel-lt);border-bottom-color:var(--bevel-lt)}
+
+/* --- alerts --- */
+.alertlist{display:flex;flex-direction:column;gap:calc(var(--u)*1.5);max-height:340px;overflow:auto}
+.alert{
+  display:flex;align-items:baseline;gap:calc(var(--u)*3);flex-wrap:wrap;
+  padding:calc(var(--u)*2) calc(var(--u)*3);background:var(--sunk);
+  border-left:var(--u) solid var(--text-3);
+}
+.alert.info{border-left-color:var(--ok)}
+.alert.warn{border-left-color:var(--warn)}
+.alert.crit{border-left-color:var(--crit)}
+.alert .apill{
+  flex:none;font-family:var(--screen);font-weight:700;font-size:9px;letter-spacing:.08em;
+  min-width:44px;text-align:center;padding:2px 4px;color:var(--void);background:var(--text-3);
+}
+.alert.info .apill{background:var(--ok)}
+.alert.warn .apill{background:var(--warn)}
+.alert.crit .apill{background:var(--crit)}
+.alert .atxt{display:flex;flex-direction:column;gap:2px;flex:1 1 260px;min-width:0}
+.alert .at{font-family:var(--screen);font-weight:600;font-size:12px;letter-spacing:.04em;color:var(--text)}
+.alert .am{font-size:12px;color:var(--text-2);line-height:1.45}
+.alert .awhen{font-size:10.5px;color:var(--text-3);flex:none}
+
+@media (max-width:640px){
+  .rule{gap:calc(var(--u)*2)}
+  .frow{gap:calc(var(--u)*3)}
+  .alert .awhen{width:100%}
+}
+
+/* The file list panel fills the page rather than shrink-wrapping its rows.
+   Two reasons: a four-item folder no longer leaves a stub of a panel floating
+   in the middle of the page, and there is always blank panel below the last row
+   to start a rubber-band drag from. Without this, a short listing has no empty
+   space inside #page-files at all and the marquee has nowhere to begin. */
+#page-files .tw{min-height:56vh}

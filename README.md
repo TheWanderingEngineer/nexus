@@ -161,6 +161,67 @@ sudo apt-get install -y build-essential python3
 Every session open and close is written to the audit log, and the whole feature
 can be switched off with `terminal.enabled: false`.
 
+## The dashboard
+
+Widgets float where you drop them — gravity only applies when you press RESET.
+
+| Gesture | Effect |
+|---|---|
+| Right-click a widget | Its own settings: size, colour, background tint, plus per-type options |
+| Ctrl/⌘ + click | Add or remove a widget from the selection |
+| Ctrl/⌘ + A | Select every widget, including any below the fold |
+| Drag a selected widget | Moves the whole selection, keeping its internal spacing |
+| Right-click a selection | Only the settings they all share; per-type options appear when the types match |
+| Delete / Backspace | Remove the selection |
+| Escape | Clear it |
+
+**Storage** and **Sensors** carry a tick list in their right-click menu, so you can
+drop `/boot/efi` from the disk list or hide the four hwmon channels that only ever
+report 0 V. The list stores what is *hidden*, not what is shown — a drive you plug
+in next month appears on its own rather than being silently excluded.
+
+## Files
+
+Selection works the way it does everywhere else: click, Ctrl/⌘+click to add,
+Shift+click for a run, or drag a box over empty space. Delete removes the
+selection, and the right-click menu collapses to the operations that make sense
+for a set. Downloads are issued one file at a time — there is no server-side zip.
+
+## Control panel
+
+Automations, in three parts.
+
+**Watch rules** — one rule watches one thing (a temperature, CPU, memory, a disk,
+a container) and acts when it stays wrong. Two knobs make this useful rather than
+noisy:
+
+- **Sustain** — how long the condition must hold. A CPU that touches 95 °C for one
+  sample during a compile is not an emergency, and an alerting system that cries
+  wolf gets muted, which is worse than no alerting.
+- **Cooldown** — how long the rule stays quiet after firing. Without it a disk
+  sitting at 91 % alerts on every evaluation tick, forever.
+
+Actions are: notify in Nexus, send a webhook, restart or stop a container, or
+reboot/shut the host down. Two notify-only rules are seeded on first boot — high
+CPU temperature and a nearly-full disk — because those are the two failures that
+actually kill homelab boxes.
+
+**Scheduled tasks** — container restarts on a clock. A timed whole-host reboot is
+deliberately *not* offered: rebooting Linux on a timer hides a leak instead of
+finding it and guarantees downtime at a fixed hour. Restarting the one container
+that misbehaves is the same idea aimed at the thing that actually misbehaves.
+
+**Notifications** — an ntfy topic, a Discord webhook, or any endpoint that takes a
+JSON POST; the shape is picked from the URL. This is the part that matters: an
+alert that only appears in a browser tab you do not have open is not an alert.
+Browser notifications are available too, while a Nexus tab is open.
+
+**Power** — reboot and shutdown, disarmed by default. While disarmed, both the
+buttons and any rule that carries a power action are refused by the server, not
+just greyed out in the UI. Arming is a deliberate switch, and the buttons then ask
+you to type the hostname; Nexus runs as root, so these do exactly what they say and
+there is no remote power-on.
+
 ## Development
 
 ```bash

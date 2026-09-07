@@ -12,6 +12,7 @@ import * as metrics from "./metrics.js";
 import * as dockerx from "./dockerx.js";
 import * as terminal from "./terminal.js";
 import * as apps from "./apps.js";
+import * as automation from "./automation.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = path.join(__dirname, "..", "web");
@@ -185,16 +186,22 @@ wssTerminal.on("connection", (ws, req, auth) => {
   ws.on("error", () => session.kill());
 });
 
-/* ---- install / uninstall job progress ---- */
+/* ---- install/uninstall job progress, and automation alerts ---- */
 wssEvents.on("connection", ws => {
-  const onJob = payload => {
+  const send = (type, data) => {
     if (ws.readyState === ws.OPEN) {
-      try { ws.send(JSON.stringify({ type: "job", data: payload })); } catch {}
+      try { ws.send(JSON.stringify({ type, data })); } catch {}
     }
   };
+  const onJob = payload => send("job", payload);
+  const onAlert = payload => send("alert", payload);
+
   apps.bus.on("job", onJob);
-  ws.on("close", () => apps.bus.off("job", onJob));
-  ws.on("error", () => apps.bus.off("job", onJob));
+  automation.bus.on("alert", onAlert);
+
+  const off = () => { apps.bus.off("job", onJob); automation.bus.off("alert", onAlert); };
+  ws.on("close", off);
+  ws.on("error", off);
 });
 
 /* ---- container logs ---- */
@@ -226,6 +233,9 @@ async function main() {
     await apps.init().catch(e => console.error("[boot] app store:", e.message));
     await dockerx.init().catch(e => console.error("[boot] docker:", e.message));
     await metrics.start().catch(e => console.error("[boot] metrics:", e.message));
+    // Last: the rule evaluator reads the metrics snapshot and the Docker list,
+    // so starting it before those exist just burns ticks on empty readings.
+    try { automation.init(); } catch (e) { console.error("[boot] automation:", e.message); }
   })();
 
   server.listen(cfg.port, cfg.host, async () => {

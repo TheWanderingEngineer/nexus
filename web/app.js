@@ -194,11 +194,14 @@ function paintTopbar() {
   $("#tb-temp").textContent = t ? Math.round(t.value) + "°C" : "n/a";
 }
 
+// No seconds. Beyond being noise in a status bar, a ticking seconds digit
+// re-measured the clock every second and nudged the buttons either side of it;
+// the fixed min-width in the stylesheet is the other half of that fix.
 setInterval(() => {
   const n = new Date();
   const el = $("#clock");
   if (el) el.innerHTML =
-    `<span class="ctime">${fmtTime(n, true, true)}</span>` +
+    `<span class="ctime">${fmtTime(n, true, false)}</span>` +
     `<span class="cday">${DAYS[n.getDay()]} ${n.getDate()} ${MONTHS[n.getMonth()]}</span>`;
 }, 1000);
 
@@ -305,6 +308,22 @@ function cfgOf(it) {
   return { scale: 1, color: "cyan", bg: "none", ...def, ...(it.cfg || {}) };
 }
 
+/**
+ * Per-item visibility.
+ *
+ * Stored as a list of things to HIDE rather than a list to show, so a drive you
+ * plug in next month or a sensor a kernel update exposes turns up on its own. A
+ * "shown" list would silently omit anything that did not exist when you last
+ * touched the menu, which is the same shape as a bug.
+ */
+const hiddenSet = cfg => new Set(Array.isArray(cfg.hidden) ? cfg.hidden : []);
+
+function toggleHidden(cfg, value) {
+  const h = hiddenSet(cfg);
+  if (h.has(value)) h.delete(value); else h.add(value);
+  return [...h];
+}
+
 /** Push the settings onto the element as CSS variables, so styling is pure CSS. */
 function applyCfg(el, it) {
   const c = cfgOf(it);
@@ -318,85 +337,115 @@ function applyCfg(el, it) {
 
 /* ============================ context menu ============================ */
 const ctx = $("#ctx");
-let ctxItem = null;
+let ctxItems = [];          // the widgets the open menu is editing
+let ctxAt = { x: 0, y: 0 };
 
-function closeCtx() { ctx.classList.remove("open"); ctxItem = null; }
-addEventListener("click", e => { if (!e.target.closest("#ctx")) closeCtx(); });
+function closeCtx() { ctx.classList.remove("open"); ctxItems = []; }
+
+/**
+ * "Did this click land inside the menu?" has to be answered BEFORE the handler
+ * runs, not after.
+ *
+ * Toggling an option rebuilds #ctx-body, which detaches the button that was
+ * clicked. By the time the event reaches the window listener below, that node
+ * has no #ctx ancestor any more, so `closest("#ctx")` says no and the menu
+ * closes itself on every tick. Flagging the event in the capture phase — while
+ * the node is still in the document — is what lets you tick several boxes in a
+ * row without the menu vanishing under the pointer.
+ */
+ctx.addEventListener("click", e => { e.nexusInCtx = true; }, true);
+addEventListener("click", e => { if (!e.nexusInCtx && !e.target.closest("#ctx")) closeCtx(); });
 addEventListener("keydown", e => { if (e.key === "Escape") closeCtx(); });
 addEventListener("scroll", closeCtx, true);
 
-function openCtx(it, x, y) {
-  const def = REG[it.t];
-  if (!def) return;
-  ctxItem = it;
+/**
+ * Opens the widget menu for one widget or for a whole selection.
+ *
+ * With several widgets selected only the settings they all understand are
+ * offered — size, colour, tint always; a widget's own options only when every
+ * selected widget is the same type. Showing "Face: analog" over a mixed bag of
+ * a clock and a CPU chart would just be a button that silently does nothing to
+ * most of them.
+ */
+function openCtx(list, x, y) {
+  const sel = (Array.isArray(list) ? list : [list]).filter(it => it && REG[it.t]);
+  if (!sel.length) return;
+  ctxItems = sel;
+  ctxAt = { x, y };
 
-  $("#ctx-icon").src = def.icon;
-  $("#ctx-title").textContent = def.name.toUpperCase();
+  const many = sel.length > 1;
+  const sameType = sel.every(it => it.t === sel[0].t);
+  const def = REG[sel[0].t];
+  const lead = cfgOf(sel[0]);
+  // With a mixed selection a value is only "current" when they all share it.
+  const shared = key => (sel.every(it => cfgOf(it)[key] === lead[key]) ? lead[key] : undefined);
+
+  $("#ctx-icon").src = sameType ? def.icon : ICON("dashboard");
+  $("#ctx-title").textContent = many
+    ? `${sel.length} WIDGETS SELECTED`
+    : def.name.toUpperCase();
 
   const body = $("#ctx-body");
   body.innerHTML = "";
 
   // Every widget gets size and colour…
   body.appendChild(ctxGroup("Text &amp; icon size", ICON("textsize"), SCALES.map(s => ({
-    label: s.label, sel: cfgOf(it).scale === s.key, apply: () => setCfg(it, { scale: s.key })
+    label: s.label, sel: shared("scale") === s.key, apply: () => setCfg({ scale: s.key })
   }))));
 
-  const colorRow = document.createElement("div");
-  colorRow.className = "ctxgroup";
-  colorRow.innerHTML = `<span class="ctxlabel"><img src="${ICON("palette")}" alt="">Colour</span>`;
-  const row = document.createElement("div");
-  row.className = "ctxrow";
-  WCOLORS.forEach(c => {
-    const b = document.createElement("button");
-    b.className = "ctxopt swatch" + (cfgOf(it).color === c.key ? " sel" : "");
-    b.style.background = c.css;
-    b.title = c.label;
-    b.setAttribute("aria-label", c.label);
-    b.addEventListener("click", () => setCfg(it, { color: c.key }));
-    row.appendChild(b);
-  });
-  colorRow.appendChild(row);
-  body.appendChild(colorRow);
+  body.appendChild(ctxSwatches("Colour", WCOLORS, shared("color"), c => c.css, key => setCfg({ color: key })));
 
   // Background tint. "None" first, because the plain panel is the sane default
   // and should be one click away rather than buried at the end.
-  const bgRow = document.createElement("div");
-  bgRow.className = "ctxgroup";
-  bgRow.innerHTML = `<span class="ctxlabel"><img src="${ICON("palette")}" alt="">Background tint</span>`;
-  const brow = document.createElement("div");
-  brow.className = "ctxrow";
-  [{ key: "none", label: "None", css: "var(--panel)" }, ...WCOLORS].forEach(c => {
-    const b = document.createElement("button");
-    b.className = "ctxopt swatch" + (cfgOf(it).bg === c.key ? " sel" : "");
-    b.style.background = c.key === "none"
-      ? "var(--panel)"
-      : `color-mix(in srgb, ${c.css} 45%, var(--panel))`;
-    if (c.key === "none") b.style.borderStyle = "dashed";
-    b.title = c.label;
-    b.setAttribute("aria-label", "Background " + c.label);
-    b.addEventListener("click", () => setCfg(it, { bg: c.key }));
-    brow.appendChild(b);
-  });
-  bgRow.appendChild(brow);
-  body.appendChild(bgRow);
+  body.appendChild(ctxSwatches(
+    "Background tint",
+    [{ key: "none", label: "None", css: "var(--panel)" }, ...WCOLORS],
+    shared("bg"),
+    c => (c.key === "none" ? "var(--panel)" : `color-mix(in srgb, ${c.css} 45%, var(--panel))`),
+    key => setCfg({ bg: key }),
+    true
+  ));
 
-  // …and anything the widget itself declares.
-  for (const opt of def.options || []) {
-    body.appendChild(ctxGroup(opt.label, opt.icon || null, opt.values.map(v => ({
-      label: v.label,
-      sel: cfgOf(it)[opt.key] === v.value,
-      apply: () => setCfg(it, { [opt.key]: v.value })
-    }))));
+  // …and anything the widget itself declares, when the selection agrees on type.
+  if (sameType) {
+    for (const opt of def.options || []) {
+      body.appendChild(ctxGroup(opt.label, opt.icon || null, opt.values.map(v => ({
+        label: v.label,
+        sel: shared(opt.key) === v.value,
+        apply: () => setCfg({ [opt.key]: v.value })
+      }))));
+    }
+  }
+
+  // Per-item tick lists are single-widget only: "which mounts" means something
+  // different for each widget, and merging two lists is a guess.
+  if (!many && def.picker) {
+    const p = def.picker(lead);
+    if (p) body.appendChild(ctxChecklist(p, lead));
+  }
+
+  if (many) {
+    const note = document.createElement("p");
+    note.className = "ctxnote";
+    note.textContent = sameType
+      ? "Changes apply to all selected widgets."
+      : "Mixed types — only the shared settings are shown.";
+    body.appendChild(note);
   }
 
   // The file-manager menu hides the footer; put it back for widgets.
-  document.querySelector(".ctxfoot").hidden = false;
+  $(".ctxfoot").hidden = false;
+  $("#ctx-remove").textContent = many ? `REMOVE ${sel.length}` : "REMOVE";
 
-  // Place it on screen, nudged back inside the viewport if it would overflow.
+  placeCtx(x, y);
+}
+
+/** Place on screen, nudged back inside the viewport if it would overflow. */
+function placeCtx(x, y) {
   ctx.classList.add("open");
   const r = ctx.getBoundingClientRect();
-  ctx.style.left = Math.min(x, innerWidth - r.width - 8) + "px";
-  ctx.style.top = Math.min(y, innerHeight - r.height - 8) + "px";
+  ctx.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + "px";
+  ctx.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + "px";
 }
 
 function ctxGroup(label, icon, opts) {
@@ -416,14 +465,87 @@ function ctxGroup(label, icon, opts) {
   return g;
 }
 
-function setCfg(it, patch) {
-  it.cfg = { ...(it.cfg || {}), ...patch };
-  const el = document.getElementById("w" + it.id);
-  if (el) applyCfg(el, it);
-  // Remount so a mode change (bars vs list, analog vs digital) takes effect.
-  remount(it);
+function ctxSwatches(label, colors, current, bgFor, apply, dashNone) {
+  const g = document.createElement("div");
+  g.className = "ctxgroup";
+  g.innerHTML = `<span class="ctxlabel"><img src="${ICON("palette")}" alt="">${label}</span>`;
+  const row = document.createElement("div");
+  row.className = "ctxrow";
+  colors.forEach(c => {
+    const b = document.createElement("button");
+    b.className = "ctxopt swatch" + (current === c.key ? " sel" : "");
+    b.style.background = bgFor(c);
+    if (dashNone && c.key === "none") b.style.borderStyle = "dashed";
+    b.title = c.label;
+    b.setAttribute("aria-label", `${label} ${c.label}`);
+    b.addEventListener("click", () => apply(c.key));
+    row.appendChild(b);
+  });
+  g.appendChild(row);
+  return g;
+}
+
+/** A tick list: everything is on unless it is in the widget's `hidden` array. */
+function ctxChecklist(p, cfg) {
+  const hide = hiddenSet(cfg);
+  const g = document.createElement("div");
+  g.className = "ctxgroup";
+  g.innerHTML = `<span class="ctxlabel">${p.icon ? `<img src="${p.icon}" alt="">` : ""}${esc(p.label)}</span>`;
+
+  if (!p.items.length) {
+    const e = document.createElement("p");
+    e.className = "ctxnote";
+    e.textContent = p.empty || "Nothing to show yet.";
+    g.appendChild(e);
+    return g;
+  }
+
+  const list = document.createElement("div");
+  list.className = "ctxchecks";
+  p.items.forEach(item => {
+    const shown = !hide.has(item.value);
+    const b = document.createElement("button");
+    b.className = "ctxcheck" + (shown ? " on" : "");
+    b.setAttribute("role", "switch");
+    b.setAttribute("aria-checked", String(shown));
+    b.innerHTML =
+      `<span class="tick" aria-hidden="true">${shown ? "&#10003;" : ""}</span>` +
+      `<span class="ct"><span class="cl">${esc(item.label)}</span>` +
+      (item.sub ? `<span class="cs">${esc(item.sub)}</span>` : "") + `</span>`;
+    b.addEventListener("click", () => setCfg({ [p.key]: toggleHidden(cfgOf(ctxItems[0]), item.value) }));
+    list.appendChild(b);
+  });
+  g.appendChild(list);
+
+  const all = document.createElement("div");
+  all.className = "ctxrow ctxallrow";
+  const mk = (label, fn) => {
+    const b = document.createElement("button");
+    b.className = "ctxopt";
+    b.textContent = label;
+    b.addEventListener("click", fn);
+    return b;
+  };
+  all.appendChild(mk("ALL", () => setCfg({ [p.key]: [] })));
+  all.appendChild(mk("NONE", () => setCfg({ [p.key]: p.items.map(i => i.value) })));
+  g.appendChild(all);
+  return g;
+}
+
+/** Applies a settings patch to every widget the menu is currently editing. */
+function setCfg(patch) {
+  if (!ctxItems.length) return;
+  for (const it of ctxItems) {
+    it.cfg = { ...(it.cfg || {}), ...patch };
+    const el = document.getElementById("w" + it.id);
+    if (el) applyCfg(el, it);
+    // Remount so a mode change (bars vs list, analog vs digital) takes effect.
+    remount(it);
+  }
   saveLayout();
-  openCtx(it, parseFloat(ctx.style.left) || 0, parseFloat(ctx.style.top) || 0);
+  // Re-open in place so the ticks and highlights reflect what just happened.
+  const keep = ctxItems;
+  openCtx(keep, ctxAt.x, ctxAt.y);
 }
 
 function remount(it) {
@@ -437,8 +559,17 @@ function remount(it) {
   try { def.update(mounted[it.id].ref, cfgOf(it)); } catch {}
 }
 
-on("#ctx-remove", "click", () => { if (ctxItem) { removeWidget(ctxItem.id); closeCtx(); } });
-on("#ctx-reset", "click", () => { if (ctxItem) { ctxItem.cfg = {}; setCfg(ctxItem, {}); } });
+on("#ctx-remove", "click", () => {
+  if (!ctxItems.length) return;
+  const ids = ctxItems.map(i => i.id);
+  closeCtx();
+  removeWidgets(ids);
+});
+on("#ctx-reset", "click", () => {
+  if (!ctxItems.length) return;
+  ctxItems.forEach(it => { it.cfg = {}; });
+  setCfg({});
+});
 
 /* ============================ widget registry ============================ */
 const REG = {
@@ -458,10 +589,29 @@ const REG = {
       r.sub.textContent = bytes(LIVE.memUsed) + " of " + bytes(LIVE.memTotal); } },
 
   storage: { name: "Storage", icon: ICON("storage"), desc: "Usage per mount point", w: 4, h: 4,
+    // Right-click -> tick the mounts you care about. /boot/efi and snap loops are
+    // the usual things people want gone.
+    picker: () => ({
+      key: "hidden",
+      label: "Mount points",
+      icon: ICON("storage"),
+      empty: "No mounts detected yet.",
+      items: (LIVE.disks || []).map(d => ({
+        value: d.mount,
+        label: d.mount,
+        sub: `${d.usage}% used · ${bytes(d.available)} free`
+      }))
+    }),
     mount(b) { b.innerHTML = '<ul class="klist"></ul>'; return { l: $("ul", b) }; },
-    update(r) {
+    update(r, cfg) {
       if (!LIVE.disks.length) { r.l.innerHTML = '<li><span class="k">loading…</span></li>'; return; }
-      r.l.innerHTML = LIVE.disks.slice(0, 4).map(d => {
+      const hide = hiddenSet(cfg);
+      const shown = LIVE.disks.filter(d => !hide.has(d.mount));
+      if (!shown.length) {
+        r.l.innerHTML = '<li><span class="k">every mount is hidden — right-click to bring one back</span></li>';
+        return;
+      }
+      r.l.innerHTML = shown.map(d => {
         const col = d.usage >= 90 ? "var(--crit)" : d.usage >= 80 ? "var(--warn)" : "var(--text)";
         return `<li><span class="k">${esc(d.mount)}</span><span class="v" style="color:${col}">${d.usage}% · ${bytes(d.available)} free</span></li>
                 <li><span class="meter inset" style="width:100%">${meterHTML(d.usage, 80, 90, 18)}</span></li>`;
@@ -499,20 +649,38 @@ const REG = {
     } },
 
   sensors: { name: "Sensors", icon: ICON("temp"), desc: "Temperatures and fans", w: 4, h: 4,
-    defaults: { mode: "bars", limit: 8 },
+    defaults: { mode: "bars" },
     options: [
       { key: "mode", label: "Display", values: [
-        { value: "bars", label: "BARS" }, { value: "list", label: "LIST" }] },
-      { key: "limit", label: "How many", values: [
-        { value: 5, label: "5" }, { value: 8, label: "8" }, { value: 14, label: "14" }, { value: 99, label: "ALL" }] }
+        { value: "bars", label: "BARS" }, { value: "list", label: "LIST" }] }
     ],
+    // This replaces the old "how many" cap. Ticking the channels you want is
+    // strictly better than a count: on a box with acpitz, Composite, two NVMe
+    // sensors and three core temps, "first 8" was never the eight you wanted.
+    picker: () => ({
+      key: "hidden",
+      label: "Channels",
+      icon: ICON("temp"),
+      empty: "No sensors detected on this host.",
+      items: (LIVE.sensors || []).map(s => ({
+        value: s.id,
+        label: s.label,
+        sub: `${s.value}${s.unit} · ${s.kind}`
+      }))
+    }),
     mount(b, cfg) {
       b.innerHTML = cfg.mode === "list" ? '<ul class="klist"></ul>' : '<div class="sbars"></div>';
       return { box: b.firstElementChild, mode: cfg.mode };
     },
     update(r, cfg) {
-      const list = LIVE.sensors.slice(0, cfg.limit || 8);
-      if (!list.length) { r.box.innerHTML = '<li><span class="k">no sensors detected</span></li>'; return; }
+      const hide = hiddenSet(cfg);
+      const list = (LIVE.sensors || []).filter(s => !hide.has(s.id));
+      if (!list.length) {
+        r.box.innerHTML = LIVE.sensors?.length
+          ? '<li><span class="k">every channel is hidden — right-click to bring one back</span></li>'
+          : '<li><span class="k">no sensors detected</span></li>';
+        return;
+      }
 
       if (cfg.mode === "list") {
         r.box.innerHTML = list.map(s => {
@@ -729,13 +897,22 @@ const DEFAULT_LAYOUT = [
 const cellW = () => (gridEl.clientWidth - (COLS - 1) * GAP) / COLS;
 const overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 
-function resolve(movedId) {
+/**
+ * Push overlapping widgets downwards.
+ *
+ * `anchors` are the widgets the user is actively moving — they hold their
+ * position and everything else gets out of the way. It takes a set rather than
+ * a single id so a multi-widget drag resolves as one movement instead of the
+ * group shoving its own members around.
+ */
+function resolve(anchors) {
+  const held = anchors instanceof Set ? anchors : new Set([anchors].flat().filter(v => v != null));
   let guard = 0, moved = true;
   while (moved && guard++ < 300) {
     moved = false;
     for (const a of items) for (const b of items) {
-      if (a === b || b.id === movedId) continue;
-      if (overlap(a, b) && (a.id === movedId || a.y < b.y || (a.y === b.y && a.x < b.x))) { b.y = a.y + a.h; moved = true; }
+      if (a === b || held.has(b.id)) continue;
+      if (overlap(a, b) && (held.has(a.id) || a.y < b.y || (a.y === b.y && a.x < b.x))) { b.y = a.y + a.h; moved = true; }
     }
   }
 }
@@ -785,35 +962,126 @@ function saveLayout() {
   saveTimer = setTimeout(() => { api("/layout", { method: "PUT", body: { widgets: items } }).catch(() => {}); }, 500);
 }
 
+/* ---------------------------- selection ---------------------------- */
+/**
+ * Ctrl/Cmd-click builds a selection; a selection then drags, deletes and
+ * restyles as one thing. The Set holds ids rather than objects so it survives a
+ * layout reload without dangling references.
+ */
+let selection = new Set();
+
+function paintSelection() {
+  items.forEach(it => {
+    const el = document.getElementById("w" + it.id);
+    if (el) el.classList.toggle("selected", selection.has(it.id));
+  });
+  const n = selection.size;
+  const bar = $("#selbar");
+  if (bar) {
+    bar.hidden = n < 1;
+    const c = $("#selcount");
+    if (c) c.textContent = n === 1 ? "1 WIDGET SELECTED" : `${n} WIDGETS SELECTED`;
+  }
+}
+function clearSelection() { if (selection.size) { selection.clear(); paintSelection(); } }
+function toggleSelect(id) {
+  if (selection.has(id)) selection.delete(id); else selection.add(id);
+  paintSelection();
+}
+function selectAll() { selection = new Set(items.map(i => i.id)); paintSelection(); }
+const selectedItems = () => items.filter(i => selection.has(i.id));
+
 function build(it, animate) {
   const def = REG[it.t];
   if (!def) return;
   const el = document.createElement("div");
-  el.className = "w" + (animate ? " spawn" : "");
+  el.className = "w" + (animate ? " spawn" : "") + (selection.has(it.id) ? " selected" : "");
   el.id = "w" + it.id;
   el.innerHTML = `<div class="w-head"><img src="${def.icon}" alt=""><span class="t">${esc(def.name.toUpperCase())}</span><button class="w-x" title="Remove">X</button></div><div class="w-body"></div><div class="w-rs"></div>`;
   gridEl.appendChild(el);
   applyCfg(el, it);
   mounted[it.id] = { def, ref: def.mount($(".w-body", el), cfgOf(it)), it };
-  $(".w-x", el).addEventListener("click", e => { e.stopPropagation(); removeWidget(it.id); });
+  $(".w-x", el).addEventListener("click", e => { e.stopPropagation(); removeWidgets([it.id]); });
 
-  // Right-click anywhere in the widget opens its own settings.
+  // Ctrl/Cmd-click toggles selection from anywhere in the widget, including over
+  // its buttons. Capture phase and stopPropagation, so a ctrl-click on a
+  // container's STOP button selects the widget instead of stopping a container.
+  el.addEventListener("pointerdown", e => {
+    if (e.button !== 0) return;
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleSelect(it.id);
+      return;
+    }
+    // A plain press outside the current selection starts a fresh one.
+    if (selection.size && !selection.has(it.id)) clearSelection();
+  }, true);
+
+  // Right-click opens settings — for the whole selection if this widget is part
+  // of one, otherwise just for this widget.
   el.addEventListener("contextmenu", e => {
     e.preventDefault();
     e.stopPropagation();
-    openCtx(it, e.clientX, e.clientY);
+    const group = selection.has(it.id) && selection.size > 1 ? selectedItems() : [it];
+    if (!selection.has(it.id)) clearSelection();
+    openCtx(group, e.clientX, e.clientY);
   });
 
   dragify(el, it); resizify(el, it);
   place(el, it);
   try { def.update(mounted[it.id].ref, cfgOf(it)); } catch {}
 }
-function removeWidget(id) {
-  const el = document.getElementById("w" + id);
-  if (el) el.remove();
-  items = items.filter(i => i.id !== id);
-  delete mounted[id]; layout();
+
+function removeWidgets(ids) {
+  const kill = new Set(ids);
+  if (!kill.size) return;
+  kill.forEach(id => {
+    const el = document.getElementById("w" + id);
+    if (el) el.remove();
+    delete mounted[id];
+    selection.delete(id);
+  });
+  items = items.filter(i => !kill.has(i.id));
+  paintSelection();
+  layout();
 }
+
+/** Delete / Backspace removes the selection. */
+function deleteSelection() {
+  const n = selection.size;
+  if (!n) return;
+  if (n > 1 && !confirm(`Remove ${n} widgets from the dashboard?`)) return;
+  removeWidgets([...selection]);
+  toast(n === 1 ? "WIDGET REMOVED" : `${n} WIDGETS REMOVED`, "ok");
+}
+
+/** True when a keystroke belongs to whatever the user is typing in. */
+function typingInto(el) {
+  if (!el) return false;
+  return /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable;
+}
+const onDashboard = () => $("#page-dash")?.classList.contains("on") && !$("#app").hidden;
+
+addEventListener("keydown", e => {
+  if (typingInto(document.activeElement)) return;
+  if (modal.classList.contains("open")) return;
+
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+    if (!onDashboard()) return;
+    e.preventDefault();
+    selectAll();
+    return;
+  }
+  if (e.key === "Delete" || e.key === "Backspace") {
+    if (onDashboard() && selection.size) { e.preventDefault(); deleteSelection(); return; }
+    if ($("#page-files")?.classList.contains("on") && fileSel.size) { e.preventDefault(); deleteFileSelection(); return; }
+  }
+  if (e.key === "Escape") { clearSelection(); clearFileSelection(); }
+});
+
+// A press on empty canvas drops the selection.
+gridEl.addEventListener("pointerdown", e => { if (e.target === gridEl) clearSelection(); });
 function addWidget(type) {
   const maxY = items.reduce((m, i) => Math.max(m, i.y + i.h), 0);
   const d = REG[type];
@@ -832,20 +1100,43 @@ function dragify(el, it) {
   const head = $(".w-head", el);
   head.addEventListener("pointerdown", e => {
     if (e.target.closest(".w-x")) return;
+    if (e.ctrlKey || e.metaKey) return;      // that gesture is "select", not "move"
     e.preventDefault();
     head.setPointerCapture(e.pointerId);
-    const cw = cellW(), sx = e.clientX, sy = e.clientY, ox = it.x, oy = it.y;
-    el.classList.add("dragging");
+
+    // Dragging any member of a selection moves the whole selection by the same
+    // offset. Everything is computed from one shared delta so the group keeps
+    // its internal spacing exactly.
+    const group = selection.has(it.id) && selection.size > 1 ? selectedItems() : [it];
+    const ids = new Set(group.map(g => g.id));
+    const origin = new Map(group.map(g => [g.id, { x: g.x, y: g.y }]));
+    const cw = cellW(), sx = e.clientX, sy = e.clientY;
+
+    // Clamp the delta against the group's bounding box, not each widget, or the
+    // leftmost one would stop while the rest kept going and the shape collapsed.
+    const minX = Math.min(...group.map(g => g.x));
+    const maxRight = Math.max(...group.map(g => g.x + g.w));
+    const minY = Math.min(...group.map(g => g.y));
+
+    group.forEach(g => document.getElementById("w" + g.id)?.classList.add("dragging"));
+
     const mv = ev => {
-      const nx = clamp(ox + Math.round((ev.clientX - sx) / (cw + GAP)), 0, COLS - it.w);
-      const ny = Math.max(0, oy + Math.round((ev.clientY - sy) / (ROW + GAP)));
-      if (nx !== it.x || ny !== it.y) { it.x = nx; it.y = ny; resolve(it.id); layout(false); }
-      place(el, it);
+      const dx = clamp(Math.round((ev.clientX - sx) / (cw + GAP)), -minX, COLS - maxRight);
+      const dy = Math.max(-minY, Math.round((ev.clientY - sy) / (ROW + GAP)));
+      let changed = false;
+      for (const g of group) {
+        const o = origin.get(g.id);
+        const nx = o.x + dx, ny = o.y + dy;
+        if (nx !== g.x || ny !== g.y) { g.x = nx; g.y = ny; changed = true; }
+      }
+      if (changed) { resolve(ids); layout(false); }
+      group.forEach(g => { const ge = document.getElementById("w" + g.id); if (ge) place(ge, g); });
     };
     const up = () => {
       head.releasePointerCapture(e.pointerId);
       head.removeEventListener("pointermove", mv); head.removeEventListener("pointerup", up); head.removeEventListener("pointercancel", up);
-      el.classList.remove("dragging"); layout();
+      group.forEach(g => document.getElementById("w" + g.id)?.classList.remove("dragging"));
+      layout();
     };
     head.addEventListener("pointermove", mv); head.addEventListener("pointerup", up); head.addEventListener("pointercancel", up);
   });
@@ -916,7 +1207,31 @@ on("#c-table", "click", async e => {
 on("#c-refresh", "click", loadContainers);
 
 /* ============================ file manager ============================ */
-let curDir = null, curParent = null;
+let curDir = null, curParent = null, curEntries = [];
+
+/**
+ * File selection, by path.
+ *
+ * Paths rather than row elements, so a selection survives the table being
+ * re-rendered by a refresh. Cleared on navigation — carrying a selection across
+ * directories would mean a DELETE could hit something no longer on screen.
+ */
+let fileSel = new Set();
+let fileAnchor = null;
+
+const fileRows = () => $$("#f-table tbody tr[data-path]");
+
+function markFileSel() {
+  fileRows().forEach(tr => tr.classList.toggle("sel", fileSel.has(tr.dataset.path)));
+  const bar = $("#f-selbar");
+  if (bar) {
+    bar.hidden = fileSel.size < 1;
+    const c = $("#f-selcount");
+    if (c) c.textContent = fileSel.size === 1 ? "1 ITEM SELECTED" : `${fileSel.size} ITEMS SELECTED`;
+  }
+}
+function clearFileSelection() { if (fileSel.size) { fileSel.clear(); fileAnchor = null; markFileSel(); } }
+const selectedEntries = () => curEntries.filter(e => fileSel.has(e.path));
 
 /** Glyph + colour by extension, so a folder listing is scannable at a glance. */
 const FILE_KINDS = [
@@ -963,7 +1278,11 @@ async function loadRoots() {
 }
 
 function markActiveRoot(p) {
-  $("#f-roots .rootbtn").forEach(b => {
+  // $ is querySelector and returns one node; the list needs $$. This threw on
+  // every listing, and because markActiveRoot runs before the rows are written
+  // the catch in loadFiles swallowed it and the file manager showed the type
+  // error where the files should have been.
+  $$("#f-roots .rootbtn").forEach(b => {
     const r = b.dataset.root;
     // Longest matching root wins, so /DATA does not light up when you are in
     // /DATA/Media under a separate /DATA/Media root.
@@ -977,6 +1296,8 @@ async function loadFiles(dir) {
     const out = await api("/files" + (dir ? "?path=" + encodeURIComponent(dir) : ""));
     curDir = out.path;
     curParent = out.parent;
+    curEntries = out.entries;
+    clearFileSelection();
     renderCrumbs(out.path);
     markActiveRoot(out.path);
 
@@ -1028,11 +1349,97 @@ on("#f-crumbs", "click", e => {
 
 // Single click selects; double click opens. Folders navigate, text files open
 // in the editor, anything else downloads.
+//
+// Ctrl/Cmd adds one, Shift takes a run from the last thing you touched — the
+// same two modifiers every file manager uses, so nothing here needs explaining.
 on("#f-table", "click", e => {
   const tr = e.target.closest("tr[data-path]");
-  $$("#f-table tr.sel").forEach(x => x.classList.remove("sel"));
-  if (tr) tr.classList.add("sel");
+  if (!tr) { clearFileSelection(); return; }
+  const path = tr.dataset.path;
+
+  if (e.shiftKey && fileAnchor) {
+    const rows = fileRows().map(r => r.dataset.path);
+    const a = rows.indexOf(fileAnchor), b = rows.indexOf(path);
+    if (a >= 0 && b >= 0) {
+      if (!(e.ctrlKey || e.metaKey)) fileSel.clear();
+      rows.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(p => fileSel.add(p));
+    }
+  } else if (e.ctrlKey || e.metaKey) {
+    if (fileSel.has(path)) fileSel.delete(path); else fileSel.add(path);
+    fileAnchor = path;
+  } else {
+    fileSel = new Set([path]);
+    fileAnchor = path;
+  }
+  markFileSel();
 });
+
+/* ---- rubber-band selection over empty space ---- */
+/**
+ * Drag a box the way Explorer and Finder do. The band is positioned inside
+ * #page-files and its start point is stored in that element's coordinate space,
+ * so scrolling mid-drag does not drag the anchor along with the viewport.
+ */
+(function marquee() {
+  const host = $("#page-files");
+  if (!host) return;
+  let band = null, sx = 0, sy = 0, active = false, additive = false;
+
+  const toHost = (cx, cy) => {
+    const r = host.getBoundingClientRect();
+    return { x: cx - r.left, y: cy - r.top };
+  };
+
+  host.addEventListener("pointerdown", e => {
+    if (e.button !== 0) return;
+    // Anything interactive, and the chrome above the table, keeps its own behaviour.
+    if (e.target.closest("tr[data-path], button, a, input, select, textarea")) return;
+    if (e.target.closest(".rootbar, .crumbs, .selbar")) return;
+
+    const p = toHost(e.clientX, e.clientY);
+    sx = p.x; sy = p.y; active = true;
+    additive = e.ctrlKey || e.metaKey || e.shiftKey;
+    if (!additive) clearFileSelection();
+    host.setPointerCapture(e.pointerId);
+  });
+
+  host.addEventListener("pointermove", e => {
+    if (!active) return;
+    const p = toHost(e.clientX, e.clientY);
+    const w = Math.abs(p.x - sx), h = Math.abs(p.y - sy);
+    if (!band && w < 4 && h < 4) return;      // ignore a jittery click
+
+    if (!band) {
+      band = document.createElement("div");
+      band.id = "f-band";
+      host.appendChild(band);
+    }
+    const left = Math.min(sx, p.x), top = Math.min(sy, p.y);
+    band.style.cssText = `left:${left}px;top:${top}px;width:${w}px;height:${h}px`;
+
+    const hr = host.getBoundingClientRect();
+    const box = { l: left, t: top, r: left + w, b: top + h };
+    const base = additive ? new Set(fileSel) : new Set();
+    fileRows().forEach(tr => {
+      const r = tr.getBoundingClientRect();
+      const rt = r.top - hr.top, rb = r.bottom - hr.top;
+      const rl = r.left - hr.left, rr = r.right - hr.left;
+      if (rl < box.r && rr > box.l && rt < box.b && rb > box.t) base.add(tr.dataset.path);
+    });
+    fileSel = base;
+    markFileSel();
+  });
+
+  const end = e => {
+    if (!active) return;
+    active = false;
+    try { host.releasePointerCapture(e.pointerId); } catch {}
+    if (band) { band.remove(); band = null; }
+    if (fileSel.size) fileAnchor = [...fileSel][fileSel.size - 1];
+  };
+  host.addEventListener("pointerup", end);
+  host.addEventListener("pointercancel", end);
+})();
 
 on("#f-table", "dblclick", e => {
   const tr = e.target.closest("tr[data-path]");
@@ -1046,33 +1453,47 @@ on("#f-table", "dblclick", e => {
 on("#page-files", "contextmenu", e => {
   e.preventDefault();
   const tr = e.target.closest("tr[data-path]");
-  if (tr) {
-    $$("#f-table tr.sel").forEach(x => x.classList.remove("sel"));
-    tr.classList.add("sel");
-    openFileMenu(e.clientX, e.clientY, {
-      path: tr.dataset.path, name: tr.dataset.name,
-      dir: tr.dataset.dir === "1", text: tr.dataset.text === "1"
-    });
-  } else {
-    openFileMenu(e.clientX, e.clientY, null);
+  if (!tr) return openFileMenu(e.clientX, e.clientY, null);
+
+  // Right-clicking inside a selection keeps it; right-clicking outside one
+  // replaces it, so the menu always acts on what is highlighted.
+  if (!fileSel.has(tr.dataset.path)) {
+    fileSel = new Set([tr.dataset.path]);
+    fileAnchor = tr.dataset.path;
+    markFileSel();
   }
+  openFileMenu(e.clientX, e.clientY, {
+    path: tr.dataset.path, name: tr.dataset.name,
+    dir: tr.dataset.dir === "1", text: tr.dataset.text === "1"
+  });
 });
 
 function openFileMenu(x, y, entry) {
   const body = $("#ctx-body");
+  const many = fileSel.size > 1;
+
   $("#ctx-icon").src = ICON("files");
-  $("#ctx-title").textContent = entry ? entry.name.slice(0, 26).toUpperCase() : "THIS FOLDER";
+  $("#ctx-title").textContent = many
+    ? `${fileSel.size} ITEMS`
+    : entry ? entry.name.slice(0, 26).toUpperCase() : "THIS FOLDER";
   body.innerHTML = "";
-  ctxItem = null;
+  ctxItems = [];
 
   const actions = [];
-  if (entry) {
+  if (entry && many) {
+    // Only what makes sense for a set. Rename and edit are single-target by
+    // nature; offering them here would just mean "does it to one at random".
+    actions.push({ label: `DELETE ${fileSel.size} ITEMS`, go: deleteFileSelection, danger: true });
+    actions.push({ label: "DOWNLOAD FILES", go: downloadFileSelection });
+    actions.push({ label: "CLEAR SELECTION", go: clearFileSelection });
+  } else if (entry) {
     if (entry.dir) actions.push({ label: "OPEN", go: () => loadFiles(entry.path) });
     if (entry.text) actions.push({ label: "EDIT", go: () => openEditor(entry.path, entry.name) });
     if (!entry.dir) actions.push({ label: "DOWNLOAD", go: () => { location.href = "/api/files/download?path=" + encodeURIComponent(entry.path); } });
     actions.push({ label: "RENAME", go: () => renameEntry(entry) });
     actions.push({ label: "DELETE", go: () => deleteEntry(entry), danger: true });
   }
+  actions.push({ label: "SELECT ALL", go: selectAllFiles });
   actions.push({ label: "NEW FOLDER", go: makeFolder });
   actions.push({ label: "REFRESH", go: () => loadFiles(curDir) });
   if (curParent) actions.push({ label: "GO UP", go: () => loadFiles(curParent) });
@@ -1089,10 +1510,53 @@ function openFileMenu(x, y, entry) {
   body.appendChild(g);
 
   $(".ctxfoot").hidden = true;
-  ctx.classList.add("open");
-  const r = ctx.getBoundingClientRect();
-  ctx.style.left = Math.min(x, innerWidth - r.width - 8) + "px";
-  ctx.style.top = Math.min(y, innerHeight - r.height - 8) + "px";
+  placeCtx(x, y);
+}
+
+function selectAllFiles() {
+  fileSel = new Set(fileRows().map(r => r.dataset.path));
+  markFileSel();
+}
+
+/**
+ * Deletes everything selected, one request per item.
+ *
+ * Sequential rather than parallel on purpose: a partial failure halfway through
+ * should stop and say so, not fire forty concurrent deletes and leave you
+ * guessing which ones landed.
+ */
+async function deleteFileSelection() {
+  const chosen = selectedEntries();
+  if (!chosen.length) return;
+  const dirs = chosen.filter(e => e.dir).length;
+  const msg = `Delete ${chosen.length} item${chosen.length === 1 ? "" : "s"}?` +
+    (dirs ? `\n\n${dirs} of them ${dirs === 1 ? "is a folder and takes its" : "are folders and take their"} contents too.` : "") +
+    "\n\nThis cannot be undone.";
+  if (!confirm(msg)) return;
+
+  let done = 0, failed = [];
+  for (const en of chosen) {
+    try { await api("/files/delete", { method: "POST", body: { path: en.path } }); done++; }
+    catch (ex) { failed.push(`${en.name}: ${ex.message}`); }
+  }
+  if (failed.length) toast(`DELETED ${done}, ${failed.length} FAILED`, "err");
+  else toast(`DELETED ${done} ITEM${done === 1 ? "" : "S"}`, "ok");
+  if (failed.length) console.warn("[nexus] delete failures:", failed);
+  loadFiles(curDir);
+}
+
+function downloadFileSelection() {
+  const files = selectedEntries().filter(e => !e.dir);
+  if (!files.length) return toast("NOTHING TO DOWNLOAD — FOLDERS ONLY", "err");
+  // One navigation per file, spaced out: the browser blocks a burst of
+  // simultaneous downloads, and there is no server-side zip to hand back.
+  files.forEach((en, i) => setTimeout(() => {
+    const a = document.createElement("a");
+    a.href = "/api/files/download?path=" + encodeURIComponent(en.path);
+    a.download = en.name;
+    document.body.appendChild(a); a.click(); a.remove();
+  }, i * 350));
+  toast(`DOWNLOADING ${files.length} FILE${files.length === 1 ? "" : "S"}`, "ok");
 }
 
 async function makeFolder() {
@@ -1583,6 +2047,7 @@ function connectEvents() {
   evtWS.onopen = () => { evtRetry = 0; };
   evtWS.onmessage = ev => {
     let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+    if (msg.type === "alert") return onAlert(msg.data);
     if (msg.type !== "job") return;
     const d = msg.data;
     const write = activeJobs.get(String(d.id));
@@ -1760,8 +2225,515 @@ on("#st-libs", "click", openLibraries);
 on("#st-github", "click", openGitHubInstall);
 on("#st-installed-btn", "click", openInstalled);
 
+/* ============================ control panel ============================ */
+/**
+ * Automations, scheduled container tasks, outbound notifications and power.
+ *
+ * The whole page is built from the vocabulary the server sends in
+ * /api/automation — sources, actions and schedule actions all come down as data.
+ * That means the form can never offer a rule the evaluator does not implement,
+ * which is the failure mode every hand-written settings screen eventually hits.
+ */
+const CP = { conf: null, alerts: [] };
+
+const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function fmtSecs(s) {
+  s = Number(s) || 0;
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.round(s / 60)} min`;
+  if (s < 86400) return `${+(s / 3600).toFixed(1)}h`;
+  return `${+(s / 86400).toFixed(1)}d`;
+}
+
+async function loadControl() {
+  try {
+    CP.conf = await api("/automation");
+  } catch (e) {
+    $("#cp-rules").innerHTML = `<div class="empty">${esc(e.message).toUpperCase()}</div>`;
+    return;
+  }
+  await loadAlerts();
+  renderRules();
+  renderSchedules();
+  renderNotify();
+  renderPower();
+}
+
+/* ---- alerts ---- */
+async function loadAlerts() {
+  try { CP.alerts = await api("/automation/alerts?limit=60"); } catch { CP.alerts = []; }
+  renderAlerts();
+}
+
+function renderAlerts() {
+  const box = $("#cp-alerts");
+  if (!box) return;
+  if (!CP.alerts.length) {
+    box.innerHTML = `<div class="empty">NOTHING HAS TRIPPED YET — THAT IS THE GOOD OUTCOME</div>`;
+    return;
+  }
+  box.innerHTML = `<div class="alertlist">` + CP.alerts.map(a => `
+    <div class="alert ${esc(a.level)}">
+      <span class="apill">${esc(String(a.level).toUpperCase())}</span>
+      <span class="atxt">
+        <span class="at">${esc(a.title)}</span>
+        <span class="am">${esc(a.message)}</span>
+      </span>
+      <span class="awhen mono">${esc(new Date(a.ts).toLocaleString())}</span>
+    </div>`).join("") + `</div>`;
+}
+
+/* ---- watch rules ---- */
+function ruleSummary(r) {
+  const src = (CP.conf.sources || []).find(s => s.key === r.source);
+  const label = src ? src.label : r.source;
+  const anyTarget = !r.target || r.target === "*";
+
+  if (r.source === "container") {
+    return `${anyTarget ? "any container" : r.target} stops running for ${fmtSecs(r.forSec)}`;
+  }
+  // CPU and memory are whole-host readings with nothing to pick, so naming a
+  // target at all ("CPU load (any)") reads like a setting you forgot to fill in.
+  const which = src?.targets === "none" ? "" : ` (${anyTarget ? "any" : r.target})`;
+  return `${label}${which} goes ${r.op} ${r.value}${src?.unit || ""} for ${fmtSecs(r.forSec)}`;
+}
+
+function actionLabels(keys) {
+  return (keys || []).map(k => (CP.conf.actions.find(a => a.key === k) || {}).label || k).join(", ");
+}
+
+function renderRules() {
+  const box = $("#cp-rules");
+  const rules = CP.conf.rules || [];
+  if (!rules.length) {
+    box.innerHTML = `<div class="empty">NO RULES — PRESS &ldquo;+ NEW RULE&rdquo;</div>`;
+    return;
+  }
+  box.innerHTML = `<div class="rulelist">` + rules.map(r => `
+    <div class="rule${r.enabled ? "" : " off"}">
+      <button class="toggle${r.enabled ? " on" : ""}" data-toggle="${esc(r.id)}"
+              role="switch" aria-checked="${r.enabled}" title="Enable or disable"><i></i></button>
+      <span class="rtxt">
+        <span class="rn">${esc(r.name)}</span>
+        <span class="rd">When ${esc(ruleSummary(r))} &rarr; ${esc(actionLabels(r.actions))}</span>
+        <span class="rd dim">Then stays quiet for ${esc(fmtSecs(r.cooldownSec))}</span>
+      </span>
+      <span class="pill ${r.severity === "crit" ? "crit" : r.severity === "warn" ? "warn" : "idle"}">${esc(String(r.severity).toUpperCase())}</span>
+      <button class="btn sm" data-edit="${esc(r.id)}">EDIT</button>
+      <button class="btn sm danger" data-del="${esc(r.id)}">DELETE</button>
+    </div>`).join("") + `</div>`;
+}
+
+on("#cp-rules", "click", async e => {
+  const t = e.target.closest("[data-toggle]"), ed = e.target.closest("[data-edit]"), del = e.target.closest("[data-del]");
+  if (t) {
+    const r = CP.conf.rules.find(x => x.id === t.dataset.toggle);
+    if (!r) return;
+    try { await api("/automation/rules", { method: "PUT", body: { ...r, enabled: !r.enabled } }); await loadControl(); }
+    catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+  }
+  if (ed) openRuleEditor(CP.conf.rules.find(x => x.id === ed.dataset.edit));
+  if (del) {
+    const r = CP.conf.rules.find(x => x.id === del.dataset.del);
+    if (!r || !confirm(`Delete the rule "${r.name}"?`)) return;
+    try { await api(`/automation/rules/${encodeURIComponent(r.id)}`, { method: "DELETE" }); await loadControl(); toast("RULE DELETED", "ok"); }
+    catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+  }
+});
+
+function selectHTML(id, options, current) {
+  return `<select id="${id}" class="sel">` + options.map(o =>
+    `<option value="${esc(o.value)}"${String(o.value) === String(current) ? " selected" : ""}>${esc(o.label)}</option>`
+  ).join("") + `</select>`;
+}
+
+function targetOptions(source) {
+  const av = CP.conf.available || {};
+  const any = { value: "*", label: "Any (worst one)" };
+  if (source === "temp") return [any, ...(av.sensors || []).filter(s => s.kind === "temperature").map(s => ({ value: s.id, label: `${s.label} (${s.value}${s.unit})` }))];
+  if (source === "disk") return [any, ...(av.mounts || []).map(m => ({ value: m.mount, label: `${m.mount} (${m.usage}% used)` }))];
+  if (source === "container") return [{ value: "*", label: "Any container" }, ...(av.containers || []).map(c => ({ value: c.name, label: `${c.name} (${c.state})` }))];
+  return null;
+}
+
+function openRuleEditor(rule) {
+  const isNew = !rule;
+  const r = rule || {
+    name: "", source: "temp", target: "*", op: "above", value: 80,
+    forSec: 120, cooldownSec: 1800, severity: "warn", actions: ["notify"], actionTarget: null, enabled: true
+  };
+  const sources = CP.conf.sources || [];
+  const containers = (CP.conf.available?.containers || []).map(c => ({ value: c.name, label: c.name }));
+
+  const body = document.createElement("div");
+  body.className = "cpform";
+  body.innerHTML = `
+    <div class="field">
+      <label for="ru-name">NAME</label>
+      <input id="ru-name" type="text" value="${esc(r.name)}" placeholder="CPU temperature high">
+    </div>
+
+    <h3>WHEN</h3>
+    <div class="frow">
+      <div class="field"><label for="ru-src">WATCH</label>
+        ${selectHTML("ru-src", sources.map(s => ({ value: s.key, label: s.label })), r.source)}</div>
+      <div class="field" id="ru-target-wrap"><label for="ru-target">WHICH ONE</label><span id="ru-target-slot"></span></div>
+    </div>
+    <div class="frow" id="ru-threshold">
+      <div class="field"><label for="ru-op">GOES</label>
+        ${selectHTML("ru-op", [{ value: "above", label: "Above" }, { value: "below", label: "Below" }], r.op)}</div>
+      <div class="field"><label for="ru-val">THRESHOLD</label>
+        <input id="ru-val" type="number" step="0.1" value="${esc(r.value)}"></div>
+    </div>
+    <div class="frow">
+      <div class="field"><label for="ru-for">SUSTAINED FOR (SECONDS)</label>
+        <input id="ru-for" type="number" min="0" step="10" value="${esc(r.forSec)}">
+        <span class="fh">Stops a one-second spike during a backup from paging you.</span></div>
+      <div class="field"><label for="ru-cool">THEN STAY QUIET FOR (SECONDS)</label>
+        <input id="ru-cool" type="number" min="60" step="60" value="${esc(r.cooldownSec)}">
+        <span class="fh">Without this, a disk at 91% alerts on every tick, forever.</span></div>
+    </div>
+
+    <h3>THEN</h3>
+    <div class="field"><label>DO</label>
+      <div class="checkrow" id="ru-actions"></div>
+    </div>
+    <div class="field" id="ru-actarget-wrap" hidden>
+      <label for="ru-actarget">ON WHICH CONTAINER</label>
+      ${selectHTML("ru-actarget", containers.length ? containers : [{ value: "", label: "no containers visible" }], r.actionTarget || "")}
+    </div>
+    <div class="field"><label for="ru-sev">SEVERITY</label>
+      ${selectHTML("ru-sev", [{ value: "info", label: "Info" }, { value: "warn", label: "Warning" }, { value: "crit", label: "Critical" }], r.severity)}</div>
+    <div class="warnbox" id="ru-danger" hidden></div>`;
+
+  const foot = document.createElement("div");
+  foot.innerHTML = `<button class="btn" id="ru-cancel">CANCEL</button><button class="btn primary" id="ru-save">${isNew ? "CREATE RULE" : "SAVE"}</button>`;
+  openModal({ title: isNew ? "NEW RULE" : "EDIT RULE", icon: ICON("warning"), body, foot });
+
+  /* --- reactive bits --- */
+  const paintTarget = () => {
+    const src = $("#ru-src").value;
+    const opts = targetOptions(src);
+    const slot = $("#ru-target-slot");
+    if (!opts) { $("#ru-target-wrap").hidden = true; slot.innerHTML = ""; }
+    else { $("#ru-target-wrap").hidden = false; slot.innerHTML = selectHTML("ru-target", opts, r.target); }
+    $("#ru-threshold").hidden = src === "container";
+    const s = sources.find(x => x.key === src);
+    if (s) $("#ru-val").placeholder = s.unit || "";
+  };
+
+  const paintActions = () => {
+    const chosen = new Set(r.actions || []);
+    $("#ru-actions").innerHTML = CP.conf.actions.map(a => `
+      <button type="button" class="ctxcheck${chosen.has(a.key) ? " on" : ""}" data-act="${esc(a.key)}"
+              role="switch" aria-checked="${chosen.has(a.key)}">
+        <span class="tick" aria-hidden="true">${chosen.has(a.key) ? "&#10003;" : ""}</span>
+        <span class="ct"><span class="cl">${esc(a.label)}</span>${a.power ? '<span class="cs">needs power actions armed</span>' : ""}</span>
+      </button>`).join("");
+    $("#ru-actarget-wrap").hidden = !(chosen.has("container.restart") || chosen.has("container.stop"));
+
+    const power = [...chosen].some(k => (CP.conf.actions.find(a => a.key === k) || {}).power);
+    const dz = $("#ru-danger");
+    dz.hidden = !power;
+    if (power) {
+      dz.innerHTML = CP.conf.power.allowRemote
+        ? `<b>This rule can power the machine off.</b> Set the threshold somewhere the host genuinely cannot survive, and give it a long sustain — a shutdown triggered by a bad reading is a trip to wherever the box lives.`
+        : `<b>Power actions are switched off.</b> This rule will save, but the action will fail until you arm power actions further down the Control Panel.`;
+    }
+  };
+
+  paintTarget(); paintActions();
+  on("#ru-src", "change", paintTarget);
+  on("#ru-actions", "click", e => {
+    const b = e.target.closest("[data-act]");
+    if (!b) return;
+    const key = b.dataset.act;
+    const set = new Set(r.actions || []);
+    if (set.has(key)) set.delete(key); else set.add(key);
+    r.actions = [...set];
+    paintActions();
+  });
+
+  on("#ru-cancel", "click", closeModal);
+  on("#ru-save", "click", async () => {
+    const src = $("#ru-src").value;
+    const payload = {
+      id: r.id,
+      enabled: r.enabled !== false,
+      name: $("#ru-name").value.trim(),
+      source: src,
+      target: $("#ru-target")?.value ?? "*",
+      op: $("#ru-op")?.value || "above",
+      value: Number($("#ru-val")?.value ?? 0),
+      forSec: Number($("#ru-for").value),
+      cooldownSec: Number($("#ru-cool").value),
+      severity: $("#ru-sev").value,
+      actions: r.actions,
+      actionTarget: $("#ru-actarget-wrap").hidden ? null : $("#ru-actarget").value
+    };
+    if (!payload.actions?.length) return toast("PICK AT LEAST ONE ACTION", "err");
+    try {
+      await api("/automation/rules", { method: "PUT", body: payload });
+      closeModal(); await loadControl();
+      toast(isNew ? "RULE CREATED" : "RULE SAVED", "ok");
+    } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+  });
+}
+
+on("#cp-new-rule", "click", () => openRuleEditor(null));
+
+/* ---- scheduled tasks ---- */
+function renderSchedules() {
+  const box = $("#cp-schedules");
+  const list = CP.conf.schedules || [];
+  if (!list.length) {
+    box.innerHTML = `<div class="empty">NO SCHEDULED TASKS</div>`;
+    return;
+  }
+  box.innerHTML = `<div class="rulelist">` + list.map(s => {
+    const days = s.days?.length === 7 ? "every day" : (s.days || []).map(d => DAY_NAMES[d].slice(0, 3)).join(", ");
+    return `<div class="rule${s.enabled ? "" : " off"}">
+      <button class="toggle${s.enabled ? " on" : ""}" data-toggle="${esc(s.id)}"
+              role="switch" aria-checked="${s.enabled}" title="Enable or disable"><i></i></button>
+      <span class="rtxt">
+        <span class="rn">${esc(s.name)}</span>
+        <span class="rd">${esc(s.action.replace("container.", ""))} <b>${esc(s.target || "—")}</b> at ${esc(s.time)}, ${esc(days)}</span>
+        <span class="rd dim">${s.lastRunAt ? "last ran " + esc(since(s.lastRunAt)) : "has not run yet"}${s.lastError ? " · " + esc(s.lastError) : ""}</span>
+      </span>
+      <button class="btn sm" data-edit="${esc(s.id)}">EDIT</button>
+      <button class="btn sm danger" data-del="${esc(s.id)}">DELETE</button>
+    </div>`;
+  }).join("") + `</div>`;
+}
+
+on("#cp-schedules", "click", async e => {
+  const t = e.target.closest("[data-toggle]"), ed = e.target.closest("[data-edit]"), del = e.target.closest("[data-del]");
+  if (t) {
+    const s = CP.conf.schedules.find(x => x.id === t.dataset.toggle);
+    if (!s) return;
+    try { await api("/automation/schedules", { method: "PUT", body: { ...s, enabled: !s.enabled } }); await loadControl(); }
+    catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+  }
+  if (ed) openScheduleEditor(CP.conf.schedules.find(x => x.id === ed.dataset.edit));
+  if (del) {
+    const s = CP.conf.schedules.find(x => x.id === del.dataset.del);
+    if (!s || !confirm(`Delete the task "${s.name}"?`)) return;
+    try { await api(`/automation/schedules/${encodeURIComponent(s.id)}`, { method: "DELETE" }); await loadControl(); toast("TASK DELETED", "ok"); }
+    catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+  }
+});
+
+function openScheduleEditor(sched) {
+  const isNew = !sched;
+  const s = sched || { name: "", time: "04:00", days: [0, 1, 2, 3, 4, 5, 6], action: "container.restart", target: "", enabled: true };
+  const containers = (CP.conf.available?.containers || []).map(c => ({ value: c.name, label: `${c.name} (${c.state})` }));
+  let days = new Set(s.days || []);
+
+  const body = document.createElement("div");
+  body.className = "cpform";
+  body.innerHTML = `
+    <div class="field"><label for="sc-name">NAME</label>
+      <input id="sc-name" type="text" value="${esc(s.name)}" placeholder="Nightly Jellyfin restart"></div>
+    <div class="frow">
+      <div class="field"><label for="sc-act">DO</label>
+        ${selectHTML("sc-act", CP.conf.scheduleActions.map(a => ({ value: a.key, label: a.label })), s.action)}</div>
+      <div class="field"><label for="sc-target">CONTAINER</label>
+        ${selectHTML("sc-target", containers.length ? containers : [{ value: "", label: "no containers visible" }], s.target || "")}</div>
+    </div>
+    <div class="frow">
+      <div class="field"><label for="sc-time">AT (SERVER LOCAL TIME)</label>
+        <input id="sc-time" type="time" value="${esc(s.time)}"></div>
+      <div class="field"><label>ON</label><div class="daypick" id="sc-days"></div></div>
+    </div>
+    <div class="warnbox">
+      Whole-host reboots are deliberately not offered here. Rebooting Linux on a
+      timer hides a leak rather than finding it and guarantees downtime at a fixed
+      hour; restarting the one container that misbehaves does the useful half.
+      Reboot and shutdown live under POWER below, and can also be triggered by a
+      temperature rule.
+    </div>`;
+
+  const foot = document.createElement("div");
+  foot.innerHTML = `<button class="btn" id="sc-cancel">CANCEL</button><button class="btn primary" id="sc-save">${isNew ? "CREATE TASK" : "SAVE"}</button>`;
+  openModal({ title: isNew ? "NEW SCHEDULED TASK" : "EDIT TASK", icon: ICON("clock"), body, foot });
+
+  const paintDays = () => {
+    $("#sc-days").innerHTML = DAY_LABELS.map((d, i) =>
+      `<button type="button" class="dayb${days.has(i) ? " on" : ""}" data-day="${i}" title="${DAY_NAMES[i]}"
+               role="switch" aria-checked="${days.has(i)}" aria-label="${DAY_NAMES[i]}">${d}</button>`).join("");
+  };
+  paintDays();
+  on("#sc-days", "click", e => {
+    const b = e.target.closest("[data-day]");
+    if (!b) return;
+    const i = Number(b.dataset.day);
+    if (days.has(i)) days.delete(i); else days.add(i);
+    paintDays();
+  });
+
+  on("#sc-cancel", "click", closeModal);
+  on("#sc-save", "click", async () => {
+    if (!days.size) return toast("PICK AT LEAST ONE DAY", "err");
+    if (!$("#sc-target").value) return toast("PICK A CONTAINER", "err");
+    try {
+      await api("/automation/schedules", {
+        method: "PUT",
+        body: {
+          id: s.id, enabled: s.enabled !== false,
+          name: $("#sc-name").value.trim(), time: $("#sc-time").value,
+          days: [...days], action: $("#sc-act").value, target: $("#sc-target").value
+        }
+      });
+      closeModal(); await loadControl();
+      toast(isNew ? "TASK CREATED" : "TASK SAVED", "ok");
+    } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+  });
+}
+
+on("#cp-new-task", "click", () => openScheduleEditor(null));
+
+/* ---- notifications ---- */
+function renderNotify() {
+  const n = CP.conf.notify || {};
+  const perm = ("Notification" in window) ? Notification.permission : "unsupported";
+  $("#cp-notify").innerHTML = `
+    <div class="cpform">
+      <div class="field">
+        <label for="nt-url">WEBHOOK URL</label>
+        <input id="nt-url" type="text" spellcheck="false" value="${esc(n.webhookUrl || "")}"
+               placeholder="https://ntfy.sh/my-private-topic">
+        <span class="fh">ntfy, a Discord webhook, or any endpoint that accepts a JSON POST.
+          The shape is picked from the URL. This is the part that matters — an alert
+          that only appears in a tab you do not have open is not an alert.</span>
+      </div>
+      <div class="frow">
+        <div class="field"><label for="nt-fmt">FORMAT</label>
+          ${selectHTML("nt-fmt", [
+            { value: "auto", label: "Detect from URL" }, { value: "ntfy", label: "ntfy" },
+            { value: "discord", label: "Discord" }, { value: "json", label: "Plain JSON" }
+          ], n.webhookFormat || "auto")}</div>
+        <div class="field"><label>BROWSER NOTIFICATIONS</label>
+          <button class="btn" id="nt-browser">${perm === "granted" ? (n.browser === false ? "OFF — TURN ON" : "ON") : perm === "denied" ? "BLOCKED BY BROWSER" : "ENABLE"}</button>
+          <span class="fh">Desktop pop-ups while a Nexus tab is open.</span>
+        </div>
+      </div>
+      <div class="rowbtns">
+        <button class="btn primary" id="nt-save">SAVE</button>
+        <button class="btn" id="nt-test">SEND TEST</button>
+      </div>
+    </div>`;
+
+  on("#nt-save", "click", async () => {
+    try {
+      await api("/automation/notify", {
+        method: "PUT",
+        body: { webhookUrl: $("#nt-url").value.trim(), webhookFormat: $("#nt-fmt").value, browser: CP.conf.notify.browser !== false }
+      });
+      await loadControl();
+      toast("NOTIFICATIONS SAVED", "ok");
+    } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+  });
+
+  on("#nt-test", "click", async () => {
+    const url = $("#nt-url").value.trim();
+    if (!url) return toast("ENTER A WEBHOOK URL FIRST", "err");
+    const btn = $("#nt-test");
+    btn.disabled = true; btn.textContent = "SENDING…";
+    try {
+      const out = await api("/automation/notify/test", { method: "POST", body: { webhookUrl: url } });
+      toast(`TEST SENT AS ${String(out.format).toUpperCase()}`, "ok");
+    } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+    finally { btn.disabled = false; btn.textContent = "SEND TEST"; }
+  });
+
+  on("#nt-browser", "click", async () => {
+    if (!("Notification" in window)) return toast("THIS BROWSER HAS NO NOTIFICATION API", "err");
+    if (Notification.permission === "denied") return toast("UNBLOCK NOTIFICATIONS IN YOUR BROWSER SETTINGS", "err");
+    if (Notification.permission !== "granted") {
+      const p = await Notification.requestPermission();
+      if (p !== "granted") return toast("PERMISSION NOT GRANTED", "err");
+    }
+    const next = CP.conf.notify.browser === false;
+    try {
+      await api("/automation/notify", {
+        method: "PUT",
+        body: { webhookUrl: CP.conf.notify.webhookUrl || "", webhookFormat: CP.conf.notify.webhookFormat || "auto", browser: next }
+      });
+      await loadControl();
+    } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+  });
+}
+
+/* ---- power ---- */
+function renderPower() {
+  const p = CP.conf.power || {};
+  $("#cp-power").innerHTML = `
+    <div class="cpform">
+      <div class="warnbox ${p.allowRemote ? "err" : ""}">
+        <b>${p.allowRemote ? "Power actions are armed." : "Power actions are switched off."}</b>
+        ${p.supported
+          ? "While armed, this page — and any rule you give a power action to — can reboot or shut the host down. Leave it off unless you actually want that reachable from a browser."
+          : "This host is not Linux, so reboot and shutdown are not wired up. The switch is still stored so your rules keep their settings."}
+      </div>
+      <div class="rowbtns">
+        <button class="btn ${p.allowRemote ? "danger" : "primary"}" id="pw-arm">
+          ${p.allowRemote ? "DISARM POWER ACTIONS" : "ARM POWER ACTIONS"}</button>
+        <button class="btn danger" id="pw-reboot" ${p.allowRemote && p.supported ? "" : "disabled"}>REBOOT NOW</button>
+        <button class="btn danger" id="pw-shutdown" ${p.allowRemote && p.supported ? "" : "disabled"}>SHUT DOWN NOW</button>
+      </div>
+      <span class="fh">Nexus runs as root, so these do exactly what they say. There is no undo
+        and no remote power-on — if the box lives somewhere awkward, think before the second one.</span>
+    </div>`;
+
+  on("#pw-arm", "click", async () => {
+    const next = !CP.conf.power.allowRemote;
+    if (next && !confirm("Arm power actions?\n\nOnce armed, this browser page can reboot or power off the host, and any rule with a power action becomes live.")) return;
+    try { await api("/automation/power", { method: "PUT", body: { allowRemote: next } }); await loadControl(); }
+    catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+  });
+
+  const doPower = async action => {
+    const host = LIVE.info?.host?.hostname || "this host";
+    // Typing the hostname, not an OK button. A mis-click should not be able to
+    // power off a machine you may have to walk to.
+    const typed = prompt(`${action === "reboot" ? "Reboot" : "Shut down"} ${host}?\n\nType the hostname to confirm:`);
+    if (typed == null) return;
+    if (typed.trim() !== host) return toast("HOSTNAME DID NOT MATCH — NOTHING HAPPENED", "err");
+    try {
+      await api(`/system/power/${action}`, { method: "POST" });
+      toast(action === "reboot" ? "REBOOTING…" : "SHUTTING DOWN…", "ok");
+    } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+  };
+  on("#pw-reboot", "click", () => doPower("reboot"));
+  on("#pw-shutdown", "click", () => doPower("shutdown"));
+}
+
+/* ---- live alerts ---- */
+function onAlert(a) {
+  toast(`${String(a.level).toUpperCase()}: ${a.title}`, a.level === "crit" ? "err" : a.level === "warn" ? "err" : "ok");
+
+  if (CP.conf?.notify?.browser !== false && "Notification" in window && Notification.permission === "granted") {
+    try { new Notification(a.title, { body: a.message, icon: "/assets/brand/icons/nexus-128.png", tag: a.ruleId || a.id }); } catch {}
+  }
+  CP.alerts.unshift(a);
+  if (CP.alerts.length > 60) CP.alerts.length = 60;
+  if ($("#page-control")?.classList.contains("on")) renderAlerts();
+}
+
+on("#cp-ack", "click", async () => {
+  try { await api("/automation/alerts/ack", { method: "POST" }); await loadAlerts(); toast("ACKNOWLEDGED", "ok"); }
+  catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+});
+on("#cp-clear", "click", async () => {
+  if (!confirm("Clear the alert history?")) return;
+  try { await api("/automation/alerts", { method: "DELETE" }); await loadAlerts(); }
+  catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+});
+
 /* ============================ navigation ============================ */
-const TITLES = { dash: "DASHBOARD", store: "APP STORE", containers: "CONTAINERS", files: "FILES", term: "TERMINAL", settings: "SETTINGS" };
+const TITLES = { dash: "DASHBOARD", store: "APP STORE", containers: "CONTAINERS", files: "FILES", term: "TERMINAL", control: "CONTROL PANEL", settings: "SETTINGS" };
 
 function go(page) {
   $$(".nav").forEach(n => n.classList.toggle("on", n.dataset.page === page));
@@ -1772,9 +2744,15 @@ function go(page) {
   $("#tools-files").hidden = page !== "files";
   $("#tools-store").hidden = page !== "store";
   $("#tools-term").hidden = page !== "term";
+  $("#tools-control").hidden = page !== "control";
+
+  // Leaving a page should not leave its selection armed for the Delete key.
+  if (page !== "dash") clearSelection();
+  if (page !== "files") clearFileSelection();
 
   if (page === "containers") loadContainers();
   if (page === "files") { loadRoots(); loadFiles(curDir); }
+  if (page === "control") loadControl();
   if (page === "settings") loadSettings();
   if (page === "store") { refreshInstalled().then(() => { loadStoreStatus(); loadStore(true); }); }
   if (page === "term") {
@@ -1867,7 +2845,7 @@ on("#dclose", "click", () => $("#drawer").classList.remove("open"));
 on("#drawer", "click", e => { if (e.target.id === "drawer") e.currentTarget.classList.remove("open"); });
 on("#reset", "click", async () => {
   try { await api("/layout", { method: "DELETE" }); } catch {}
-  gridEl.innerHTML = ""; mounted = {};
+  gridEl.innerHTML = ""; mounted = {}; clearSelection();
   items = DEFAULT_LAYOUT.map((d, i) => ({ id: i + 1, ...d }));
   uid = items.length + 1;
   items.forEach(it => build(it, true));
@@ -1906,6 +2884,10 @@ async function start() {
   api("/docker/containers").then(o => { if (o.available) { LIVE.containers = o.containers; renderWidgets(); } }).catch(() => {});
   setInterval(() => { api("/system/metrics").then(m => { LIVE.disks = m.disks || []; }).catch(() => {}); }, 30000);
   setInterval(() => { api("/docker/containers").then(o => { if (o.available) LIVE.containers = o.containers; }).catch(() => {}); }, 15000);
+
+  // Fetched up front, not on first visit to the page: onAlert needs to know
+  // whether browser notifications are wanted before the first alert arrives.
+  api("/automation").then(c => { CP.conf = c; }).catch(() => {});
 
   connectWS();
   connectEvents();
