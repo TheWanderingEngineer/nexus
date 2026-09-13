@@ -1215,3 +1215,38 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
    is enough to know whether the widget is worth opening. */
 .w:has(.secwrap.lvl-warn) .w-head{box-shadow:inset 0 -2px 0 var(--warn)}
 .w:has(.secwrap.lvl-crit) .w-head{box-shadow:inset 0 -2px 0 var(--crit)}
+
+/* ============================================================
+   WIDGET LIBRARY: what is already on the dashboard
+   Each widget can be added once, so the library has to say which ones are
+   spent. Muted rather than nearly invisible — you still need to read the name
+   to understand why it cannot be added, and an unreadable card is just a hole
+   in the grid.
+   ============================================================ */
+.dw-head .dcount{
+  font-family:var(--screen);font-size:10px;letter-spacing:.08em;opacity:.75;
+}
+.card{position:relative}
+.card .ct{flex:1;min-width:0}
+/* The description is inline by default, so the badge flowed onto the end of its
+   last line and sat on top of the text. */
+.card .cd{display:block}
+
+.card.used{
+  background:var(--sunk);cursor:not-allowed;
+  /* Pressed-in bevel: the same language the toggles and selected options use
+     for "this one is already chosen". */
+  border-top-color:var(--bevel-dk);border-left-color:var(--bevel-dk);
+  border-right-color:var(--bevel-lt);border-bottom-color:var(--bevel-lt);
+}
+.card.used:hover{background:var(--sunk)}
+.card.used img{opacity:.45;filter:grayscale(1)}
+.card.used .cn{color:var(--text-3)}
+.card.used .cd{color:var(--text-3);opacity:.7}
+
+.card .cused{
+  display:inline-flex;align-items:center;gap:5px;margin-top:calc(var(--u)*1.5);
+  font-family:var(--screen);font-weight:600;font-size:9px;letter-spacing:.08em;
+  padding:2px 6px;color:var(--ok);border:2px solid currentColor;
+}
+.card .cused i{font-style:normal;font-size:10px;line-height:1}

@@ -1456,13 +1456,83 @@ addEventListener("keydown", e => {
 
 // A press on empty canvas drops the selection.
 gridEl.addEventListener("pointerdown", e => { if (e.target === gridEl) clearSelection(); });
+/** Already on the dashboard? The library and addWidget both ask this. */
+const widgetInUse = type => items.some(i => i.t === type);
+
 function addWidget(type) {
-  const maxY = items.reduce((m, i) => Math.max(m, i.y + i.h), 0);
   const d = REG[type];
+  if (!d) return;
+  // One of each. Enforced here rather than only in the library, so the rule
+  // holds however the widget is added.
+  if (widgetInUse(type)) {
+    toast("ALREADY ON THE DASHBOARD", "err");
+    return;
+  }
+  const maxY = items.reduce((m, i) => Math.max(m, i.y + i.h), 0);
   const it = { id: uid++, t: type, x: 0, y: maxY, w: d.w, h: d.h };
   items.push(it); build(it, true); layout();
   if (type === "security") pollSecurity();
   $("#main").scrollTo({ top: 1e6, behavior: "smooth" });
+}
+
+/**
+ * The widget library, rebuilt every time it opens.
+ *
+ * Rebuilding rather than patching means the "already added" state cannot drift
+ * out of sync with the dashboard — there is no path where a widget is removed
+ * and the library still believes it is in use.
+ *
+ * Used cards stay readable rather than being faded to near-nothing: you still
+ * need to read the name to understand why you cannot add it, and a card you
+ * cannot read is just a gap in the grid.
+ */
+function renderDrawer() {
+  const body = $("#dbody");
+  if (!body) return;
+
+  const types = Object.keys(REG);
+  body.innerHTML = "";
+
+  for (const k of types) {
+    const d = REG[k];
+    const used = widgetInUse(k);
+
+    const b = document.createElement("button");
+    b.className = "card" + (used ? " used" : "");
+    b.dataset.type = k;
+    // aria-disabled rather than the disabled attribute: a disabled button fires
+    // no pointer events, so it would lose its tooltip and give no feedback at
+    // all when pressed — which reads as the UI being broken.
+    b.setAttribute("aria-disabled", String(used));
+    b.setAttribute("data-tip", used
+      ? `Already on the dashboard. Remove it there to add it again.`
+      : d.desc);
+
+    b.innerHTML =
+      `<img src="${d.icon}" alt="">` +
+      `<span class="ct">` +
+        `<span class="cn">${esc(d.name.toUpperCase())}</span>` +
+        `<span class="cd">${esc(d.desc)}</span>` +
+        (used ? `<span class="cused"><i>&#10003;</i>ON DASHBOARD</span>` : "") +
+      `</span>`;
+
+    b.addEventListener("click", () => {
+      if (widgetInUse(k)) {
+        toast("ALREADY ON THE DASHBOARD", "err");
+        return;                      // the drawer stays open; nothing happened
+      }
+      addWidget(k);
+      $("#drawer").classList.remove("open");
+    });
+
+    body.appendChild(b);
+  }
+
+  const count = $("#dcount");
+  if (count) {
+    const n = types.filter(widgetInUse).length;
+    count.textContent = `${n} of ${types.length} added`;
+  }
 }
 function renderWidgets() {
   for (const id in mounted) {
@@ -3719,7 +3789,7 @@ function toggleCRT() {
   return !on;
 }
 
-on("#add", "click", () => $("#drawer").classList.add("open"));
+on("#add", "click", () => { renderDrawer(); $("#drawer").classList.add("open"); });
 on("#dclose", "click", () => $("#drawer").classList.remove("open"));
 on("#drawer", "click", e => { if (e.target.id === "drawer") e.currentTarget.classList.remove("open"); });
 on("#reset", "click", async () => {
@@ -3737,15 +3807,6 @@ addEventListener("resize", () => { layout(false); renderWidgets(); });
 
 /* ============================ start ============================ */
 async function start() {
-  Object.keys(REG).forEach(k => {
-    const d = REG[k];
-    const b = document.createElement("button");
-    b.className = "card";
-    b.innerHTML = `<img src="${d.icon}" alt=""><span><span class="cn">${esc(d.name.toUpperCase())}</span><span class="cd">${esc(d.desc)}</span></span>`;
-    b.addEventListener("click", () => { addWidget(k); $("#drawer").classList.remove("open"); });
-    $("#dbody").appendChild(b);
-  });
-
   try {
     const saved = await api("/layout");
     items = Array.isArray(saved.widgets) && saved.widgets.length
@@ -3757,6 +3818,7 @@ async function start() {
   items.forEach((it, i) => { if (!it.id) it.id = i + 1; });
   uid = Math.max(0, ...items.map(i => i.id)) + 1;
   items.forEach(it => build(it, false)); layout(false);
+  renderDrawer();                 // after items exist, so "added" is accurate
 
   api("/system/info").then(i => { LIVE.info = i; renderWidgets(); }).catch(() => {});
   api("/system/metrics").then(m => { LIVE.disks = m.disks || []; renderWidgets(); }).catch(() => {});
