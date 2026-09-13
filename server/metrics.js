@@ -76,6 +76,21 @@ async function collectStatic() {
   } catch (err) {
     console.error("[metrics] static info failed:", err.message);
   }
+
+  // The address you would actually type to reach this box. Its own call because
+  // it is the one piece of host identity you cannot read off the machine itself,
+  // and the one you need most often.
+  try {
+    const ifaces = await si.networkInterfaces();
+    const list = Array.isArray(ifaces) ? ifaces : [ifaces];
+    const pick = list.find(i => i && i.default && i.ip4)
+      || list.find(i => i && !i.internal && i.ip4 && i.operstate === "up")
+      || list.find(i => i && !i.internal && i.ip4);
+    if (pick && snapshot.host) {
+      snapshot.host.ip4 = pick.ip4 || null;
+      snapshot.host.iface = pick.iface || null;
+    }
+  } catch { /* no address is survivable; the widget just omits the row */ }
   try { channels = await sensors.discover(); }
   catch (err) { console.error("[metrics] sensor discovery failed:", err.message); }
 }
@@ -209,6 +224,9 @@ async function procLoop() {
         name: String(x.name).slice(0, 40),
         cpu: round1(x.cpu),
         mem: round1(x.mem),
+        // Resident bytes as well as the percentage. "1.4%" is meaningless
+        // without knowing the total; "312 MB" always means the same thing.
+        rss: Number.isFinite(x.memRss) ? x.memRss * 1024 : null,
         user: x.user ? String(x.user).slice(0, 24) : null
       }));
 

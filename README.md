@@ -192,6 +192,26 @@ Host, Server Cat — plus four that answer more specific questions:
 | **Disk Activity** | Read and write throughput, mirrored around a centre line. Linux only; `fsStats` reads `/proc/diskstats`. |
 | **Security Watch** | Failed logins, what is listening on all interfaces, pending security updates, who is logged in. |
 
+**Server Cat** is a mood ring for the machine. Four moods — sleepy, content,
+alert, grumpy — each driven by real readings (CPU, temperature, memory, disk,
+whether a container has fallen over), each with its own two-frame sprite
+animation whose tempo *is* the information: a fast lashing tail means a busy
+box. Click to pet, and keep clicking to find out how the cat feels about that.
+Right-click to rename them and to choose whether they are a he, a she or a they;
+every line of dialogue substitutes the name and pronouns at display time, so
+nothing is hardcoded. The art was generated with PixelLab.
+
+### Moving widgets
+
+Dragging is non-destructive. Every frame of a drag is computed from the layout
+as it was when you picked the widget up, never from the previous frame — so
+wandering across the canvas and coming back leaves the arrangement exactly as
+it was, and **Escape** abandons a drag and puts everything back.
+
+While dragging, an outline shows where the widget would land. **Accent** means
+the space is free and nothing else will move; **amber** means the drop will push
+other widgets aside. You can see which before you let go.
+
 **Security Watch** is a posture summary, not an intrusion detection system, and
 it does not pretend otherwise. It reads failed SSH attempts from the journal,
 failed Nexus logins from the audit log, listening sockets from `ss`, and pending

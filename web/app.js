@@ -548,6 +548,25 @@ function openCtx(list, x, y) {
     }
   }
 
+  // Free-text and one-shot commands a widget declares. A row of preset buttons
+  // cannot express "type a name", so those live here instead.
+  if (!many && def.actions?.length) {
+    const g = document.createElement("div");
+    g.className = "ctxgroup";
+    g.innerHTML = `<span class="ctxlabel"><img src="${ICON("settings")}" alt="">Actions</span>`;
+    const row = document.createElement("div");
+    row.className = "ctxrow";
+    for (const a of def.actions) {
+      const b = document.createElement("button");
+      b.className = "ctxopt";
+      b.textContent = a.label;
+      b.addEventListener("click", () => a.run(sel[0]));
+      row.appendChild(b);
+    }
+    g.appendChild(row);
+    body.appendChild(g);
+  }
+
   // Per-item tick lists are single-widget only: "which mounts" means something
   // different for each widget, and merging two lists is a guess.
   if (!many && def.picker) {
@@ -916,12 +935,13 @@ const REG = {
 
       r.list.innerHTML = rows.map(c => {
         const up = c.state === "running";
-        const port = (c.ports || [])[0];
         const busy = r.busy.has(c.id);
+        // Every published port, not just the first: an app with a web UI on one
+        // port and an API on another was showing you only one of them.
         return `<div class="crow">
           <i class="cdot ${up ? "up" : "down"}"></i>
-          <span class="cname" title="${esc(c.image)}">${esc(c.title || c.name)}</span>
-          ${port ? `<span class="cport">:${port.public}</span>` : ""}
+          <span class="cname" data-tip="${esc(c.image)}">${esc(c.title || c.name)}</span>
+          <span class="cports">${up ? portLinks(c.ports, "cport") : ""}</span>
           <button class="cact" data-act="${up ? "stop" : "start"}" data-id="${esc(c.id)}"
                   data-nm="${esc(c.name)}" ${busy ? "disabled" : ""}>${busy ? "…" : up ? "STOP" : "START"}</button>
           <button class="cact" data-act="restart" data-id="${esc(c.id)}"
@@ -1018,14 +1038,52 @@ const REG = {
       }
     } },
 
-  cat: { name: "Server Cat", icon: "/assets/brand/cat-sleeping.png", desc: "Sleeps when idle, stirs when busy", w: 3, h: 4,
-    mount(b) { b.innerHTML = '<div class="catwrap"><img class="catimg" src="/assets/brand/cat-sleeping.png" alt="cat"><span class="catmsg"></span></div>';
-      return { i: $("img", b), m: $(".catmsg", b) }; },
-    update(r) {
-      const hot = LIVE.cpu > 72, busy = LIVE.cpu > 45;
-      r.m.textContent = hot ? "!! TOO WARM TO NAP" : busy ? "ONE EYE OPEN" : "ZZZ... ALL QUIET";
-      r.i.style.filter = hot ? "hue-rotate(-25deg) saturate(1.4)" : "none";
-      r.i.style.animationDuration = hot ? "0.9s" : busy ? "2s" : "3.2s"; } },
+  cat: { name: "Server Cat", icon: "/assets/brand/cat/content-a.png",
+    // Roomier than the old one: there is a sprite, a speech bubble and a mood
+    // badge to fit now, and at three columns the cat ends up thumbnail-sized.
+    desc: "Your machine's mood, with opinions", w: 4, h: 6,
+    defaults: { catName: "Nyx", gender: "she", chatty: "normal" },
+    options: [
+      { key: "gender", label: "Refer to them as", values: [
+        { value: "she", label: "SHE" }, { value: "he", label: "HE" }, { value: "they", label: "THEY" }] },
+      { key: "chatty", label: "Talks", values: [
+        { value: "quiet", label: "RARELY" }, { value: "normal", label: "SOMETIMES" }, { value: "chatty", label: "A LOT" }] }
+    ],
+    // Naming the cat is the one setting that needs free text, so it gets a
+    // prompt rather than a row of preset buttons.
+    actions: [
+      { label: "RENAME", icon: ICON("textsize"), run(it) {
+        const cur = cfgOf(it).catName || "Nyx";
+        const next = prompt("What is the cat called?", cur);
+        if (next == null) return;
+        const clean = next.trim().slice(0, 18);
+        if (clean) setCfg({ catName: clean });
+      } }
+    ],
+    mount(b, cfg) {
+      b.innerHTML = `
+        <div class="catwrap" tabindex="0" role="button" aria-label="${esc(cfg.catName || "the cat")}">
+          <div class="catbubble" hidden><span class="cbt"></span></div>
+          <div class="catstage">
+            <img class="catimg" alt="" draggable="false">
+            <span class="catz" hidden>z<i>z</i><b>z</b></span>
+          </div>
+          <div class="catfoot">
+            <span class="catname"></span>
+            <span class="catmood"><i class="mdot"></i><span class="mtxt"></span></span>
+          </div>
+        </div>`;
+      const ref = {
+        wrap: $(".catwrap", b), img: $(".catimg", b), z: $(".catz", b),
+        bubble: $(".catbubble", b), bt: $(".cbt", b),
+        nameEl: $(".catname", b), moodEl: $(".mtxt", b), dot: $(".mdot", b),
+        mood: null, frame: 0, blinkUntil: 0, nextBeat: 0, saying: null, sayUntil: 0,
+        pets: 0, lastPet: 0
+      };
+      wireCat(ref, cfg);
+      return ref;
+    },
+    update(r, cfg) { catTick(r, cfg); } },
 
   /* ---------------------------------------------------------- CPU cores */
   cores: { name: "CPU Cores", icon: ICON("cpu"),
@@ -1070,12 +1128,12 @@ const REG = {
   /* ------------------------------------------------------ top processes */
   procs: { name: "Top Processes", icon: ICON("terminal"),
     desc: "What is actually using the machine right now", w: 5, h: 5,
-    defaults: { by: "cpu", limit: 8 },
+    defaults: { by: "cpu", limit: 5 },
     options: [
       { key: "by", label: "Sort by", values: [
         { value: "cpu", label: "CPU" }, { value: "mem", label: "MEMORY" }] },
       { key: "limit", label: "How many", values: [
-        { value: 5, label: "5" }, { value: 8, label: "8" }, { value: 12, label: "12" }] }
+        { value: 3, label: "3" }, { value: 5, label: "5" }, { value: 8, label: "8" }, { value: 12, label: "12" }] }
     ],
     mount(b) {
       b.innerHTML = '<div class="proclist"></div><span class="sub"></span>';
@@ -1091,20 +1149,32 @@ const REG = {
         r.sub.textContent = "";
         return;
       }
-      const key = cfg.by === "mem" ? "mem" : "cpu";
-      const top = Math.max(1, rows[0][key]);
-      r.list.innerHTML = rows.slice(0, cfg.limit || 8).map(x => {
+      const byMem = cfg.by === "mem";
+      const key = byMem ? "mem" : "cpu";
+      // Scale against the busiest row, not against 100. On an idle box every
+      // process is under 2% and a bar scaled to 100 is invisible for all of
+      // them — which is the shape the old version had.
+      const top = Math.max(0.1, rows[0][key]);
+
+      r.list.innerHTML = rows.slice(0, cfg.limit || 5).map(x => {
         const v = x[key];
-        const pct = clamp((v / top) * 100, 2, 100);
+        const pct = clamp((v / top) * 100, 1.5, 100);
         const cls = v >= 80 ? "crit" : v >= 40 ? "warn" : "";
-        return `<div class="prow" title="pid ${x.pid}${x.user ? " · " + esc(x.user) : ""}">
-          <span class="pbar ${cls}" style="width:${pct.toFixed(1)}%"></span>
-          <span class="pname">${esc(x.name)}</span>
-          <span class="pval">${v.toFixed(1)}%</span>
+        // Memory as real megabytes where the server could measure it. "1.4%"
+        // means nothing without knowing the total; "312 MB" always means the
+        // same thing.
+        const shown = byMem && x.rss ? bytes(x.rss) : v.toFixed(1) + "%";
+        return `<div class="prow" data-tip="pid ${x.pid}${x.user ? " · " + esc(x.user) : ""} · ${v.toFixed(1)}% ${byMem ? "of RAM" : "CPU"}">
+          <span class="ptop">
+            <span class="pname">${esc(x.name)}</span>
+            <span class="pval">${esc(shown)}</span>
+          </span>
+          <span class="ptrack"><span class="pfill ${cls}" style="width:${pct.toFixed(1)}%"></span></span>
         </div>`;
       }).join("");
+
       r.sub.textContent =
-        `${rows.length ? "by " + (cfg.by === "mem" ? "memory" : "CPU") : ""}` +
+        `by ${byMem ? "memory" : "CPU"}` +
         (p.total ? ` · ${p.total} processes` : "") +
         (p.at ? ` · ${since(p.at)}` : "");
     } },
@@ -1229,16 +1299,269 @@ const REG = {
         </div>`).join("") || '<div class="sfind ok"><span class="st">Nothing to report</span></div>';
     } },
 
-  host: { name: "Host", icon: ICON("home"), desc: "Machine identity", w: 4, h: 3,
-    mount(b) { b.innerHTML = '<ul class="klist"></ul>'; return { l: $("ul", b) }; },
-    update(r) {
+  host: { name: "Host", icon: ICON("home"),
+    desc: "What this machine is, and how to reach it", w: 4, h: 4,
+    defaults: { dense: false },
+    options: [
+      { key: "dense", label: "Layout", values: [
+        { value: false, label: "ROOMY" }, { value: true, label: "DENSE" }] }
+    ],
+    // Which lines matter differs by person: someone with one box does not need
+    // the interface name, someone with three needs the address above all.
+    picker: () => ({
+      key: "hidden",
+      label: "Rows",
+      icon: ICON("home"),
+      empty: "No host details yet.",
+      items: [
+        { value: "ip", label: "Address", sub: "the LAN IP you reach it on" },
+        { value: "os", label: "Operating system" },
+        { value: "kernel", label: "Kernel" },
+        { value: "cpu", label: "CPU", sub: "model and core count" },
+        { value: "ram", label: "Memory", sub: "total installed" },
+        { value: "arch", label: "Architecture" },
+        { value: "up", label: "Uptime" }
+      ]
+    }),
+    mount(b, cfg) {
+      b.innerHTML = `<dl class="hostkv ${cfg.dense ? "dense" : ""}"></dl>`;
+      return { l: $("dl", b) };
+    },
+    update(r, cfg) {
       const i = LIVE.info;
-      if (!i) { r.l.innerHTML = '<li><span class="k">loading…</span></li>'; return; }
-      r.l.innerHTML = [
-        ["Host", i.host?.hostname], ["OS", i.host?.distro],
-        ["Kernel", i.host?.kernel], ["Arch", i.host?.arch]
-      ].filter(x => x[1]).map(([k, v]) => `<li><span class="k">${k}</span><span class="v">${esc(v)}</span></li>`).join(""); } }
+      if (!i) { r.l.innerHTML = '<div class="coreempty">loading…</div>'; return; }
+      const hide = hiddenSet(cfg);
+
+      // The address is a link: it is the thing you are most likely to want to
+      // do something with, and copying an IP by eye is a small daily annoyance.
+      const ip = i.host?.ip4;
+      const rows = [
+        ["ip", "Address", ip
+          ? `<a href="http://${esc(ip)}" target="_blank" rel="noopener" data-tip="Open http://${esc(ip)}">${esc(ip)}</a>`
+          + (i.host?.iface ? ` <span class="hdim">${esc(i.host.iface)}</span>` : "")
+          : null, true],
+        ["os", "OS", i.host?.distro],
+        ["kernel", "Kernel", i.host?.kernel],
+        ["cpu", "CPU", i.cpu?.model ? `${esc(i.cpu.model)}${i.cpu.cores ? ` <span class="hdim">${i.cpu.cores} cores</span>` : ""}` : null, true],
+        ["ram", "Memory", LIVE.memTotal ? bytes(LIVE.memTotal) : null],
+        ["arch", "Arch", i.host?.arch],
+        ["up", "Uptime", LIVE.uptimeSec ? upfmt(LIVE.uptimeSec) : null]
+      ];
+
+      r.l.className = "hostkv" + (cfg.dense ? " dense" : "");
+      r.l.innerHTML = rows
+        .filter(([key, , val]) => val && !hide.has(key))
+        .map(([, label, val, raw]) =>
+          `<dt>${label}</dt><dd>${raw ? val : esc(val)}</dd>`)
+        .join("") || '<div class="coreempty">every row is hidden — right-click to bring one back</div>';
+    } }
 };
+
+/* ============================ the cat ============================ */
+/**
+ * A mood ring for the machine.
+ *
+ * The point is that every mood is driven by something real — CPU, temperature,
+ * memory, whether a container has fallen over. A cat that is simply cute tells
+ * you nothing; a cat that is visibly cross because the box is at 95°C has told
+ * you the same thing a gauge would, and you will notice it from across a room.
+ */
+const CAT_MOODS = {
+  sleepy:  { label: "Sleepy",  beat: 2600, tail: "slow"  },
+  content: { label: "Content", beat: 1800, tail: "easy"  },
+  alert:   { label: "Alert",   beat: 1000, tail: "quick" },
+  grumpy:  { label: "Grumpy",  beat: 620,  tail: "lash"  }
+};
+
+/**
+ * Moods that have a blink frame drawn for them.
+ *
+ * Sleepy is already asleep with its eyes shut, and grumpy is squinting — a
+ * blink would read as nothing in either. Add a mood here when its art exists.
+ */
+const CAT_BLINK = new Set(["content", "alert"]);
+
+function catMood() {
+  const temp = LIVE.sensors?.find(s => s.kind === "temperature")?.value ?? 0;
+  const down = (LIVE.containers || []).filter(c => c.state !== "running").length;
+  const disk = Math.max(0, ...(LIVE.disks || []).map(d => d.usage || 0));
+
+  if (temp >= 80 || LIVE.cpu >= 88 || LIVE.mem >= 92 || disk >= 95) return "grumpy";
+  if (LIVE.cpu >= 55 || LIVE.mem >= 75 || down > 0 || disk >= 88) return "alert";
+  if (LIVE.cpu >= 20) return "content";
+  return "sleepy";
+}
+
+/** she/he/they, so the cat can be talked about without guessing. */
+function catPronoun(cfg) {
+  const g = cfg.gender || "she";
+  if (g === "he") return { they: "he", them: "him", their: "his", theyre: "he's", s: "s" };
+  if (g === "they") return { they: "they", them: "them", their: "their", theyre: "they're", s: "" };
+  return { they: "she", them: "her", their: "her", theyre: "she's", s: "s" };
+}
+
+/**
+ * What the cat says. {name} and the pronouns are substituted at display time,
+ * so renaming the cat or changing how it is referred to rewrites every line —
+ * nothing here hardcodes a name.
+ */
+const CAT_LINES = {
+  sleepy: [
+    "zzz...", "do not disturb", "five more minutes", "the fans are quiet. good.",
+    "nothing is on fire", "{name} is off duty", "a fine day for doing nothing",
+    "idle is a lifestyle", "wake me if a disk fills", "warm. dark. perfect.",
+    "the load average is a rumour", "purring at 0.02 load",
+    "dreaming of empty log files", "everything is fine and I am asleep",
+    "{name} has entered low power mode"
+  ],
+  content: [
+    "ticking along nicely", "all services accounted for", "this is a good box",
+    "{name} approves", "steady as you like", "no complaints today",
+    "the containers behave themselves", "uptime is a kind of love",
+    "somebody has been tidying", "green across the board",
+    "I have inspected the logs. they are fine.", "a respectable amount of RAM",
+    "the disks spin sweetly", "you may pet {name}", "everything in its place",
+    "{name} is supervising"
+  ],
+  alert: [
+    "something is happening", "ears up", "{name} noticed that",
+    "who started that?", "the fans have opinions now", "watching closely",
+    "that container looks shifty", "CPU is getting ideas", "I am not worried. yet.",
+    "memory is filling up, just so you know", "keeping an eye on it",
+    "{name} does not love this", "somebody is compiling something",
+    "stand by", "this is fine. probably."
+  ],
+  grumpy: [
+    "it is TOO WARM in here", "unacceptable", "{name} is displeased",
+    "turn something off", "hssss", "my box is cooking",
+    "check the fans. now.", "this is not fine", "I will remember this",
+    "whoever did this, {name} knows", "the thermals are an insult",
+    "somebody fix it", "I am too hot to be charming", "no more containers. NO MORE.",
+    "{name} demands airflow"
+  ],
+  // Said on a click, so they acknowledge the interaction rather than the load.
+  petted: [
+    "mrrp", "purrrr", "again", "{name} permits this", "yes. there.",
+    "acceptable human behaviour", "you may continue", "*headbutt*",
+    "that is the spot", "{theyre} pleased", "prrrrt", "one more",
+    "I suppose you are alright", "*slow blink*", "you have been promoted"
+  ],
+  // The fourth-or-more click in quick succession.
+  overpetted: [
+    "that is enough", "{name} has had sufficient", "careful", "*tail flick*",
+    "we were having such a nice time", "I said enough", "you are pushing it",
+    "*ears back*"
+  ]
+};
+
+/** Fill {name} / {they} / {them} / {their} / {theyre} in a line. */
+function catSay(line, cfg) {
+  const p = catPronoun(cfg);
+  return String(line)
+    .replaceAll("{name}", cfg.catName || "the cat")
+    .replaceAll("{they}", p.they).replaceAll("{them}", p.them)
+    .replaceAll("{their}", p.their).replaceAll("{theyre}", p.theyre);
+}
+
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+
+/** How long between unprompted remarks, by how talkative you asked for. */
+const CAT_GAP = { quiet: [45000, 90000], normal: [18000, 40000], chatty: [7000, 16000] };
+
+function catSpeak(r, cfg, line, ms = 4200) {
+  r.saying = catSay(line, cfg);
+  r.sayUntil = Date.now() + ms;
+  r.bt.textContent = r.saying;
+  r.bubble.hidden = false;
+  r.bubble.classList.remove("pop");
+  void r.bubble.offsetWidth;              // restart the animation
+  r.bubble.classList.add("pop");
+}
+
+function wireCat(r, cfg) {
+  // catTick stamps the live config onto the ref every frame, so a rename takes
+  // effect in what the cat says without rebinding any of these handlers.
+  const speakNow = lines => catSpeak(r, r.cfg || cfg, pick(lines));
+
+  // A click is a pet. Several in a row and the cat's patience runs out, which
+  // is both funnier and more cat-like than an endless supply of purring.
+  r.wrap.addEventListener("click", e => {
+    if (e.target.closest("button, a")) return;
+    const now = Date.now();
+    r.pets = now - r.lastPet < 3500 ? r.pets + 1 : 1;
+    r.lastPet = now;
+    r.wrap.classList.remove("pet");
+    void r.wrap.offsetWidth;
+    r.wrap.classList.add("pet");
+    speakNow(r.pets >= 4 ? CAT_LINES.overpetted : CAT_LINES.petted);
+    r.nextBeat = now + 900;               // a startled twitch
+  });
+
+  // Hovering wakes the cat: it looks up while you are pointing at it.
+  r.wrap.addEventListener("pointerenter", () => { r.hovering = true; });
+  r.wrap.addEventListener("pointerleave", () => { r.hovering = false; });
+  r.wrap.addEventListener("keydown", e => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); r.wrap.click(); }
+  });
+}
+
+/**
+ * One animation step. Called on the shared 1s render tick plus every metrics
+ * frame, so it has to be cheap and idempotent — all timing is against wall
+ * clock rather than assuming a fixed cadence.
+ */
+function catTick(r, cfg) {
+  const now = Date.now();
+  r.cfg = cfg;
+  const mood = catMood();
+  const spec = CAT_MOODS[mood];
+
+  if (mood !== r.mood) {
+    r.mood = mood;
+    r.frame = 0;
+    r.nextBeat = 0;
+    r.wrap.className = "catwrap mood-" + mood;
+    // A mood change is worth remarking on, so the cat reacts when the box does.
+    if (r.moodSeen) catSpeak(r, cfg, pick(CAT_LINES[mood]));
+    r.moodSeen = true;
+    r.nextLine = now + 6000;
+  }
+
+  r.nameEl.textContent = cfg.catName || "Nyx";
+  r.moodEl.textContent = spec.label;
+  r.z.hidden = mood !== "sleepy";
+
+  // Hovering perks the cat up a frame regardless of mood.
+  const beat = r.hovering ? Math.max(420, spec.beat * 0.45) : spec.beat;
+  if (now >= r.nextBeat) {
+    r.frame ^= 1;
+    r.nextBeat = now + beat;
+    // Blinks are brief and occasional — a 50% duty cycle would look like a
+    // malfunction rather than a cat.
+    if (mood !== "sleepy" && Math.random() < 0.22) r.blinkUntil = now + 160;
+  }
+
+  // Blink frames are optional art. A mood without one simply does not blink,
+  // rather than showing a broken image — so adding one later is a drop-in.
+  const blinking = now < r.blinkUntil && CAT_BLINK.has(mood);
+  const frameName = blinking ? "blink" : (r.frame ? "b" : "a");
+  const src = `/assets/brand/cat/${mood}-${frameName}.png`;
+  if (r.img.getAttribute("src") !== src) r.img.setAttribute("src", src);
+  r.img.alt = `${cfg.catName || "the cat"} looking ${spec.label.toLowerCase()}`;
+
+  // Unprompted remarks.
+  const gap = CAT_GAP[cfg.chatty] || CAT_GAP.normal;
+  if (!r.nextLine) r.nextLine = now + gap[0];
+  if (now >= r.nextLine && now >= r.sayUntil) {
+    catSpeak(r, cfg, pick(CAT_LINES[mood]));
+    r.nextLine = now + gap[0] + Math.random() * (gap[1] - gap[0]);
+  }
+
+  if (r.saying && now >= r.sayUntil) {
+    r.saying = null;
+    r.bubble.hidden = true;
+  }
+}
 
 /* ============================ grid engine ============================ */
 const COLS = 12, ROW = 44, GAP = 8;
@@ -1567,6 +1890,9 @@ async function pollSecurity() {
 /** Things inside a widget that own their own click and must not start a drag. */
 const NO_DRAG = "button, a, input, select, textarea, .w-rs, [contenteditable]";
 
+/** The drag in progress, so Escape can reach it from anywhere. */
+let activeDrag = null;
+
 /**
  * One drag, shared by mouse and touch.
  *
@@ -1593,7 +1919,23 @@ function startDragSession(el, it, sx, sy) {
     };
   }
 
-  const origin = new Map(group.map(g => [g.id, { x: g.x, y: g.y }]));
+  // The arrangement before anything moved. Every frame of the drag is computed
+  // from THIS, never from the previous frame.
+  //
+  // Without it, resolve() pushes widgets out of the way and they stay pushed:
+  // drag a widget across the canvas and back to where it started and your
+  // layout is permanently rearranged, because each frame displaced the
+  // already-displaced result of the last one. Restoring the snapshot first
+  // makes the layout a pure function of where the pointer is now, so wandering
+  // around costs nothing and returning to the start undoes itself.
+  const snapshot = new Map(items.map(i => [i.id, { x: i.x, y: i.y }]));
+  const restore = () => {
+    for (const i of items) {
+      const s = snapshot.get(i.id);
+      if (s) { i.x = s.x; i.y = s.y; }
+    }
+  };
+
   const cw = cellW();
   // Clamp the delta against the group's bounding box, not each widget, or the
   // leftmost one would stop while the rest kept going and the shape collapsed.
@@ -1601,25 +1943,76 @@ function startDragSession(el, it, sx, sy) {
   const maxRight = Math.max(...group.map(g => g.x + g.w));
   const minY = Math.min(...group.map(g => g.y));
 
+  const ghost = showGhost();
+  let fits = true;
+
+  const apply = (cx, cy) => {
+    restore();
+    const dx = clamp(Math.round((cx - sx) / (cw + GAP)), -minX, COLS - maxRight);
+    const dy = Math.max(-minY, Math.round((cy - sy) / (ROW + GAP)));
+
+    for (const g of group) {
+      const s = snapshot.get(g.id);
+      g.x = s.x + dx;
+      g.y = s.y + dy;
+    }
+
+    // Does the group land in genuinely free space? If so nothing else needs to
+    // move at all, and the ghost says as much before you let go.
+    fits = !items.some(a => !ids.has(a.id) && group.some(g => overlap(a, g)));
+    if (!fits) resolve(ids);
+
+    layout(false);
+    group.forEach(g => { const ge = document.getElementById("w" + g.id); if (ge) place(ge, g); });
+    placeGhost(ghost, group, fits);
+  };
+
   return {
-    move(cx, cy) {
-      const dx = clamp(Math.round((cx - sx) / (cw + GAP)), -minX, COLS - maxRight);
-      const dy = Math.max(-minY, Math.round((cy - sy) / (ROW + GAP)));
-      let changed = false;
-      for (const g of group) {
-        const o = origin.get(g.id);
-        const nx = o.x + dx, ny = o.y + dy;
-        if (nx !== g.x || ny !== g.y) { g.x = nx; g.y = ny; changed = true; }
-      }
-      if (changed) { resolve(ids); layout(false); }
-      group.forEach(g => { const ge = document.getElementById("w" + g.id); if (ge) place(ge, g); });
+    move: apply,
+    /** Put everything back exactly as it was and drop the drag. */
+    cancel() {
+      restore();
+      hideGhost(ghost);
+      group.forEach(g => document.getElementById("w" + g.id)?.classList.remove("dragging"));
+      layout();
     },
     end() {
+      hideGhost(ghost);
       group.forEach(g => document.getElementById("w" + g.id)?.classList.remove("dragging"));
       layout();
     }
   };
 }
+
+/* ---------------------------- drop preview ---------------------------- */
+/**
+ * A rectangle the size of what you are carrying, drawn where it would land.
+ *
+ * `fits` is the whole point of it: green means the space is empty and nothing
+ * else will move, amber means the drop will push other widgets aside. You can
+ * see which before committing rather than after.
+ */
+function showGhost() {
+  if (isNarrow()) return null;              // the stacked list has no free space
+  const el = document.createElement("div");
+  el.className = "wghost";
+  gridEl.appendChild(el);
+  return el;
+}
+
+function placeGhost(el, group, fits) {
+  if (!el) return;
+  const box = {
+    x: Math.min(...group.map(g => g.x)),
+    y: Math.min(...group.map(g => g.y)),
+    w: Math.max(...group.map(g => g.x + g.w)) - Math.min(...group.map(g => g.x)),
+    h: Math.max(...group.map(g => g.y + g.h)) - Math.min(...group.map(g => g.y))
+  };
+  place(el, box);
+  el.classList.toggle("bump", !fits);
+}
+
+function hideGhost(el) { el?.remove(); }
 
 /** Move the dragged node to wherever the pointer sits in the stacked list. */
 function stackDragTo(el, clientY) {
@@ -1674,24 +2067,35 @@ function dragify(el, it) {
     // entirely — the drag never starts and the listeners below never come off.
     try { el.setPointerCapture(e.pointerId); } catch {}
 
+    const detach = () => {
+      el.removeEventListener("pointermove", mv);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", cancel);
+      removeEventListener("keydown", onKey, true);
+      try { el.releasePointerCapture(e.pointerId); } catch {}
+      activeDrag = null;
+    };
+
     const mv = ev => {
       if (!session) {
         if (Math.abs(ev.clientX - sx) < THRESHOLD && Math.abs(ev.clientY - sy) < THRESHOLD) return;
         session = startDragSession(el, it, sx, sy);
+        activeDrag = session;
       }
       session.move(ev.clientX, ev.clientY);
     };
-    const up = () => {
-      el.removeEventListener("pointermove", mv);
-      el.removeEventListener("pointerup", up);
-      el.removeEventListener("pointercancel", up);
-      try { el.releasePointerCapture(e.pointerId); } catch {}
-      session?.end();                        // no session means it was a click
-    };
+    const up = () => { detach(); session?.end(); };   // no session = it was a click
+    const cancel = () => { detach(); session?.cancel(); };
+
+    // Escape abandons the drag and puts the layout back. The browser also fires
+    // pointercancel when it takes the gesture over, which must not be treated as
+    // a drop — that would commit a move the user never completed.
+    const onKey = ev => { if (ev.key === "Escape" && session) { ev.preventDefault(); cancel(); } };
 
     el.addEventListener("pointermove", mv);
     el.addEventListener("pointerup", up);
-    el.addEventListener("pointercancel", up);
+    el.addEventListener("pointercancel", cancel);
+    addEventListener("keydown", onKey, true);
   });
 
   /* ---- touch: hold to pick up ---- */
@@ -1721,6 +2125,7 @@ function dragify(el, it) {
       // A short buzz is the only feedback that the widget is now in your hand.
       try { navigator.vibrate?.(18); } catch {}
       session = startDragSession(el, it, startPt.x, startPt.y);
+      activeDrag = session;
     }, 380);
   }, { passive: true });
 
@@ -1735,13 +2140,18 @@ function dragify(el, it) {
     session?.move(e.touches[0].clientX, e.touches[0].clientY);
   }, { passive: false });
 
-  const endTouch = () => {
+  const finishTouch = drop => {
     cancelHold();
-    if (held) { session?.end(); el.classList.remove("held"); }
-    held = false; session = null; startPt = null;
+    if (held) {
+      // A cancelled touch (a call arriving, the gesture stolen by the browser)
+      // is not a drop, and must not commit a move.
+      if (drop) session?.end(); else session?.cancel();
+      el.classList.remove("held");
+    }
+    held = false; session = null; startPt = null; activeDrag = null;
   };
-  el.addEventListener("touchend", endTouch);
-  el.addEventListener("touchcancel", endTouch);
+  el.addEventListener("touchend", () => finishTouch(true));
+  el.addEventListener("touchcancel", () => finishTouch(false));
 }
 function resizify(el, it) {
   const h = $(".w-rs", el);
@@ -1780,12 +2190,12 @@ async function loadContainers() {
     LIVE.containers = out.containers;
     tb.innerHTML = out.containers.map(c => {
       const up = c.state === "running";
-      const ports = c.ports.map(p => p.public + "→" + p.private).join(", ") || "—";
+      const links = portLinks(c.ports, "cport");
       return `<tr>
         <td class="name">${esc(c.title || c.name)}</td>
         <td class="mono">${esc(c.image)}</td>
         <td><span class="pill ${up ? "ok" : "crit"}"><i class="dot"></i>${esc(c.state.toUpperCase())}</span></td>
-        <td class="mono">${esc(ports)}</td>
+        <td><span class="cports">${links || '<span class="dim">—</span>'}</span></td>
         <td><span class="pill idle" data-tip="${esc(managedTip(c.managedBy))}">${esc((c.managedBy || "manual").toUpperCase())}</span></td>
         <td><div class="rowbtns">
           <button class="btn sm" data-act="${up ? "stop" : "start"}" data-id="${esc(c.id)}"
@@ -1800,6 +2210,26 @@ async function loadContainers() {
     box.innerHTML = `<div class="empty">${esc(e.message).toUpperCase()}</div>`;
   }
 }
+/**
+ * Published ports, as links you can actually click.
+ *
+ * A port number on its own makes you copy it into the address bar by hand, and
+ * the whole reason you knew the container was up was that you were already
+ * looking at this screen. The host is taken from the address you are viewing
+ * Nexus on, which is by definition a route that reaches the box.
+ */
+function portLinks(ports, cls) {
+  const seen = new Set();
+  const list = (ports || [])
+    .filter(p => p.public && !seen.has(p.public) && seen.add(p.public))
+    .sort((a, b) => a.public - b.public);
+  if (!list.length) return "";
+  return list.map(p =>
+    `<a class="${cls}" href="http://${esc(location.hostname)}:${p.public}" target="_blank" rel="noopener"
+        data-tip="Open http://${esc(location.hostname)}:${p.public} — container port ${p.private}/${esc(p.type || "tcp")}"
+     >:${p.public}</a>`).join("");
+}
+
 /** Where a container came from, in one line. */
 function managedTip(kind) {
   if (kind === "nexus") return "Installed through the Nexus app store.";

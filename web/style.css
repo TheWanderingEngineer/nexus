@@ -1152,28 +1152,33 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
 
 /* ============================================================
    TOP PROCESSES
-   The bar is the row background rather than a separate track, so the list
-   reads as a list first and a chart second.
+   Name and value on one line, a thin meter under it. The old version washed
+   the whole row with a translucent bar, which muddied the text and — because
+   it was scaled against 100 — was invisible on an idle box where every
+   process is under 2%.
    ============================================================ */
-.proclist{display:flex;flex-direction:column;gap:2px;flex:1;min-height:0;overflow:auto}
-.prow{
-  position:relative;display:flex;align-items:center;gap:calc(var(--u)*2);
-  padding:calc(var(--u)) calc(var(--u)*1.5);background:var(--sunk);min-width:0;
-}
-.prow .pbar{
-  position:absolute;left:0;top:0;bottom:0;background:var(--wc,var(--accent));
-  opacity:.22;transition:width .3s linear;
-}
-.prow .pbar.warn{background:var(--warn);opacity:.26}
-.prow .pbar.crit{background:var(--crit);opacity:.3}
+.proclist{display:flex;flex-direction:column;gap:calc(var(--u)*1.5);flex:1;min-height:0;overflow:auto}
+.prow{display:flex;flex-direction:column;gap:calc(var(--u));min-width:0;flex:none}
+.prow .ptop{display:flex;align-items:baseline;gap:calc(var(--u)*2);min-width:0}
 .prow .pname{
-  position:relative;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  font-size:calc(12.5px * var(--ws,1));color:var(--text);
+  flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:calc(12.5px * var(--ws,1));color:var(--text-2);
 }
 .prow .pval{
-  position:relative;flex:none;font-family:var(--mono);
-  font-size:calc(11.5px * var(--ws,1));font-variant-numeric:tabular-nums;color:var(--text-2);
+  flex:none;font-family:var(--mono);font-size:calc(12px * var(--ws,1));
+  font-variant-numeric:tabular-nums;color:var(--text);
 }
+.prow .ptrack{
+  display:block;height:calc(var(--u)*1.5);background:var(--sunk);position:relative;overflow:hidden;
+  border-top:1px solid var(--bevel-dk);border-left:1px solid var(--bevel-dk);
+}
+.prow .pfill{
+  position:absolute;left:0;top:0;bottom:0;background:var(--wc,var(--accent));
+  transition:width .35s cubic-bezier(.22,.61,.36,1);
+}
+.prow .pfill.warn{background:var(--warn)}
+.prow .pfill.crit{background:var(--crit)}
+.prow:hover .pname{color:var(--text)}
 
 /* ============================================================
    SECURITY WATCH
@@ -1250,3 +1255,199 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
   padding:2px 6px;color:var(--ok);border:2px solid currentColor;
 }
 .card .cused i{font-style:normal;font-size:10px;line-height:1}
+
+/* ============================================================
+   SCROLLBARS
+   The browser default is a rounded grey pill from a different design language
+   entirely. These are square, bevelled and use the panel palette, so a
+   scrolling list looks like part of the machine rather than a web page.
+   ============================================================ */
+*{scrollbar-width:thin;scrollbar-color:var(--bevel-lt) var(--sunk)}
+
+::-webkit-scrollbar{width:12px;height:12px}
+::-webkit-scrollbar-track{background:var(--sunk)}
+::-webkit-scrollbar-corner{background:var(--sunk)}
+::-webkit-scrollbar-thumb{
+  background:var(--panel-hi);
+  border-top:2px solid var(--bevel-lt);border-left:2px solid var(--bevel-lt);
+  border-right:2px solid var(--bevel-dk);border-bottom:2px solid var(--bevel-dk);
+}
+::-webkit-scrollbar-thumb:hover{background:var(--accent)}
+::-webkit-scrollbar-thumb:active{
+  background:var(--accent);
+  border-top-color:var(--bevel-dk);border-left-color:var(--bevel-dk);
+  border-right-color:var(--bevel-lt);border-bottom-color:var(--bevel-lt);
+}
+
+/* Inside a widget the bar has to be slimmer or it eats the content. */
+.w-body ::-webkit-scrollbar,.w-body::-webkit-scrollbar{width:8px;height:8px}
+.w-body *{scrollbar-width:thin}
+
+/* The terminal keeps xterm's own scrollbar sizing; overriding it there fights
+   the canvas renderer's own measurements. */
+#xterm-host ::-webkit-scrollbar{width:12px}
+
+/* ============================================================
+   HOST
+   The old version used the generic key/value list, which right-aligns the
+   value on one line — so a long distro string or a CPU model was clipped or
+   collided with its own label. Labels are now a fixed narrow column and values
+   wrap underneath themselves.
+   ============================================================ */
+.hostkv{
+  display:grid;grid-template-columns:auto minmax(0,1fr);
+  gap:calc(var(--u)*2) calc(var(--u)*3);
+  margin:0;align-content:start;overflow:auto;min-height:0;
+}
+.hostkv.dense{gap:calc(var(--u)) calc(var(--u)*2)}
+.hostkv dt{
+  font-family:var(--screen);font-weight:600;font-size:calc(10px * var(--ws,1));
+  letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);
+  white-space:nowrap;padding-top:2px;
+}
+.hostkv dd{
+  margin:0;min-width:0;
+  font-family:var(--mono);font-size:calc(12.5px * var(--ws,1));
+  color:var(--text);line-height:1.45;overflow-wrap:anywhere;
+}
+.hostkv dd a{color:var(--accent);text-decoration:none;border-bottom:1px solid currentColor}
+.hostkv dd a:hover{background:var(--panel-hi)}
+.hostkv .hdim{color:var(--text-3);font-size:.88em}
+
+/* ============================================================
+   CONTAINER PORTS
+   Clickable, because the number alone just makes you retype it.
+   ============================================================ */
+.cports{display:inline-flex;gap:calc(var(--u));flex-wrap:wrap;align-items:center;min-width:0}
+.cport{
+  font-family:var(--mono);font-size:calc(11px * var(--ws,1));
+  padding:1px calc(var(--u));color:var(--accent);text-decoration:none;flex:none;
+  border:2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.cport:hover{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.crow .cports{flex:none}
+#c-table .cports{gap:calc(var(--u)*1.5)}
+#c-table .dim{color:var(--text-3)}
+
+/* ============================================================
+   DROP PREVIEW
+   The outline of what you are carrying, drawn where it would land.
+   Accent = the space is free and nothing else moves. Amber = the drop will
+   push other widgets aside. Knowing which before you let go is the point.
+   ============================================================ */
+.wghost{
+  position:absolute;z-index:90;pointer-events:none;
+  border:3px dashed var(--accent);
+  background:color-mix(in srgb, var(--accent) 10%, transparent);
+  transition:left .07s linear,top .07s linear,width .07s linear,height .07s linear;
+}
+.wghost.bump{
+  border-color:var(--warn);
+  background:color-mix(in srgb, var(--warn) 10%, transparent);
+}
+#grid.stack .wghost{display:none}
+
+/* ============================================================
+   SERVER CAT
+   Four moods, each a two-frame sprite animation. The frames are swapped in
+   JavaScript on a mood-dependent beat rather than driven by a CSS keyframe,
+   because the tempo is the information: a fast tail means a busy machine.
+   ============================================================ */
+.catwrap{
+  display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+  gap:calc(var(--u)*2);flex:1;min-height:0;position:relative;
+  cursor:pointer;user-select:none;
+}
+.catwrap:focus-visible{outline:var(--u) solid var(--accent);outline-offset:2px}
+
+.catstage{
+  position:relative;flex:1;min-height:0;width:100%;
+  display:flex;align-items:flex-end;justify-content:center;
+}
+.catimg{
+  width:auto;height:100%;max-height:150px;max-width:100%;object-fit:contain;
+  image-rendering:pixelated;
+  /* The sprite swap does the animation. This is only the slow breath under it,
+     and a whole-body bob would fight the frames rather than add to them. */
+  animation:catbreath 3.4s ease-in-out infinite;
+  transform-origin:50% 100%;
+}
+@keyframes catbreath{
+  0%,100%{transform:scaleY(1) scaleX(1)}
+  50%{transform:scaleY(1.025) scaleX(.99)}
+}
+.mood-alert  .catimg{animation-duration:1.9s}
+.mood-grumpy .catimg{animation-duration:1.1s}
+.mood-sleepy .catimg{animation-duration:4.6s}
+
+/* A press makes the cat squash, so a click feels like it landed on something. */
+.catwrap.pet .catimg{animation:catpet .32s ease-out}
+@keyframes catpet{
+  0%{transform:scaleY(1) scaleX(1)}
+  35%{transform:scaleY(.9) scaleX(1.07)}
+  100%{transform:scaleY(1) scaleX(1)}
+}
+.catwrap:hover .catimg{filter:brightness(1.12) drop-shadow(0 0 6px color-mix(in srgb,var(--accent) 45%,transparent))}
+
+/* Sleep Zs, drifting up and fading. */
+.catz{
+  position:absolute;right:14%;top:8%;pointer-events:none;
+  font-family:var(--screen);font-weight:700;color:var(--text-3);
+}
+.catz i,.catz b{font-style:normal;font-weight:700;position:absolute}
+.catz   {font-size:13px;animation:zdrift 3.4s linear infinite}
+.catz i {font-size:10px;left:10px;top:-11px;animation:zdrift 3.4s linear infinite .9s}
+.catz b {font-size:8px;left:18px;top:-20px;animation:zdrift 3.4s linear infinite 1.8s}
+@keyframes zdrift{
+  0%{opacity:0;transform:translateY(4px)}
+  25%{opacity:.9}
+  100%{opacity:0;transform:translateY(-16px)}
+}
+
+/* ---- speech bubble ----
+   The panel is the generated sprite, 9-sliced so it stretches to whatever the
+   cat is saying without smearing its corners. The tail is drawn separately in
+   CSS: a bitmap tail cannot survive being stretched by border-image, and a
+   pixel triangle is the one shape CSS renders perfectly crisply anyway. */
+.catbubble{
+  position:relative;max-width:100%;flex:none;
+  padding:calc(var(--u)*1.5) calc(var(--u)*2.5);
+  border:8px solid transparent;
+  border-image:url("/assets/brand/cat/bubble.png") 14 fill stretch;
+  image-rendering:pixelated;
+  font-size:calc(11.5px * var(--ws,1));line-height:1.35;
+  color:#1C1528;text-align:center;
+}
+.catbubble .cbt{display:block;overflow-wrap:anywhere}
+.catbubble::after{
+  content:"";position:absolute;left:50%;margin-left:-5px;bottom:-9px;
+  width:0;height:0;
+  border-left:5px solid transparent;border-right:5px solid transparent;
+  border-top:9px solid #F2EFF8;
+}
+.catbubble.pop{animation:bubblepop .18s steps(3,end)}
+@keyframes bubblepop{
+  from{opacity:0;transform:translateY(5px) scale(.92)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+
+/* ---- name and mood ---- */
+.catfoot{
+  display:flex;align-items:center;gap:calc(var(--u)*2);flex-wrap:wrap;
+  justify-content:center;flex:none;width:100%;
+}
+.catname{
+  font-family:var(--screen);font-weight:700;font-size:calc(12px * var(--ws,1));
+  letter-spacing:.08em;color:var(--text);
+}
+.catmood{
+  display:inline-flex;align-items:center;gap:5px;
+  font-family:var(--screen);font-size:calc(9px * var(--ws,1));letter-spacing:.08em;
+  padding:2px 6px;color:var(--text-3);border:2px solid currentColor;
+}
+.catmood .mdot{width:var(--u);height:var(--u);background:currentColor;flex:none}
+.mood-sleepy  .catmood{color:var(--text-3)}
+.mood-content .catmood{color:var(--ok)}
+.mood-alert   .catmood{color:var(--warn)}
+.mood-grumpy  .catmood{color:var(--crit)}
+.mood-grumpy  .catmood .mdot{animation:blip 1s steps(2,end) infinite}
