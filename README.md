@@ -180,6 +180,29 @@ drop `/boot/efi` from the disk list or hide the four hwmon channels that only ev
 report 0 V. The list stores what is *hidden*, not what is shown — a drive you plug
 in next month appears on its own rather than being silently excluded.
 
+### The widgets
+
+CPU, Memory, Storage, Network, Sensors, Containers, Uptime, Clock, Last Boot,
+Host, Server Cat — plus four that answer more specific questions:
+
+| Widget | The question it answers |
+|---|---|
+| **CPU Cores** | Is that 50% every core at half, or one core pinned? The aggregate number cannot tell you, and the answer changes what you do next. |
+| **Top Processes** | What is actually using the machine. Sort by CPU or by memory — two separate lists, not one re-sorted. |
+| **Disk Activity** | Read and write throughput, mirrored around a centre line. Linux only; `fsStats` reads `/proc/diskstats`. |
+| **Security Watch** | Failed logins, what is listening on all interfaces, pending security updates, who is logged in. |
+
+**Security Watch** is a posture summary, not an intrusion detection system, and
+it does not pretend otherwise. It reads failed SSH attempts from the journal,
+failed Nexus logins from the audit log, listening sockets from `ss`, and pending
+updates from `apt-check`. Every check that cannot run reports **`?`**, never a
+zero — a check that quietly says "all clear" when it failed to look is worse
+than no check at all, because it buys confidence it has not earned.
+
+There is no score out of 100. A single number invites you to chase it and tells
+you nothing about what to do; the widget lists specific findings with a severity
+each, and the widget's title bar picks up the colour of the worst one.
+
 ### On a phone or a tablet
 
 The gear in each widget's header opens the same settings menu, because touch has

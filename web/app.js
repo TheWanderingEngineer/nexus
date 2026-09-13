@@ -215,8 +215,14 @@ on("#logout", "click", async () => {
 /* ============================ live state ============================ */
 const LIVE = {
   cpu: 0, mem: 0, net: { rx: 0, tx: 0 }, uptimeSec: 0,
-  sensors: [], history: { cpu: [], mem: [], rx: [], tx: [] },
+  sensors: [], history: { cpu: [], mem: [], rx: [], tx: [], dr: [], dw: [] },
   memUsed: 0, memTotal: 0, bootAt: 0,
+  cores: [], disk: null, procs: { byCpu: [], byMem: [], total: 0, running: 0 },
+  loadavg: [0, 0, 0], swapUsed: 0, swapTotal: 0,
+  // Polled separately: the scan shells out and is cached for minutes server-side,
+  // so putting it in the 2-second metrics frame would be pure waste. Keyed by
+  // lookback window, because two widgets may be asking different questions.
+  security: {},
   info: null, disks: [], containers: [], installed: []
 };
 
@@ -233,7 +239,11 @@ function connectWS() {
     Object.assign(LIVE, {
       cpu: msg.data.cpu, mem: msg.data.mem, net: msg.data.net,
       memUsed: msg.data.memUsed, memTotal: msg.data.memTotal, bootAt: msg.data.bootAt,
-      uptimeSec: msg.data.uptimeSec, sensors: msg.data.sensors || [], history: msg.data.history || LIVE.history
+      uptimeSec: msg.data.uptimeSec, sensors: msg.data.sensors || [], history: msg.data.history || LIVE.history,
+      cores: msg.data.cores || [], disk: msg.data.disk ?? null,
+      procs: msg.data.procs || LIVE.procs,
+      loadavg: msg.data.loadavg || LIVE.loadavg,
+      swapUsed: msg.data.swapUsed ?? 0, swapTotal: msg.data.swapTotal ?? 0
     });
     paintTopbar();
     renderWidgets();
@@ -334,6 +344,54 @@ function drawChart(svg, vals, maxV, color, opts = {}) {
       : "");
 }
 const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/**
+ * Two series mirrored around a centre line — reads above, writes below.
+ *
+ * Deliberately not two overlaid lines. Disk traffic is usually lopsided (a
+ * backup writes for minutes without reading), and overlaying two series that
+ * share a scale means the quiet one is a flat smear along the bottom. Splitting
+ * the box gives each direction its own half and makes the shape of the activity
+ * legible at a glance: reads up, writes down, symmetry means both at once.
+ */
+function drawMirror(svg, up, down, maxV, colorUp, colorDown) {
+  const r = svg.getBoundingClientRect();
+  if (r.width < 8 || r.height < 8) return;
+
+  const w = Math.round(r.width), h = Math.round(r.height);
+  const mid = h / 2;
+  const max = maxV || 1;
+  const pad = 2;
+
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("shape-rendering", "geometricPrecision");
+
+  const half = (vals, dir) => {
+    if (!vals || !vals.length) return "";
+    const n = vals.length;
+    const sw = w / Math.max(1, n - 1);
+    const usable = mid - pad;
+    let d = "";
+    for (let i = 0; i < n; i++) {
+      const frac = clamp(vals[i], 0, max) / max;
+      const y = (mid + dir * frac * usable).toFixed(1);
+      d += (i === 0 ? "M" : "L") + (i * sw).toFixed(1) + "," + y;
+    }
+    return d;
+  };
+
+  const upPath = half(up, -1);
+  const downPath = half(down, 1);
+  const mline = Math.round(mid) + 0.5;
+
+  svg.innerHTML =
+    (upPath ? `<path d="${upPath} L${w},${mid} L0,${mid} Z" fill="${colorUp}" fill-opacity="0.16"/>` : "") +
+    (downPath ? `<path d="${downPath} L${w},${mid} L0,${mid} Z" fill="${colorDown}" fill-opacity="0.16"/>` : "") +
+    `<line x1="0" y1="${mline}" x2="${w}" y2="${mline}" stroke="${cssv("--rule")}" stroke-width="1" shape-rendering="crispEdges"/>` +
+    (upPath ? `<path d="${upPath}" fill="none" stroke="${colorUp}" stroke-width="1.6" stroke-linejoin="round"/>` : "") +
+    (downPath ? `<path d="${downPath}" fill="none" stroke="${colorDown}" stroke-width="1.6" stroke-linejoin="round"/>` : "");
+}
 
 function meterHTML(pct, warnAt, critAt, segs) {
   segs = segs || 14;
@@ -633,6 +691,9 @@ function setCfg(patch) {
     remount(it);
   }
   saveLayout();
+  // A changed lookback window needs its own scan; without this the widget sits
+  // on "scanning…" until the next poll comes round.
+  if (ctxItems.some(it => it.t === "security")) pollSecurity();
   // Re-open in place so the ticks and highlights reflect what just happened.
   const keep = ctxItems;
   openCtx(keep, ctxAt.x, ctxAt.y);
@@ -966,6 +1027,208 @@ const REG = {
       r.i.style.filter = hot ? "hue-rotate(-25deg) saturate(1.4)" : "none";
       r.i.style.animationDuration = hot ? "0.9s" : busy ? "2s" : "3.2s"; } },
 
+  /* ---------------------------------------------------------- CPU cores */
+  cores: { name: "CPU Cores", icon: ICON("cpu"),
+    desc: "Load on every core, so you can see one pegged thread", w: 4, h: 4,
+    defaults: { mode: "grid", labels: true },
+    options: [
+      { key: "mode", label: "Display", values: [
+        { value: "grid", label: "GRID" }, { value: "bars", label: "BARS" }] },
+      { key: "labels", label: "Numbers", values: [
+        { value: true, label: "ON" }, { value: false, label: "OFF" }] }
+    ],
+    mount(b, cfg) {
+      b.innerHTML = `<div class="coregrid ${cfg.mode === "bars" ? "asbars" : ""}"></div><span class="sub"></span>`;
+      return { box: $(".coregrid", b), sub: $(".sub", b), mode: cfg.mode };
+    },
+    update(r, cfg) {
+      const cores = LIVE.cores || [];
+      if (!cores.length) {
+        r.box.innerHTML = '<span class="coreempty">waiting for the first sample…</span>';
+        r.sub.textContent = "";
+        return;
+      }
+      // Reusing the status colours on purpose: on a core, "busy" IS the meaning.
+      const cls = v => (v >= 90 ? "crit" : v >= 70 ? "warn" : "");
+      // One custom property, two orientations: the grid fills upwards, the bar
+      // mode fills rightwards, and the stylesheet decides which without the
+      // markup needing to know the layout.
+      r.box.innerHTML = cores.map((v, i) => `
+        <div class="core ${cls(v)}" style="--p:${clamp(v, 0, 100).toFixed(1)}%" title="Core ${i}: ${v}%">
+          <div class="cfill"></div>
+          ${cfg.labels ? `<span class="cn">${i}</span><span class="cv">${Math.round(v)}</span>` : ""}
+        </div>`).join("");
+
+      const busy = cores.filter(v => v >= 70).length;
+      const peak = Math.max(...cores);
+      const avg = cores.reduce((a, b) => a + b, 0) / cores.length;
+      r.sub.textContent =
+        `${cores.length} cores · avg ${Math.round(avg)}% · peak ${Math.round(peak)}%` +
+        (busy ? ` · ${busy} busy` : "");
+    } },
+
+  /* ------------------------------------------------------ top processes */
+  procs: { name: "Top Processes", icon: ICON("terminal"),
+    desc: "What is actually using the machine right now", w: 5, h: 5,
+    defaults: { by: "cpu", limit: 8 },
+    options: [
+      { key: "by", label: "Sort by", values: [
+        { value: "cpu", label: "CPU" }, { value: "mem", label: "MEMORY" }] },
+      { key: "limit", label: "How many", values: [
+        { value: 5, label: "5" }, { value: 8, label: "8" }, { value: 12, label: "12" }] }
+    ],
+    mount(b) {
+      b.innerHTML = '<div class="proclist"></div><span class="sub"></span>';
+      return { list: $(".proclist", b), sub: $(".sub", b) };
+    },
+    update(r, cfg) {
+      const p = LIVE.procs || {};
+      // Two orderings come from the server. Re-sorting one list by the other key
+      // would show the hungriest of the busiest, which is not the same thing.
+      const rows = (cfg.by === "mem" ? p.byMem : p.byCpu) || [];
+      if (!rows.length) {
+        r.list.innerHTML = '<span class="coreempty">reading the process table…</span>';
+        r.sub.textContent = "";
+        return;
+      }
+      const key = cfg.by === "mem" ? "mem" : "cpu";
+      const top = Math.max(1, rows[0][key]);
+      r.list.innerHTML = rows.slice(0, cfg.limit || 8).map(x => {
+        const v = x[key];
+        const pct = clamp((v / top) * 100, 2, 100);
+        const cls = v >= 80 ? "crit" : v >= 40 ? "warn" : "";
+        return `<div class="prow" title="pid ${x.pid}${x.user ? " · " + esc(x.user) : ""}">
+          <span class="pbar ${cls}" style="width:${pct.toFixed(1)}%"></span>
+          <span class="pname">${esc(x.name)}</span>
+          <span class="pval">${v.toFixed(1)}%</span>
+        </div>`;
+      }).join("");
+      r.sub.textContent =
+        `${rows.length ? "by " + (cfg.by === "mem" ? "memory" : "CPU") : ""}` +
+        (p.total ? ` · ${p.total} processes` : "") +
+        (p.at ? ` · ${since(p.at)}` : "");
+    } },
+
+  /* ------------------------------------------------------ disk activity */
+  diskio: { name: "Disk Activity", icon: ICON("storage"),
+    desc: "Read and write throughput, mirrored", w: 4, h: 4,
+    defaults: { window: 60 },
+    options: [
+      { key: "window", label: "History", values: [
+        { value: 60, label: "1 MIN" }, { value: 120, label: "2 MIN" }, { value: 240, label: "4 MIN" }] }
+    ],
+    mount(b) {
+      b.innerHTML = `
+        <div class="netrow">
+          <div class="netstat"><span class="nlbl">READ</span><span class="nval rd">--</span></div>
+          <div class="netstat"><span class="nlbl">WRITE</span><span class="nval wr">--</span></div>
+          <span class="spacer"></span>
+          <span class="npeak"></span>
+        </div>
+        <svg class="chart"></svg>`;
+      return { rd: $(".rd", b), wr: $(".wr", b), peak: $(".npeak", b), svg: $("svg", b) };
+    },
+    update(r, cfg) {
+      // Absent is not zero. Where the platform cannot report disk throughput,
+      // say so rather than drawing a convincing flat line at nothing.
+      if (!LIVE.disk) {
+        r.rd.textContent = r.wr.textContent = "n/a";
+        r.peak.textContent = "not reported on this platform";
+        r.svg.innerHTML = "";
+        return;
+      }
+      const n = cfg.window || 60;
+      const dr = (LIVE.history.dr || []).slice(-n);
+      const dw = (LIVE.history.dw || []).slice(-n);
+      r.rd.textContent = rate(LIVE.disk.read);
+      r.wr.textContent = rate(LIVE.disk.write);
+
+      // One shared scale, or the two halves would lie about their relative size.
+      const max = Math.max(65536, ...dr, ...dw);
+      r.peak.textContent = `peak ${rate(max)}`;
+      drawMirror(r.svg, dr, dw, max, colorCss(cfg.color), cssv("--text-2"));
+    } },
+
+  /* ------------------------------------------------------ security watch */
+  security: { name: "Security Watch", icon: ICON("lock"),
+    desc: "Failed logins, exposed ports and pending patches", w: 5, h: 5,
+    defaults: { hours: 24, detail: "findings" },
+    options: [
+      { key: "hours", label: "Look back", values: [
+        { value: 1, label: "1 H" }, { value: 24, label: "24 H" }, { value: 168, label: "7 D" }] },
+      { key: "detail", label: "Show", values: [
+        { value: "findings", label: "FINDINGS" }, { value: "tiles", label: "COUNTS ONLY" }] }
+    ],
+    // Which checks you care about. A box with SSH firewalled off has no use for
+    // the SSH row, and a permanently-visible zero trains you to ignore it.
+    picker: () => ({
+      key: "hidden",
+      label: "Checks",
+      icon: ICON("lock"),
+      empty: "No checks available.",
+      items: [
+        { value: "ssh", label: "Failed SSH logins", sub: "from the system journal" },
+        { value: "nexus", label: "Failed Nexus logins", sub: "from the audit log" },
+        { value: "ports", label: "Ports open to the network", sub: "listening on all interfaces" },
+        { value: "updates", label: "Pending updates", sub: "security ones counted separately" },
+        { value: "sessions", label: "Active login sessions", sub: "who is on the box" }
+      ]
+    }),
+    mount(b) {
+      b.innerHTML = '<div class="secwrap"><div class="sectiles"></div><div class="secfind"></div></div>';
+      return { tiles: $(".sectiles", b), find: $(".secfind", b), wrap: $(".secwrap", b) };
+    },
+    update(r, cfg) {
+      const d = LIVE.security[cfg.hours || 24];
+      if (!d) {
+        r.tiles.innerHTML = '<span class="coreempty">scanning…</span>';
+        r.find.innerHTML = "";
+        return;
+      }
+      const hide = hiddenSet(cfg);
+      r.wrap.className = "secwrap lvl-" + (d.level || "ok");
+
+      // A check that could not run reports "?" — not a zero. A zero that is
+      // really "I failed to look" is the one number that must never appear here.
+      const tile = (key, label, value, note, bad) => {
+        if (hide.has(key)) return "";
+        return `<div class="stile ${bad ? "bad" : ""}" title="${esc(note || "")}">
+          <span class="sv">${esc(value)}</span>
+          <span class="sl">${esc(label)}</span>
+        </div>`;
+      };
+
+      const sshV = d.ssh?.ok ? d.ssh.count : "?";
+      const nexV = d.nexus?.ok ? d.nexus.count : "?";
+      const portV = d.ports?.ok ? d.ports.exposed : "?";
+      const updV = d.updates?.ok ? (d.updates.security || 0) : "?";
+      const sesV = d.sessions?.ok ? d.sessions.count : "?";
+
+      r.tiles.innerHTML =
+        tile("ssh", "SSH FAILS", sshV, d.ssh?.ok ? `${d.ssh.sources} distinct sources` : d.ssh?.reason, d.ssh?.ok && d.ssh.count >= 10) +
+        tile("nexus", "NEXUS FAILS", nexV, "Failed logins to Nexus itself", d.nexus?.ok && d.nexus.count > 0) +
+        tile("ports", "OPEN PORTS", portV, d.ports?.ok ? "Listening on all interfaces" : d.ports?.reason, false) +
+        tile("updates", "SEC. UPDATES", updV, d.updates?.ok ? `${d.updates.total} updates in total` : d.updates?.reason, d.updates?.ok && d.updates.security > 0) +
+        tile("sessions", "SESSIONS", sesV, d.sessions?.ok ? "Active logins right now" : d.sessions?.reason, false);
+
+      if (cfg.detail !== "findings") { r.find.innerHTML = ""; return; }
+
+      const shown = (d.findings || []).filter(f => {
+        if (hide.has("ssh") && /SSH/i.test(f.title)) return false;
+        if (hide.has("nexus") && /Nexus login/i.test(f.title)) return false;
+        if (hide.has("ports") && /port/i.test(f.title)) return false;
+        if (hide.has("updates") && /update/i.test(f.title)) return false;
+        if (hide.has("sessions") && /session/i.test(f.title)) return false;
+        return true;
+      });
+
+      r.find.innerHTML = shown.map(f => `
+        <div class="sfind ${esc(f.level)}">
+          <span class="st">${esc(f.title)}</span>
+          <span class="sd">${esc(f.detail || "")}</span>
+        </div>`).join("") || '<div class="sfind ok"><span class="st">Nothing to report</span></div>';
+    } },
+
   host: { name: "Host", icon: ICON("home"), desc: "Machine identity", w: 4, h: 3,
     mount(b) { b.innerHTML = '<ul class="klist"></ul>'; return { l: $("ul", b) }; },
     update(r) {
@@ -1198,6 +1461,7 @@ function addWidget(type) {
   const d = REG[type];
   const it = { id: uid++, t: type, x: 0, y: maxY, w: d.w, h: d.h };
   items.push(it); build(it, true); layout();
+  if (type === "security") pollSecurity();
   $("#main").scrollTo({ top: 1e6, behavior: "smooth" });
 }
 function renderWidgets() {
@@ -1205,6 +1469,29 @@ function renderWidgets() {
     const m = mounted[id];
     try { m.def.update(m.ref, cfgOf(m.it)); } catch {}
   }
+}
+
+/**
+ * Fetch a security scan for each lookback window currently on the dashboard.
+ *
+ * Only for windows actually in use: the scan reads the journal and asks apt what
+ * is pending, and doing that for three windows nobody is looking at is work the
+ * box does not need to do.
+ */
+let secBusy = false;
+async function pollSecurity() {
+  if (secBusy) return;
+  const wanted = new Set(
+    items.filter(i => i.t === "security").map(i => cfgOf(i).hours || 24));
+  if (!wanted.size) return;
+
+  secBusy = true;
+  try {
+    for (const h of wanted) {
+      try { LIVE.security[h] = await api(`/system/security?hours=${h}`); } catch {}
+    }
+    renderWidgets();
+  } finally { secBusy = false; }
 }
 
 /** Things inside a widget that own their own click and must not start a drag. */
@@ -3475,6 +3762,10 @@ async function start() {
   api("/system/metrics").then(m => { LIVE.disks = m.disks || []; renderWidgets(); }).catch(() => {});
   api("/docker/containers").then(o => { if (o.available) { LIVE.containers = o.containers; renderWidgets(); } }).catch(() => {});
   setInterval(() => { api("/system/metrics").then(m => { LIVE.disks = m.disks || []; }).catch(() => {}); }, 30000);
+  // The server caches a scan for five minutes, so a minute here costs almost
+  // nothing and keeps the widget current without hammering journalctl.
+  pollSecurity();
+  setInterval(pollSecurity, 60000);
   setInterval(() => { api("/docker/containers").then(o => { if (o.available) LIVE.containers = o.containers; }).catch(() => {}); }, 15000);
 
   // Fetched up front, not on first visit to the page: onAlert needs to know

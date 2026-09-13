@@ -1100,3 +1100,118 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
   #toolbar{margin-bottom:calc(var(--u)*2)}
   #ctx{max-height:88dvh}
 }
+
+/* ============================================================
+   CPU CORES
+   A grid of columns that fill from the bottom. Status colours are reused
+   deliberately here — on a core, "busy" is the meaning, not decoration.
+   ============================================================ */
+.coregrid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(26px,1fr));
+  gap:calc(var(--u));flex:1;min-height:0;align-content:stretch;
+}
+.coregrid.asbars{grid-template-columns:1fr;gap:2px}
+.core{
+  position:relative;overflow:hidden;background:var(--sunk);min-height:18px;
+  border-top:2px solid var(--bevel-dk);border-left:2px solid var(--bevel-dk);
+  border-right:2px solid var(--bevel-lt);border-bottom:2px solid var(--bevel-lt);
+}
+.core .cfill{
+  position:absolute;left:0;right:0;bottom:0;height:var(--p,0%);
+  background:var(--wc,var(--accent));opacity:.85;transition:height .25s linear;
+}
+.core.warn .cfill{background:var(--warn)}
+.core.crit .cfill{background:var(--crit)}
+
+/* Bars mode: same fill, turned on its side. */
+.coregrid.asbars .core{min-height:0}
+.coregrid.asbars .cfill{
+  top:0;bottom:0;left:0;right:auto;height:auto;width:var(--p,0%);
+  transition:width .25s linear;
+}
+
+/* Both labels sit ON the fill, and at 100% the fill is a solid block of colour.
+   The shadow is what keeps them readable at every value — without it the core
+   index vanishes into a red cell exactly when the cell matters most. */
+.core .cn,.core .cv{
+  position:absolute;pointer-events:none;
+  text-shadow:0 0 4px var(--sunk),0 0 2px var(--sunk);
+}
+.core .cn{
+  top:2px;left:0;right:0;text-align:center;
+  font-family:var(--screen);font-size:calc(9px * var(--ws,1));color:var(--text-2);
+}
+.core .cv{
+  bottom:2px;left:0;right:0;text-align:center;
+  font-family:var(--mono);font-size:calc(10px * var(--ws,1));
+  font-variant-numeric:tabular-nums;color:var(--text);
+}
+.coregrid.asbars .cn{top:50%;transform:translateY(-50%);left:calc(var(--u)*1.5);right:auto;text-align:left}
+.coregrid.asbars .cv{top:50%;bottom:auto;transform:translateY(-50%);right:calc(var(--u)*1.5);left:auto;text-align:right}
+.coreempty{font-size:12px;color:var(--text-3)}
+
+/* ============================================================
+   TOP PROCESSES
+   The bar is the row background rather than a separate track, so the list
+   reads as a list first and a chart second.
+   ============================================================ */
+.proclist{display:flex;flex-direction:column;gap:2px;flex:1;min-height:0;overflow:auto}
+.prow{
+  position:relative;display:flex;align-items:center;gap:calc(var(--u)*2);
+  padding:calc(var(--u)) calc(var(--u)*1.5);background:var(--sunk);min-width:0;
+}
+.prow .pbar{
+  position:absolute;left:0;top:0;bottom:0;background:var(--wc,var(--accent));
+  opacity:.22;transition:width .3s linear;
+}
+.prow .pbar.warn{background:var(--warn);opacity:.26}
+.prow .pbar.crit{background:var(--crit);opacity:.3}
+.prow .pname{
+  position:relative;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:calc(12.5px * var(--ws,1));color:var(--text);
+}
+.prow .pval{
+  position:relative;flex:none;font-family:var(--mono);
+  font-size:calc(11.5px * var(--ws,1));font-variant-numeric:tabular-nums;color:var(--text-2);
+}
+
+/* ============================================================
+   SECURITY WATCH
+   ============================================================ */
+.secwrap{display:flex;flex-direction:column;gap:calc(var(--u)*2);flex:1;min-height:0}
+.sectiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(64px,1fr));gap:calc(var(--u));flex:none}
+.stile{
+  display:flex;flex-direction:column;align-items:center;gap:1px;
+  padding:calc(var(--u)*1.5) calc(var(--u));background:var(--sunk);text-align:center;
+  border-top:2px solid var(--bevel-dk);border-left:2px solid var(--bevel-dk);
+  border-right:2px solid var(--bevel-lt);border-bottom:2px solid var(--bevel-lt);
+}
+.stile .sv{
+  font-family:var(--screen);font-weight:700;font-size:calc(19px * var(--ws,1));
+  font-variant-numeric:tabular-nums;color:var(--text);line-height:1.1;
+}
+.stile .sl{
+  font-family:var(--screen);font-size:calc(8px * var(--ws,1));letter-spacing:.06em;
+  color:var(--text-3);white-space:nowrap;
+}
+.stile.bad .sv{color:var(--crit)}
+.stile.bad{border-left-color:var(--crit)}
+
+.secfind{display:flex;flex-direction:column;gap:calc(var(--u));overflow:auto;min-height:0}
+.sfind{
+  display:flex;flex-direction:column;gap:1px;
+  padding:calc(var(--u)*1.5) calc(var(--u)*2);background:var(--sunk);
+  border-left:var(--u) solid var(--text-3);
+}
+.sfind.ok{border-left-color:var(--ok)}
+.sfind.info{border-left-color:var(--accent)}
+.sfind.warn{border-left-color:var(--warn)}
+.sfind.crit{border-left-color:var(--crit)}
+.sfind .st{font-family:var(--screen);font-weight:600;font-size:calc(11.5px * var(--ws,1));
+           letter-spacing:.03em;color:var(--text)}
+.sfind .sd{font-size:calc(11.5px * var(--ws,1));color:var(--text-3);line-height:1.45}
+
+/* The header carries the worst finding's colour, so a glance at the title bar
+   is enough to know whether the widget is worth opening. */
+.w:has(.secwrap.lvl-warn) .w-head{box-shadow:inset 0 -2px 0 var(--warn)}
+.w:has(.secwrap.lvl-crit) .w-head{box-shadow:inset 0 -2px 0 var(--crit)}

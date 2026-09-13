@@ -13,6 +13,7 @@ import * as sensors from "./sensors.js";
 
 const RING = 900;            // 15 minutes at 1s
 const TICK_MS = 1000;
+const PROC_MS = 5000;        // process table: far too heavy for the 1s tick
 
 class Ring {
   constructor(n = RING) { this.n = n; this.buf = []; }
@@ -25,17 +26,27 @@ export const series = {
   cpu: new Ring(),
   mem: new Ring(),
   netRx: new Ring(),
-  netTx: new Ring()
+  netTx: new Ring(),
+  diskR: new Ring(),
+  diskW: new Ring()
 };
 
 export const snapshot = {
   host: null,
   cpu: { usage: 0, cores: 0, loadavg: [0, 0, 0], model: "" },
+  // Per-core load. A box at "50% CPU" is a very different machine depending on
+  // whether that is every core at half or one core pinned and the rest asleep,
+  // and the aggregate number cannot tell you which.
+  cores: [],
   mem: { total: 0, used: 0, active: 0, usage: 0, swapTotal: 0, swapUsed: 0 },
   disks: [],
+  // Bytes per second across all filesystems. Null where the platform cannot
+  // report it — fsStats reads /proc/diskstats, so this is Linux-only.
+  diskIO: null,
   net: { rx: 0, tx: 0, iface: null, interfaces: [] },
   sensors: [],
   smart: [],
+  procs: { at: 0, total: 0, running: 0, byCpu: [], byMem: [] },
   uptimeSec: 0,
   simulated: sensors.isSimulated,
   updatedAt: 0
@@ -76,6 +87,7 @@ async function tick() {
   try {
     const load = await si.currentLoad();
     snapshot.cpu.usage = round1(load.currentLoad);
+    snapshot.cores = (load.cpus || []).map(c => round1(c.load));
     series.cpu.push(snapshot.cpu.usage);
   } catch {}
   try {
@@ -112,6 +124,20 @@ async function tick() {
       }))
       // De-duplicate bind mounts that report the same device twice.
       .filter((d, i, arr) => arr.findIndex(x => x.mount === d.mount) === i);
+  } catch {}
+
+  // Disk throughput. fsStats returns null on platforms that cannot report it
+  // (Windows), so an absent reading stays absent rather than becoming a zero
+  // that would draw a flat line and look like an idle disk.
+  try {
+    const io = await si.fsStats();
+    if (io && (io.rx_sec != null || io.wx_sec != null)) {
+      const r = io.rx_sec > 0 ? io.rx_sec : 0;
+      const w = io.wx_sec > 0 ? io.wx_sec : 0;
+      snapshot.diskIO = { read: Math.round(r), write: Math.round(w) };
+      series.diskR.push(snapshot.diskIO.read);
+      series.diskW.push(snapshot.diskIO.write);
+    }
   } catch {}
 
   // Network throughput from counter deltas
@@ -154,13 +180,61 @@ async function smartLoop() {
   catch (err) { console.error("[metrics] smart:", err.message); }
 }
 
+/**
+ * Process table, on its own slower loop.
+ *
+ * si.processes() walks every entry in /proc, which is far too much to do once a
+ * second, and on Windows it goes through WMI and takes over a second by itself.
+ * The `busy` guard matters more than the interval: without it a slow host queues
+ * one scan behind another until they overlap permanently.
+ *
+ * Two orderings are kept rather than one. Sorting a top-by-CPU list by memory
+ * gives you the most memory-hungry of the busiest processes, which is not the
+ * same thing as the most memory-hungry process and is quietly wrong.
+ */
+const PROC_KEEP = 12;
+let procBusy = false;
+
+async function procLoop() {
+  if (procBusy) return;
+  procBusy = true;
+  try {
+    const p = await si.processes();
+    const list = (p.list || [])
+      .filter(x => x && x.name)
+      // Windows' idle process is reported at ~90% and is not a real consumer.
+      .filter(x => x.name !== "System Idle Process")
+      .map(x => ({
+        pid: x.pid,
+        name: String(x.name).slice(0, 40),
+        cpu: round1(x.cpu),
+        mem: round1(x.mem),
+        user: x.user ? String(x.user).slice(0, 24) : null
+      }));
+
+    snapshot.procs = {
+      at: Date.now(),
+      total: p.all ?? list.length,
+      running: p.running ?? 0,
+      byCpu: list.slice().sort((a, b) => b.cpu - a.cpu).slice(0, PROC_KEEP),
+      byMem: list.slice().sort((a, b) => b.mem - a.mem).slice(0, PROC_KEEP)
+    };
+  } catch (err) {
+    console.error("[metrics] processes:", err.message);
+  } finally {
+    procBusy = false;
+  }
+}
+
 export async function start() {
   if (started) return;
   started = true;
   await collectStatic();
   await tick();
   await smartLoop();
+  procLoop();                                   // not awaited: slow on Windows
   setInterval(tick, TICK_MS).unref?.();
+  setInterval(procLoop, PROC_MS).unref?.();
   setInterval(smartLoop, Math.max(60, cfg.smart.cacheSeconds) * 1000).unref?.();
 }
 
@@ -169,24 +243,39 @@ export function frame(historyPoints = 60) {
   return {
     t: Date.now(),
     cpu: snapshot.cpu.usage,
+    cores: snapshot.cores,
     mem: snapshot.mem.usage,
     memUsed: snapshot.mem.used,
     memTotal: snapshot.mem.total,
+    swapUsed: snapshot.mem.swapUsed,
+    swapTotal: snapshot.mem.swapTotal,
+    loadavg: snapshot.cpu.loadavg,
     bootAt: Date.now() - (snapshot.uptimeSec || 0) * 1000,
     net: { rx: snapshot.net.rx, tx: snapshot.net.tx },
+    disk: snapshot.diskIO,
+    procs: snapshot.procs,
     uptimeSec: snapshot.uptimeSec,
     sensors: snapshot.sensors,
     history: {
       cpu: series.cpu.last(historyPoints),
       mem: series.mem.last(historyPoints),
       rx: series.netRx.last(historyPoints),
-      tx: series.netTx.last(historyPoints)
+      tx: series.netTx.last(historyPoints),
+      dr: series.diskR.last(historyPoints),
+      dw: series.diskW.last(historyPoints)
     }
   };
 }
 
 export function full() {
-  return { ...snapshot, history: { cpu: series.cpu.last(120), mem: series.mem.last(120), rx: series.netRx.last(120), tx: series.netTx.last(120) } };
+  return {
+    ...snapshot,
+    history: {
+      cpu: series.cpu.last(120), mem: series.mem.last(120),
+      rx: series.netRx.last(120), tx: series.netTx.last(120),
+      dr: series.diskR.last(120), dw: series.diskW.last(120)
+    }
+  };
 }
 
 function round1(n) { return Math.round((Number(n) || 0) * 10) / 10; }

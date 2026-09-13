@@ -6,6 +6,7 @@ import cfg from "./config.js";
 import { db, save, audit, clientIp } from "./store.js";
 import * as metrics from "./metrics.js";
 import * as sensors from "./sensors.js";
+import * as security from "./security.js";
 import * as dockerx from "./dockerx.js";
 import * as filesvc from "./files.js";
 import * as terminal from "./terminal.js";
@@ -108,6 +109,10 @@ export default function routes() {
   });
 
   r.get("/system/metrics", (_req, res) => res.json(metrics.full()));
+
+  r.get("/system/security", wrap(async (req, res) => {
+    res.json(await security.scan({ hours: Number(req.query.hours) || 24, force: req.query.refresh === "1" }));
+  }));
 
   r.get("/system/smart", wrap(async (req, res) => {
     const force = req.query.refresh === "1";
