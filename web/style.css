@@ -216,84 +216,10 @@ label{font-family:var(--screen);font-size:9px;letter-spacing:.1em;color:var(--te
 
 .clockbig{font-family:var(--bitmap);font-size:calc(clamp(20px,7cqw,38px) * var(--ws,1));
           letter-spacing:.04em;font-variant-numeric:tabular-nums;text-align:center}
-.catwrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:calc(var(--u)*2);min-height:0}
-.catimg{width:64px;height:64px;animation:breathe 3.2s steps(2,end) infinite}
-@keyframes breathe{0%,100%{transform:translateY(0)}50%{transform:translateY(2px)}}
-.catmsg{font-family:var(--screen);font-size:9px;letter-spacing:.08em;color:var(--text-3);text-align:center}
-
-/* ---------------- tables (containers, files, audit) ---------------- */
-.tw{overflow-x:auto;background:var(--panel);padding:calc(var(--u)*2)}
-table{border-collapse:collapse;width:100%;min-width:520px;font-size:13px}
-th{text-align:left;font-family:var(--screen);font-size:9px;letter-spacing:.1em;color:var(--text-3);
-   padding:calc(var(--u)) calc(var(--u)*2);border-bottom:2px solid var(--rule);white-space:nowrap}
-td{padding:calc(var(--u)*1.5) calc(var(--u)*2);border-bottom:1px solid var(--rule);color:var(--text-2);vertical-align:middle}
-tr:last-child td{border-bottom:none}
-tr:hover td{background:var(--panel-hi)}
-td.mono{font-family:var(--mono);font-size:11px;font-variant-numeric:tabular-nums}
-td.name{color:var(--text)}
-.rowbtns{display:flex;gap:var(--u);flex-wrap:wrap}
-
-.crumbs{display:flex;flex-wrap:wrap;gap:var(--u);align-items:center;font-family:var(--mono);font-size:12px;margin-bottom:calc(var(--u)*3)}
-.crumbs button{color:var(--accent);text-decoration:underline}
-.fname{display:flex;align-items:center;gap:calc(var(--u)*2)}
-.fname .ic{width:16px;height:16px;flex:none;background:var(--accent-2)}
-.fname .ic.file{background:var(--text-3)}
-
-/* ---------------- terminal page ---------------- */
-#termwrap{background:#0D0916;padding:calc(var(--u)*3);height:min(62vh,560px);overflow:auto}
-#termout{margin:0;font-family:var(--mono);font-size:13px;line-height:1.5;color:#C9C2DE;white-space:pre-wrap;word-break:break-word}
-#terminput{margin-top:calc(var(--u)*3);display:flex;gap:calc(var(--u)*2);align-items:center}
-#terminput .ps{font-family:var(--mono);font-size:13px;color:var(--ok);flex:none}
-
-/* ---------------- drawer ---------------- */
-#drawer{position:fixed;inset:0;z-index:500;display:none;background:rgba(13,9,22,.6);padding:calc(var(--u)*6);overflow:auto}
-#drawer.open{display:block}
-.dw{max-width:760px;margin:0 auto;background:var(--panel)}
-.dw-head{display:flex;align-items:center;gap:calc(var(--u)*2);background:var(--accent-2);
-         padding:calc(var(--u)*2) calc(var(--u)*3);font-family:var(--screen);font-size:12px;letter-spacing:.08em;color:#fff}
-:root[data-theme="dark"] .dw-head,
-:root:not([data-theme="light"]) .dw-head{color:#14101F}
-@media (prefers-color-scheme:light){:root:not([data-theme="dark"]) .dw-head{color:#fff}}
-:root[data-theme="light"] .dw-head{color:#fff}
-.dw-body{padding:calc(var(--u)*4);display:grid;grid-template-columns:repeat(auto-fill,minmax(184px,1fr));gap:calc(var(--u)*3)}
-.card{display:flex;gap:calc(var(--u)*2);align-items:flex-start;padding:calc(var(--u)*3);background:var(--panel);text-align:left;
-      border-top:2px solid var(--bevel-lt);border-left:2px solid var(--bevel-lt);
-      border-right:2px solid var(--bevel-dk);border-bottom:2px solid var(--bevel-dk)}
-.card:hover{background:var(--panel-hi)}
-.card img{width:26px;height:26px;flex:none}
-.card .cn{font-family:var(--screen);font-weight:600;font-size:13px;letter-spacing:.04em;display:block;margin-bottom:3px}
-.card .cd{font-size:13px;color:var(--text-3);line-height:1.4}
-
-.empty{padding:calc(var(--u)*10);text-align:center;color:var(--text-3);font-family:var(--screen);font-size:11px;
-       letter-spacing:.08em;background:var(--sunk)}
-.section{background:var(--panel);padding:calc(var(--u)*4);margin-bottom:calc(var(--u)*4)}
-.section h2{font-family:var(--screen);font-size:11px;letter-spacing:.1em;color:var(--accent);margin:0 0 calc(var(--u)*3);
-            padding-bottom:calc(var(--u)*2);border-bottom:2px solid var(--rule)}
-.kv{display:grid;grid-template-columns:minmax(120px,auto) minmax(0,1fr);gap:calc(var(--u)*2) calc(var(--u)*4);font-size:13px}
-.kv dt{font-family:var(--screen);font-size:9px;letter-spacing:.08em;color:var(--text-3);align-self:center}
-.kv dd{margin:0;font-family:var(--mono);font-size:12px;color:var(--text);word-break:break-all}
-
-#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:1000;display:flex;flex-direction:column;gap:8px;align-items:center}
-.toast{font-family:var(--screen);font-size:10px;letter-spacing:.06em;padding:calc(var(--u)*2) calc(var(--u)*4);
-       background:var(--panel);color:var(--text);
-       border-top:2px solid var(--bevel-lt);border-left:2px solid var(--bevel-lt);
-       border-right:2px solid var(--bevel-dk);border-bottom:2px solid var(--bevel-dk);
-       animation:tin .15s steps(3,end)}
-.toast.err{color:var(--crit)} .toast.ok{color:var(--ok)}
-@keyframes tin{from{transform:translateY(8px)}to{transform:translateY(0)}}
-
-:focus-visible{outline:var(--u) solid var(--accent);outline-offset:2px}
-@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
-
-/* ---------------- responsive ---------------- */
-/* Tablets keep the vertical rail. At 768px it costs 72px and leaves ~700px for
-   the canvas, which the 12-column grid handles fine — collapsing it to a
-   horizontal strip here (as this rule used to) threw away a working layout and
-   hit the same width:100% bug the phone bar did, leaving one reachable icon. */
-@media (max-width:860px){
-  #topbar{gap:calc(var(--u)*2);padding:calc(var(--u)*2)}
-  .brand .v{display:none}
-  #main{padding:calc(var(--u)*3)}
+.catwrap{
+  display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+  gap:calc(var(--u)*2);flex:1;min-height:0;width:100%;
+  cursor:pointer;user-select:none;
 }
 @media (max-width:560px){
   body{font-size:14px}
@@ -1349,38 +1275,49 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
 
 /* ============================================================
    SERVER CAT
-   Four moods, each a two-frame sprite animation. The frames are swapped in
-   JavaScript on a mood-dependent beat rather than driven by a CSS keyframe,
-   because the tempo is the information: a fast tail means a busy machine.
+   Four moods, each a two-frame sprite animation. Frames are swapped in
+   JavaScript on a mood-dependent beat rather than by a CSS keyframe, because
+   the tempo is the information: a fast tail means a busy machine.
    ============================================================ */
 .catwrap{
-  display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
-  gap:calc(var(--u)*2);flex:1;min-height:0;position:relative;
+  display:grid;
+  /* Three fixed bands, not a flex column. The bubble used to be in the flow,
+     so hiding it handed its height to the sprite and the cat visibly grew
+     whenever it stopped talking. Reserving the row keeps the cat one size for
+     the entire life of the widget. */
+  grid-template-rows:minmax(46px,auto) minmax(0,1fr) auto;
+  justify-items:center;align-items:center;
+  gap:calc(var(--u)*2);flex:1;min-height:0;width:100%;
   cursor:pointer;user-select:none;
 }
 .catwrap:focus-visible{outline:var(--u) solid var(--accent);outline-offset:2px}
 
 .catstage{
-  position:relative;flex:1;min-height:0;width:100%;
+  position:relative;width:100%;flex:1;min-height:0;
   display:flex;align-items:flex-end;justify-content:center;
+  /* Room at the top for the bubble to float in without covering the cat. */
+  padding-top:52px;
 }
 .catimg{
-  width:auto;height:100%;max-height:150px;max-width:100%;object-fit:contain;
+  /* Height-driven with object-fit, so a wide standing pose and a tall sitting
+     one occupy the same vertical space and the cat does not appear to change
+     size when it gets up. */
+  height:100%;width:100%;max-height:160px;object-fit:contain;object-position:bottom center;
   image-rendering:pixelated;
-  /* The sprite swap does the animation. This is only the slow breath under it,
-     and a whole-body bob would fight the frames rather than add to them. */
   animation:catbreath 3.4s ease-in-out infinite;
   transform-origin:50% 100%;
 }
 @keyframes catbreath{
   0%,100%{transform:scaleY(1) scaleX(1)}
-  50%{transform:scaleY(1.025) scaleX(.99)}
+  50%{transform:scaleY(1.02) scaleX(.992)}
 }
 .mood-alert  .catimg{animation-duration:1.9s}
 .mood-grumpy .catimg{animation-duration:1.1s}
 .mood-sleepy .catimg{animation-duration:4.6s}
+/* Mid-transition the pose is changing shape anyway; breathing on top of it
+   reads as a wobble. */
+.catwrap.rising .catimg{animation:none}
 
-/* A press makes the cat squash, so a click feels like it landed on something. */
 .catwrap.pet .catimg{animation:catpet .32s ease-out}
 @keyframes catpet{
   0%{transform:scaleY(1) scaleX(1)}
@@ -1391,7 +1328,7 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
 
 /* Sleep Zs, drifting up and fading. */
 .catz{
-  position:absolute;right:14%;top:8%;pointer-events:none;
+  position:absolute;right:12%;top:6%;pointer-events:none;
   font-family:var(--screen);font-weight:700;color:var(--text-3);
 }
 .catz i,.catz b{font-style:normal;font-weight:700;position:absolute}
@@ -1405,36 +1342,44 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
 }
 
 /* ---- speech bubble ----
-   The panel is the generated sprite, 9-sliced so it stretches to whatever the
-   cat is saying without smearing its corners. The tail is drawn separately in
-   CSS: a bitmap tail cannot survive being stretched by border-image, and a
-   pixel triangle is the one shape CSS renders perfectly crisply anyway. */
+   Drawn in CSS, not as a 9-sliced sprite.
+   The generated bubble was a plain rounded rectangle, and border-image would
+   not stretch its middle to fill the box reliably — the panel stayed a fixed
+   width while the text grew past it, which is exactly the overlapping this was
+   meant to fix. Square corners also put it back in step with the rest of the
+   design system, which has no border radius anywhere. It now fits any line at
+   any widget size, because the box is sized by its content. */
 .catbubble{
-  position:relative;max-width:100%;flex:none;
-  padding:calc(var(--u)*1.5) calc(var(--u)*2.5);
-  border:8px solid transparent;
-  border-image:url("/assets/brand/cat/bubble.png") 14 fill stretch;
-  image-rendering:pixelated;
-  font-size:calc(11.5px * var(--ws,1));line-height:1.35;
-  color:#1C1528;text-align:center;
+  position:absolute;top:0;left:50%;transform:translateX(-50%);z-index:5;
+  max-width:96%;width:max-content;
+  padding:calc(var(--u)*2) calc(var(--u)*3);
+  background:#FDFDFD;border:2px solid #171320;
+  font-family:var(--screen);font-weight:600;
+  font-size:calc(11px * var(--ws,1));line-height:1.35;letter-spacing:.01em;
+  color:#171320;text-align:center;
 }
-.catbubble .cbt{display:block;overflow-wrap:anywhere}
-.catbubble::after{
-  content:"";position:absolute;left:50%;margin-left:-5px;bottom:-9px;
-  width:0;height:0;
-  border-left:5px solid transparent;border-right:5px solid transparent;
-  border-top:9px solid #F2EFF8;
+.catbubble[hidden]{display:none}
+.catbubble .cbt{
+  display:block;max-width:24ch;overflow-wrap:break-word;hyphens:none;
 }
+/* The one and only tail, in two layers so it keeps the same outline as the box.
+   The sprite deliberately has none — having both is how it ended up with two. */
+.catbubble::before,.catbubble::after{
+  content:"";position:absolute;left:50%;width:0;height:0;
+  border-left:7px solid transparent;border-right:7px solid transparent;
+}
+.catbubble::before{margin-left:-7px;bottom:-12px;border-top:12px solid #171320}
+.catbubble::after{margin-left:-7px;bottom:-9px;border-top:10px solid #FDFDFD}
 .catbubble.pop{animation:bubblepop .18s steps(3,end)}
 @keyframes bubblepop{
-  from{opacity:0;transform:translateY(5px) scale(.92)}
-  to{opacity:1;transform:translateY(0) scale(1)}
+  from{opacity:0;transform:translateX(-50%) translateY(5px) scale(.92)}
+  to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}
 }
 
 /* ---- name and mood ---- */
 .catfoot{
   display:flex;align-items:center;gap:calc(var(--u)*2);flex-wrap:wrap;
-  justify-content:center;flex:none;width:100%;
+  justify-content:center;width:100%;
 }
 .catname{
   font-family:var(--screen);font-weight:700;font-size:calc(12px * var(--ws,1));
@@ -1446,7 +1391,6 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
   padding:2px 6px;color:var(--text-3);border:2px solid currentColor;
 }
 .catmood .mdot{width:var(--u);height:var(--u);background:currentColor;flex:none}
-.mood-sleepy  .catmood{color:var(--text-3)}
 .mood-content .catmood{color:var(--ok)}
 .mood-alert   .catmood{color:var(--warn)}
 .mood-grumpy  .catmood{color:var(--crit)}

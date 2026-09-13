@@ -1042,10 +1042,14 @@ const REG = {
     // Roomier than the old one: there is a sprite, a speech bubble and a mood
     // badge to fit now, and at three columns the cat ends up thumbnail-sized.
     desc: "Your machine's mood, with opinions", w: 4, h: 6,
-    defaults: { catName: "Nyx", gender: "she", chatty: "normal" },
+    defaults: { catName: "Nyx", gender: "she", chatty: "normal", rest: "auto", posture: "auto" },
     options: [
-      { key: "gender", label: "Refer to them as", values: [
-        { value: "she", label: "SHE" }, { value: "he", label: "HE" }, { value: "they", label: "THEY" }] },
+      { key: "gender", label: "Refer to her as", values: [
+        { value: "she", label: "SHE" }, { value: "he", label: "HE" }] },
+      { key: "rest", label: "Sleep", values: [
+        { value: "auto", label: "AUTO" }, { value: "awake", label: "KEEP AWAKE" }, { value: "asleep", label: "LET SLEEP" }] },
+      { key: "posture", label: "Posture", values: [
+        { value: "auto", label: "AUTO" }, { value: "sit", label: "SITTING" }, { value: "stand", label: "STAND UP" }] },
       { key: "chatty", label: "Talks", values: [
         { value: "quiet", label: "RARELY" }, { value: "normal", label: "SOMETIMES" }, { value: "chatty", label: "A LOT" }] }
     ],
@@ -1063,10 +1067,12 @@ const REG = {
     mount(b, cfg) {
       b.innerHTML = `
         <div class="catwrap" tabindex="0" role="button" aria-label="${esc(cfg.catName || "the cat")}">
-          <div class="catbubble" hidden><span class="cbt"></span></div>
           <div class="catstage">
             <img class="catimg" alt="" draggable="false">
             <span class="catz" hidden>z<i>z</i><b>z</b></span>
+            <!-- Inside the stage and absolutely positioned, so appearing and
+                 disappearing can never change how much room the cat has. -->
+            <div class="catbubble" hidden><span class="cbt"></span></div>
           </div>
           <div class="catfoot">
             <span class="catname"></span>
@@ -1392,12 +1398,11 @@ function catMood() {
   return "sleepy";
 }
 
-/** she/he/they, so the cat can be talked about without guessing. */
+/** How the cat is referred to in its own dialogue. */
 function catPronoun(cfg) {
-  const g = cfg.gender || "she";
-  if (g === "he") return { they: "he", them: "him", their: "his", theyre: "he's", s: "s" };
-  if (g === "they") return { they: "they", them: "them", their: "their", theyre: "they're", s: "" };
-  return { they: "she", them: "her", their: "her", theyre: "she's", s: "s" };
+  return cfg.gender === "he"
+    ? { they: "he", them: "him", their: "his", theyre: "he's" }
+    : { they: "she", them: "her", their: "her", theyre: "she's" };
 }
 
 /**
@@ -1494,7 +1499,10 @@ function wireCat(r, cfg) {
     void r.wrap.offsetWidth;
     r.wrap.classList.add("pet");
     speakNow(r.pets >= 4 ? CAT_LINES.overpetted : CAT_LINES.petted);
-    r.nextBeat = now + 900;               // a startled twitch
+    // Beat fast for a moment. The two frames differ by tail position, so this
+    // reads as a tail flick without needing any extra art.
+    r.flickUntil = now + 900;
+    r.nextBeat = 0;
   });
 
   // Hovering wakes the cat: it looks up while you are pointing at it.
@@ -1510,51 +1518,126 @@ function wireCat(r, cfg) {
  * frame, so it has to be cheap and idempotent — all timing is against wall
  * clock rather than assuming a fixed cadence.
  */
+/**
+ * Standing up is a scripted sequence, not a single swap.
+ *
+ * A cat that teleports from sitting to standing looks broken. These frames play
+ * in order — settle, push up, stretch — and the same list runs backwards to sit
+ * down again, so the two transitions cost one set of art.
+ */
+const CAT_RISE = ["rise-1", "rise-2", "rise-3", "rise-4", "rise-5"];
+const RISE_MS = 95;               // ~475ms for the whole movement
+
+/** The pose the cat should be in, before any transition is applied. */
+function catPosture(r, cfg, mood, now) {
+  if (cfg.posture === "stand") return "stand";
+  if (cfg.posture === "sit") return "sit";
+  // Auto: the cat gets up now and then, more often when the box is busy, and
+  // never while it is asleep.
+  if (mood === "sleepy") return "sit";
+  if (!r.nextStandRoll || now >= r.nextStandRoll) {
+    r.nextStandRoll = now + 12000 + Math.random() * 20000;
+    const odds = mood === "grumpy" ? 0.55 : mood === "alert" ? 0.4 : 0.22;
+    r.autoStand = Math.random() < odds;
+  }
+  return r.autoStand ? "stand" : "sit";
+}
+
 function catTick(r, cfg) {
   const now = Date.now();
   r.cfg = cfg;
-  const mood = catMood();
+
+  // Sleep can be forced either way. "Auto" follows the machine, which is why
+  // an idle box shows a sleeping cat — that is the reading, not a bug.
+  const natural = catMood();
+  const mood = cfg.rest === "asleep" ? "sleepy"
+             : cfg.rest === "awake" && natural === "sleepy" ? "content"
+             : natural;
   const spec = CAT_MOODS[mood];
+  // Asking for STAND UP means asking the cat to be up, so it overrides sleep —
+  // a control that visibly does nothing is worse than not offering it.
+  const asleep = mood === "sleepy" && cfg.posture !== "stand";
 
   if (mood !== r.mood) {
     r.mood = mood;
     r.frame = 0;
     r.nextBeat = 0;
-    r.wrap.className = "catwrap mood-" + mood;
     // A mood change is worth remarking on, so the cat reacts when the box does.
-    if (r.moodSeen) catSpeak(r, cfg, pick(CAT_LINES[mood]));
+    if (r.moodSeen && !asleep) catSpeak(r, cfg, pick(CAT_LINES[mood]));
     r.moodSeen = true;
     r.nextLine = now + 6000;
   }
 
-  r.nameEl.textContent = cfg.catName || "Nyx";
-  r.moodEl.textContent = spec.label;
-  r.z.hidden = mood !== "sleepy";
+  /* ---- posture, with a real transition between the two ---- */
+  const want = asleep ? "sit" : catPosture(r, cfg, mood, now);
+  if (!r.posture) r.posture = want;
+  if (want !== r.posture && !r.rise) {
+    r.rise = { to: want, step: 0, at: now };     // start the sit<->stand sequence
+  }
+  let riseFrame = null;
+  if (r.rise) {
+    if (now - r.rise.at >= RISE_MS) {
+      r.rise.step++;
+      r.rise.at = now;
+    }
+    if (r.rise.step >= CAT_RISE.length) {
+      r.posture = r.rise.to;
+      r.rise = null;
+    } else {
+      // Standing up runs the frames forwards; sitting down runs them backwards.
+      riseFrame = r.rise.to === "stand"
+        ? CAT_RISE[r.rise.step]
+        : CAT_RISE[CAT_RISE.length - 1 - r.rise.step];
+    }
+  }
 
-  // Hovering perks the cat up a frame regardless of mood.
-  const beat = r.hovering ? Math.max(420, spec.beat * 0.45) : spec.beat;
+  r.wrap.className = "catwrap mood-" + mood
+    + (r.posture === "stand" ? " standing" : "")
+    + (r.rise ? " rising" : "");
+
+  r.nameEl.textContent = cfg.catName || "Nyx";
+  r.moodEl.textContent = asleep ? "Asleep" : spec.label;
+  r.z.hidden = !asleep;
+
+  /* ---- frame timing ---- */
+  // A click flicks the tail: the two frames differ by tail position, so beating
+  // fast between them for a moment is a tail flick without any extra art.
+  const flicking = now < (r.flickUntil || 0);
+  const beat = flicking ? 110
+    : r.hovering ? Math.max(420, spec.beat * 0.45)
+    : spec.beat;
+
   if (now >= r.nextBeat) {
     r.frame ^= 1;
     r.nextBeat = now + beat;
     // Blinks are brief and occasional — a 50% duty cycle would look like a
     // malfunction rather than a cat.
-    if (mood !== "sleepy" && Math.random() < 0.22) r.blinkUntil = now + 160;
+    if (!asleep && !flicking && Math.random() < 0.22) r.blinkUntil = now + 160;
   }
 
-  // Blink frames are optional art. A mood without one simply does not blink,
-  // rather than showing a broken image — so adding one later is a drop-in.
-  const blinking = now < r.blinkUntil && CAT_BLINK.has(mood);
-  const frameName = blinking ? "blink" : (r.frame ? "b" : "a");
-  const src = `/assets/brand/cat/${mood}-${frameName}.png`;
+  /* ---- which image ---- */
+  let src;
+  if (riseFrame) {
+    src = `/assets/brand/cat/${riseFrame}.png`;
+  } else if (r.posture === "stand" && !asleep) {
+    src = `/assets/brand/cat/stand-${r.frame ? "b" : "a"}.png`;
+  } else {
+    // Blink frames are optional art. A mood without one simply does not blink,
+    // rather than requesting a file that is not there.
+    const blinking = now < r.blinkUntil && CAT_BLINK.has(mood);
+    src = `/assets/brand/cat/${mood}-${blinking ? "blink" : (r.frame ? "b" : "a")}.png`;
+  }
   if (r.img.getAttribute("src") !== src) r.img.setAttribute("src", src);
-  r.img.alt = `${cfg.catName || "the cat"} looking ${spec.label.toLowerCase()}`;
+  r.img.alt = `${cfg.catName || "the cat"} looking ${(asleep ? "asleep" : spec.label).toLowerCase()}`;
 
-  // Unprompted remarks.
+  /* ---- talking ---- */
+  // A sleeping cat mumbles rarely; it does not hold forth about disk usage.
   const gap = CAT_GAP[cfg.chatty] || CAT_GAP.normal;
-  if (!r.nextLine) r.nextLine = now + gap[0];
+  const scale = asleep ? 3 : 1;
+  if (!r.nextLine) r.nextLine = now + gap[0] * scale;
   if (now >= r.nextLine && now >= r.sayUntil) {
     catSpeak(r, cfg, pick(CAT_LINES[mood]));
-    r.nextLine = now + gap[0] + Math.random() * (gap[1] - gap[0]);
+    r.nextLine = now + (gap[0] + Math.random() * (gap[1] - gap[0])) * scale;
   }
 
   if (r.saying && now >= r.sayUntil) {
