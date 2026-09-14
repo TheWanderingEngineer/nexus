@@ -699,6 +699,19 @@ function ctxChecklist(p, cfg) {
   return g;
 }
 
+/**
+ * Write settings for one specific widget, without touching the open menu.
+ *
+ * Used by interactions inside a widget — dropping the cat somewhere records
+ * where she was put — which must persist without rebuilding the widget
+ * underneath the pointer that is still on it.
+ */
+function setCfgFor(it, patch) {
+  if (!it) return;
+  it.cfg = { ...(it.cfg || {}), ...patch };
+  saveLayout();
+}
+
 /** Applies a settings patch to every widget the menu is currently editing. */
 function setCfg(patch) {
   if (!ctxItems.length) return;
@@ -726,6 +739,7 @@ function remount(it) {
   body.innerHTML = "";
   body.removeAttribute("style");
   mounted[it.id] = { def, ref: def.mount(body, cfgOf(it)), it };
+  if (mounted[it.id].ref) mounted[it.id].ref.item = it;
   try { def.update(mounted[it.id].ref, cfgOf(it)); } catch {}
 }
 
@@ -1068,8 +1082,13 @@ const REG = {
       b.innerHTML = `
         <div class="catwrap" tabindex="0" role="button" aria-label="${esc(cfg.catName || "the cat")}">
           <div class="catstage">
-            <img class="catimg" alt="" draggable="false">
-            <span class="catz" hidden>z<i>z</i><b>z</b></span>
+            <!-- The mover carries position, the image carries the breathing
+                 animation. Both are transforms, so they need separate elements
+                 or one overwrites the other. -->
+            <div class="catmover">
+              <img class="catimg" alt="" draggable="false">
+              <span class="catz" hidden>z<i>z</i><b>z</b></span>
+            </div>
             <!-- Inside the stage and absolutely positioned, so appearing and
                  disappearing can never change how much room the cat has. -->
             <div class="catbubble" hidden><span class="cbt"></span></div>
@@ -1081,12 +1100,18 @@ const REG = {
         </div>`;
       const ref = {
         wrap: $(".catwrap", b), img: $(".catimg", b), z: $(".catz", b),
+        stage: $(".catstage", b), mover: $(".catmover", b),
         bubble: $(".catbubble", b), bt: $(".cbt", b),
         nameEl: $(".catname", b), moodEl: $(".mtxt", b), dot: $(".mdot", b),
         mood: null, frame: 0, blinkUntil: 0, nextBeat: 0, saying: null, sayUntil: 0,
-        pets: 0, lastPet: 0
+        pets: 0, lastPet: 0,
+        // Where she has been put, as a fraction of the stage, so the spot
+        // survives a resize and a reload rather than being pixels that stop
+        // meaning anything the moment the widget changes size.
+        px: cfg.catX ?? 0.5, py: cfg.catY ?? 1, dragging: false
       };
       wireCat(ref, cfg);
+      catPlace(ref);
       return ref;
     },
     update(r, cfg) { catTick(r, cfg); } },
@@ -1456,6 +1481,19 @@ const CAT_LINES = {
     "that is enough", "{name} has had sufficient", "careful", "*tail flick*",
     "we were having such a nice time", "I said enough", "you are pushing it",
     "*ears back*"
+  ],
+  // Said while being carried around the widget.
+  carried: [
+    "whoa", "put me DOWN", "this is undignified", "wheee",
+    "{name} did not consent to this", "*dangling*", "where are we going",
+    "I was comfortable", "unhand me", "*flails*", "this is not a cat carrier",
+    "you are going to drop me"
+  ],
+  // Said on landing.
+  dropped: [
+    "*lands on feet*", "obviously", "I meant to do that", "hmph",
+    "this spot will do", "{name} accepts this location", "*shakes out fur*",
+    "never speak of this", "acceptable", "much better actually"
   ]
 };
 
@@ -1511,6 +1549,68 @@ function wireCat(r, cfg) {
   r.wrap.addEventListener("keydown", e => {
     if (e.key === "Enter" || e.key === " ") { e.preventDefault(); r.wrap.click(); }
   });
+
+  /* ---- picking the cat up and moving her around her own box ---- */
+  /**
+   * stopPropagation is what keeps this from becoming a widget drag: the
+   * widget's own handler sits on an ancestor in the bubble phase, so stopping
+   * here means grabbing the cat moves the cat and grabbing anywhere else in
+   * the widget still moves the widget.
+   */
+  r.mover.addEventListener("pointerdown", e => {
+    if (e.button !== 0 || e.ctrlKey || e.metaKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const stage = r.stage.getBoundingClientRect();
+    const start = { x: e.clientX, y: e.clientY, px: r.px, py: r.py };
+    let moved = false;
+    try { r.mover.setPointerCapture(e.pointerId); } catch {}
+
+    const mv = ev => {
+      const dx = ev.clientX - start.x, dy = ev.clientY - start.y;
+      if (!moved && Math.abs(dx) < 4 && Math.abs(dy) < 4) return;   // still a click
+      if (!moved) {
+        moved = true;
+        r.dragging = true;
+        r.wrap.classList.add("carrying");
+        catSpeak(r, r.cfg || cfg, pick(CAT_LINES.carried));
+        r.flickUntil = Date.now() + 60_000;   // tail going while she is in the air
+      }
+      // Fractions of the stage, clamped so she cannot be dropped outside her box.
+      r.px = clamp(start.px + dx / Math.max(1, stage.width), 0.08, 0.92);
+      r.py = clamp(start.py + dy / Math.max(1, stage.height), 0.18, 1);
+      catPlace(r);
+    };
+
+    const up = () => {
+      r.mover.removeEventListener("pointermove", mv);
+      r.mover.removeEventListener("pointerup", up);
+      r.mover.removeEventListener("pointercancel", up);
+      try { r.mover.releasePointerCapture(e.pointerId); } catch {}
+      if (!moved) return;                    // it was a pet, not a carry
+      r.dragging = false;
+      r.flickUntil = Date.now() + 700;       // one last indignant flick
+      r.wrap.classList.remove("carrying");
+      r.wrap.classList.add("landed");
+      setTimeout(() => r.wrap.classList.remove("landed"), 340);
+      catSpeak(r, r.cfg || cfg, pick(CAT_LINES.dropped));
+      setCfgFor(r.item, { catX: round2(r.px), catY: round2(r.py) });
+    };
+
+    r.mover.addEventListener("pointermove", mv);
+    r.mover.addEventListener("pointerup", up);
+    r.mover.addEventListener("pointercancel", up);
+  });
+}
+
+const round2 = n => Math.round(n * 100) / 100;
+
+/** Put the cat where she has been left, as a fraction of her stage. */
+function catPlace(r) {
+  if (!r.mover) return;
+  r.mover.style.left = (r.px * 100).toFixed(2) + "%";
+  r.mover.style.top = (r.py * 100).toFixed(2) + "%";
 }
 
 /**
@@ -1775,6 +1875,7 @@ function build(it, animate) {
   gridEl.appendChild(el);
   applyCfg(el, it);
   mounted[it.id] = { def, ref: def.mount($(".w-body", el), cfgOf(it)), it };
+  if (mounted[it.id].ref) mounted[it.id].ref.item = it;   // for setCfgFor from inside
   $(".w-x", el).addEventListener("click", e => { e.stopPropagation(); removeWidgets([it.id]); });
   $(".w-cfg", el).addEventListener("click", e => {
     e.stopPropagation();
