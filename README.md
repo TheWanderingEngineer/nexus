@@ -376,6 +376,14 @@ runs `script -qfc $SHELL /dev/null`, which allocates a real pty using a
 util-linux tool present on every Ubuntu install. The trade-off is that window
 resize is best-effort rather than a true `SIGWINCH`.
 
+## Working on it
+
+[`docs/HACKING.md`](docs/HACKING.md) is the developer guide: the module map, the
+invariants that are load-bearing, how to add a widget (and exactly what the
+server will persist of its settings), how dragging stays non-destructive, how
+the responsive rules are split, and how to verify a change without touching your
+real instance. Read it before adding anything.
+
 ## Design
 
 The visual language — palette, type, bevel geometry, the rule that charts are
