@@ -690,6 +690,19 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
    rather than it vanishing from under you when the paste lands. */
 #f-table tr.cut td{opacity:.45;font-style:italic}
 
+/* ---------------- file manager: drag and drop ----------------
+   While a drag is in progress every place you could drop is outlined, so the
+   answer to "where can this go?" is on screen rather than found by trial. The
+   one under the pointer is filled in as well. */
+#f-table tr[data-path]{cursor:default}
+#page-files.dragging-rows{cursor:grabbing}
+.droptarget{outline:2px dashed color-mix(in srgb, var(--accent) 55%, transparent);outline-offset:-2px}
+#f-table tr.droptarget td{background:color-mix(in srgb, var(--accent) 6%, transparent)}
+.dropinto{outline:2px solid var(--accent)!important;outline-offset:-2px}
+#f-table tr.dropinto td{background:color-mix(in srgb, var(--accent) 20%, transparent)}
+#f-roots .rootcard.dropinto{background:color-mix(in srgb, var(--accent) 16%, var(--panel))}
+#f-crumbs [data-go].dropinto{background:color-mix(in srgb, var(--accent) 22%, transparent)}
+
 
 /* ============================================================
    MULTI-SELECT  (widgets and files)
@@ -702,6 +715,13 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
 .w.selected .w-head{background:color-mix(in srgb, var(--accent) 26%, var(--sunk))}
 .w.selected .w-head .t{color:var(--text)}
 .w.selected.dragging{outline-color:var(--accent-2)}
+
+/* The marquee, drawn on the canvas itself. */
+.wband{
+  position:absolute;z-index:150;pointer-events:none;
+  border:2px solid var(--accent);
+  background:color-mix(in srgb, var(--accent) 14%, transparent);
+}
 
 /* Floats over the content rather than sitting in the flow.
    As an in-flow bar it appeared on the first click and pushed everything below

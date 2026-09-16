@@ -1979,8 +1979,64 @@ addEventListener("keydown", e => {
   else if (k === "v" && fileClip.paths.length) { e.preventDefault(); pasteInto(curDir); }
 });
 
-// A press on empty canvas drops the selection.
-gridEl.addEventListener("pointerdown", e => { if (e.target === gridEl) clearSelection(); });
+/* ---- rubber-band select on the canvas ----
+   Only ever starts on the canvas itself. A press that lands on a widget is that
+   widget's drag, so the two gestures never have to arbitrate. */
+(function widgetMarquee() {
+  let band = null, sx = 0, sy = 0, active = false, additive = false;
+
+  const toGrid = (cx, cy) => {
+    const r = gridEl.getBoundingClientRect();
+    return { x: cx - r.left, y: cy - r.top };
+  };
+
+  gridEl.addEventListener("pointerdown", e => {
+    if (e.button !== 0 || e.target !== gridEl) return;
+    const p = toGrid(e.clientX, e.clientY);
+    sx = p.x; sy = p.y; active = true;
+    additive = e.ctrlKey || e.metaKey || e.shiftKey;
+    if (!additive) clearSelection();
+    gridEl.setPointerCapture(e.pointerId);
+  });
+
+  gridEl.addEventListener("pointermove", e => {
+    if (!active) return;
+    const p = toGrid(e.clientX, e.clientY);
+    const w = Math.abs(p.x - sx), h = Math.abs(p.y - sy);
+    if (!band && w < 5 && h < 5) return;        // ignore a jittery click
+
+    if (!band) {
+      band = document.createElement("div");
+      band.className = "wband";
+      gridEl.appendChild(band);
+    }
+    const left = Math.min(sx, p.x), top = Math.min(sy, p.y);
+    band.style.cssText = `left:${left}px;top:${top}px;width:${w}px;height:${h}px`;
+
+    const gr = gridEl.getBoundingClientRect();
+    const box = { l: left, t: top, r: left + w, b: top + h };
+    const base = additive ? new Set(selection) : new Set();
+    items.forEach(it => {
+      const el = document.getElementById("w" + it.id);
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const l = r.left - gr.left, t = r.top - gr.top;
+      if (l < box.r && l + r.width > box.l && t < box.b && t + r.height > box.t) base.add(it.id);
+    });
+    selection = base;
+    paintSelection();
+  });
+
+  const end = e => {
+    if (!active) return;
+    active = false;
+    try { gridEl.releasePointerCapture(e.pointerId); } catch {}
+    if (band) { band.remove(); band = null; }
+    else if (!additive) clearSelection();       // a plain click on empty canvas
+  };
+  gridEl.addEventListener("pointerup", end);
+  gridEl.addEventListener("pointercancel", end);
+})();
 /** Already on the dashboard? The library and addWidget both ask this. */
 const widgetInUse = type => items.some(i => i.t === type);
 
@@ -2739,7 +2795,7 @@ async function loadFiles(dir, { history = true } = {}) {
 
     tb.innerHTML = out.entries.map(en => {
       const k = fileKind(en);
-      return `<tr data-path="${esc(en.path)}" data-dir="${en.dir ? 1 : 0}" data-text="${en.text ? 1 : 0}" data-name="${esc(en.name)}">
+      return `<tr draggable="true" data-path="${esc(en.path)}" data-dir="${en.dir ? 1 : 0}" data-text="${en.text ? 1 : 0}" data-name="${esc(en.name)}">
         <td class="name"><span class="fname">
           <span class="fic ${k.cls}">${esc(k.ic)}</span>
           <span class="ftxt">${esc(en.name)}${en.dir ? "/" : ""}</span>
@@ -2805,6 +2861,110 @@ on("#f-table", "click", e => {
   }
   markFileSel();
 });
+
+/* ============================ drag and drop ============================ */
+/**
+ * Drag rows onto a folder, a breadcrumb or a drive card to move them there.
+ *
+ * HTML5 drag-and-drop rather than pointer events, because this page already
+ * spends pointer drags on the rubber-band selection and the two would fight
+ * over the same gesture. It also gives the browser's own drag cursor, which is
+ * the affordance people are looking for.
+ *
+ * Move by default, copy with Ctrl held — the convention everywhere else. The
+ * modifier is read at DROP time, not at drag start, so changing your mind
+ * halfway across the window still works.
+ */
+const fileDrag = { paths: [] };
+
+function dropTargets(on) {
+  $$("#f-table tr[data-path][data-dir='1'], #f-roots .rootcard, #f-crumbs [data-go]")
+    .forEach(el => el.classList.toggle("droptarget", on));
+}
+
+function wireFileDnD() {
+  const page = $("#page-files");
+  if (!page || page.dataset.dnd) return;
+  page.dataset.dnd = "1";
+
+  page.addEventListener("dragstart", e => {
+    const tr = e.target.closest("#f-table tr[data-path]");
+    if (!tr) return;
+    // Dragging something outside the selection makes it the selection, so what
+    // moves is always what is highlighted.
+    if (!fileSel.has(tr.dataset.path)) {
+      fileSel = new Set([tr.dataset.path]);
+      fileAnchor = tr.dataset.path;
+      markFileSel();
+    }
+    fileDrag.paths = [...fileSel];
+    e.dataTransfer.effectAllowed = "copyMove";
+    try { e.dataTransfer.setData("text/plain", fileDrag.paths.join("\n")); } catch {}
+    page.classList.add("dragging-rows");
+    dropTargets(true);
+  });
+
+  page.addEventListener("dragend", () => {
+    fileDrag.paths = [];
+    page.classList.remove("dragging-rows");
+    dropTargets(false);
+    $$(".dropinto").forEach(el => el.classList.remove("dropinto"));
+  });
+
+  const targetOf = el => el?.closest?.(
+    "#f-table tr[data-path][data-dir='1'], #f-roots .rootcard, #f-crumbs [data-go]");
+
+  page.addEventListener("dragover", e => {
+    if (!fileDrag.paths.length) return;
+    const t = targetOf(e.target);
+    // Dropping a folder on itself is the one target that must refuse.
+    const self = t?.dataset?.path && fileDrag.paths.includes(t.dataset.path);
+    $$(".dropinto").forEach(el => el.classList.remove("dropinto"));
+    if (!t || self) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = (e.ctrlKey || e.metaKey) ? "copy" : "move";
+    t.classList.add("dropinto");
+  });
+
+  page.addEventListener("drop", async e => {
+    if (!fileDrag.paths.length) return;
+    const t = targetOf(e.target);
+    if (!t) return;
+    e.preventDefault();
+    const dest = t.dataset.path || t.dataset.root || t.dataset.go;
+    const paths = [...fileDrag.paths];
+    const move = !(e.ctrlKey || e.metaKey);
+    page.classList.remove("dragging-rows");
+    dropTargets(false);
+    $$(".dropinto").forEach(el => el.classList.remove("dropinto"));
+    if (!dest || paths.includes(dest)) return;
+    await transferTo(paths, dest, move);
+  });
+}
+
+/**
+ * The one place a copy or move is actually performed, so drag-and-drop and
+ * paste cannot drift apart in how they handle clashes or what they refresh.
+ */
+async function transferTo(paths, dest, move) {
+  const run = overwrite =>
+    api("/files/transfer", { method: "POST", body: { from: paths, to: dest, move, overwrite } });
+  try {
+    await run(false);
+  } catch (err) {
+    if (err.status !== 409) { toast(err.message.toUpperCase(), "err"); return false; }
+    const names = (err.clashes || []).slice(0, 6).join(", ");
+    const more = (err.clashes || []).length > 6 ? `\n…and ${err.clashes.length - 6} more` : "";
+    if (!confirm(`${err.message}:\n\n${names}${more}\n\nOverwrite them?`)) return false;
+    try { await run(true); }
+    catch (ex) { toast(ex.message.toUpperCase(), "err"); return false; }
+  }
+  const n = paths.length;
+  toast(`${move ? "MOVED" : "COPIED"} ${n} ITEM${n === 1 ? "" : "S"}`, "ok");
+  loadFiles(curDir, { history: false });
+  loadRoots(true);
+  return true;
+}
 
 /* ---- rubber-band selection over empty space ---- */
 /**
@@ -3175,31 +3335,15 @@ function paintClip() {
  * and asked before any bytes have moved, not halfway through.
  */
 async function pasteInto(destDir) {
-  const n = fileClip.paths.length;
-  if (!n) return;
+  if (!fileClip.paths.length) return;
   const dest = destDir || curDir;
   if (!dest) return toast("OPEN A FOLDER FIRST", "err");
 
-  const body = { from: fileClip.paths, to: dest, move: fileClip.move };
-  const run = async overwrite => api("/files/transfer", { method: "POST", body: { ...body, overwrite } });
-
-  try {
-    await run(false);
-  } catch (e) {
-    if (e.status !== 409) { toast(e.message.toUpperCase(), "err"); return; }
-    const names = (e.clashes || []).slice(0, 6).join(", ");
-    const more = (e.clashes || []).length > 6 ? `\n…and ${e.clashes.length - 6} more` : "";
-    if (!confirm(`${e.message}:\n\n${names}${more}\n\nOverwrite them?`)) return;
-    try { await run(true); }
-    catch (ex) { toast(ex.message.toUpperCase(), "err"); return; }
-  }
-
-  toast(`${fileClip.move ? "MOVED" : "COPIED"} ${n} ITEM${n === 1 ? "" : "S"}`, "ok");
+  const ok = await transferTo(fileClip.paths, dest, fileClip.move);
+  if (!ok) return;
   // A copy stays on the clipboard so it can be pasted into several places; a
   // cut is spent, because the source no longer exists.
   if (fileClip.move) clipClear(); else paintClip();
-  loadFiles(curDir);
-  loadRoots(true);                 // the paste changed how full something is
 }
 
 on("#f-copy", "click", () => clipTake(false));
@@ -4634,7 +4778,7 @@ function go(page) {
   if (page !== "files") clearFileSelection();
 
   if (page === "containers") loadContainers();
-  if (page === "files") { loadRoots(); loadFiles(curDir); }
+  if (page === "files") { wireFileDnD(); loadRoots(); loadFiles(curDir, { history: false }); }
   if (page === "control") loadControl();
   if (page === "settings") loadSettings();
   if (page === "store") { refreshInstalled().then(() => { loadStoreStatus(); loadStore(true); }); }

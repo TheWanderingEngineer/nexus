@@ -71,15 +71,47 @@ no longer exists; it is `.rootcard` now, with this structure:
 Plus `.clipbar` (the copy/cut status strip) and `#f-table tr.cut` (rows dimmed
 while they wait to be moved).
 
-I styled all of these in `style.css` in the existing idiom. **They almost
-certainly need equivalents in `workstation.css`** — I could not test against
-your theme properly because it is mid-flight. The screenshots I took show them
-rendering acceptably under it, but "acceptable" is not "designed".
+These are styled in `style.css` for the classic look **and now also in
+`workstation.css`** — see the next section for what I added to your file.
 
 New toolbar buttons in `web/index.html`: `#f-back`, `#f-copy`, `#f-cut`,
 `#f-paste` (starts hidden), and `#f-clipbar` / `#f-clipcancel`.
 
 ---
+
+## 3b. I have edited `workstation.css` — five blocks, all additive
+
+Appended or inserted, nothing of yours rewritten. Move or restyle any of it
+freely; I have flagged what each one is solving so you can tell whether your own
+pass supersedes it.
+
+- **Bar fills follow the track.** A rounded track filled with square-ended
+  segments reads as cheap, because the first and last blocks overhang a curve
+  they should sit inside. `.meter i:first-child` / `:last-child` get the track's
+  radius; `.strack` and `.rootcard .rbar` clip so a 100% fill cannot square off
+  the corners.
+- **Widget selection.** The classic inset `outline` cuts across your rounded
+  corners, so under `workstation` it is a `box-shadow` ring outside the border
+  plus a tinted header. Selected widgets were genuinely hard to pick out before.
+- **`.wband`** — the new rubber-band marquee on the dashboard canvas, given your
+  radius.
+- **Terminal chrome.** `#xterm-host` carried a hard-coded `#0D0916`, so the
+  padding around the shell showed as a black frame inside a green panel. It now
+  uses `--terminal-bg` like the rest, and `.termbar` sits on `--sunk`. Your
+  palette tokens already had the right colour; nothing was using it here.
+- **The workbench scene** is animated: the leaves sway, the indicator blinks,
+  steam rises off the mug. It respects `[data-motion="reduced"]` and
+  `prefers-reduced-motion` by stopping completely rather than slowing down.
+
+For the scene I split `workbench.png` into `workbench-base.png` (scene with the
+foliage removed) and `workbench-leaves.png` (foliage only, same 240×120 canvas
+so it registers exactly). The original is untouched and still used on the
+Settings page. Layers rather than a clipped copy, because rotating a clip leaves
+the original leaves showing underneath and the plant grows a second set.
+
+Overlay positions are percentages measured out of the PNG's pixels, not
+eyeballed — the indicator sits precisely on the 4×4 red square already in the
+art, so it pulses rather than adding a second light beside it.
 
 ## 4. State of the tests
 

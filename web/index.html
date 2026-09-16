@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#14101F">
-<script src="/appearance.js?v=0.3.0"></script>
+<script src="/appearance.js?v=0.3.1"></script>
 <title>Nexus</title>
 <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/icons/nexus-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/assets/brand/icons/nexus-16.png">
 <link rel="apple-touch-icon" href="/assets/brand/icons/nexus-128.png">
 <link rel="stylesheet" href="/vendor/xterm.css">
-<link rel="stylesheet" href="/style.css?v=0.16.0">
-<link rel="stylesheet" href="/workstation.css?v=0.3.0">
+<link rel="stylesheet" href="/style.css?v=0.3.1">
+<link rel="stylesheet" href="/workstation.css?v=0.3.1">
 </head>
 <body>
 
@@ -70,7 +70,18 @@
       <button class="nav" data-page="term"><img src="/assets/brand/icons/ui-terminal.png" alt=""><span class="nlabel">Terminal</span><span class="tip">TERMINAL</span></button>
       <button class="nav" data-page="control"><img src="/assets/brand/icons/ui-power.png" alt=""><span class="nlabel">Control Panel</span><span class="tip">CONTROL PANEL</span></button>
       <span class="spacer"></span>
-      <div class="rail-workbench" aria-hidden="true"><img src="/assets/workstation/workbench.png" width="240" height="120" alt=""><p>A PLACE FOR YOUR MACHINE</p></div>
+      <div class="rail-workbench" aria-hidden="true">
+        <!-- Layered so only the moving parts move. The leaves are a separate
+             sprite on the same 240x120 canvas, so they line up exactly with the
+             hole left in the base. -->
+        <span class="workbench">
+          <img class="wb-base" src="/assets/workstation/workbench-base.png" width="240" height="120" alt="">
+          <img class="wb-leaves" src="/assets/workstation/workbench-leaves.png" width="240" height="120" alt="">
+          <i class="wb-led"></i>
+          <i class="wb-steam s1"></i><i class="wb-steam s2"></i><i class="wb-steam s3"></i>
+        </span>
+        <p>A PLACE FOR YOUR MACHINE</p>
+      </div>
       <button class="nav" data-page="settings"><img src="/assets/brand/icons/ui-settings.png" alt=""><span class="nlabel">Settings</span><span class="tip">SETTINGS</span></button>
       <div id="rail-grip" title="Drag to resize the menu"></div>
     </nav>
@@ -359,6 +370,6 @@
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/xterm-addon-fit.js"></script>
 <script src="/vendor/xterm-addon-web-links.js"></script>
-<script src="/app.js?v=0.3.0"></script>
+<script src="/app.js?v=0.3.1"></script>
 </body>
 </html>

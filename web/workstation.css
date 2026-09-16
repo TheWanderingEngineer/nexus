@@ -93,6 +93,65 @@
 .rail-workbench{display:none}
 [data-gui="workstation"] #rail.wide .rail-workbench{display:block;padding:12px 0 18px}
 .rail-workbench img{width:100%;height:auto;opacity:.9}
+
+/* ---------------- the workbench scene ----------------
+   Three things move and nothing else: the indicator light, steam off the mug,
+   and the leaves. Every position below is a percentage of the sprite's own
+   240x120 grid, measured from the file rather than eyeballed, so the overlays
+   stay put at any rail width.
+
+   The leaves are a separate layer rather than a clipped copy of the whole
+   scene: rotating a clipped copy leaves the original leaves showing underneath
+   and the plant appears to have two sets. */
+.workbench{position:relative;display:block;width:100%;line-height:0}
+.workbench img{position:relative;display:block;width:100%;height:auto}
+.workbench .wb-leaves{position:absolute;inset:0;
+  /* Pivot at the base of the stems, where a real plant bends. */
+  transform-origin:19.6% 54.2%;
+  animation:wb-sway 6.5s ease-in-out infinite;
+}
+@keyframes wb-sway{
+  0%,100%{transform:rotate(-1.1deg)}
+  50%    {transform:rotate(1.1deg)}
+}
+
+/* The red indicator, sitting exactly on the 4x4 pixel already in the art, so it
+   pulses rather than adding a second light next to it. */
+.workbench .wb-led{
+  position:absolute;left:63.33%;top:66.67%;width:1.67%;height:3.33%;
+  background:#ff4d3d;box-shadow:0 0 4px #ff4d3d;
+  animation:wb-blink 3.2s steps(1,end) infinite;
+}
+@keyframes wb-blink{
+  0%,88%{opacity:.35;box-shadow:none}
+  90%,96%{opacity:1;box-shadow:0 0 5px #ff4d3d}
+}
+
+/* Steam. Three puffs on the same path, staggered, so it reads as a drift
+   rather than a pulse. */
+.workbench .wb-steam{
+  position:absolute;left:79%;top:57%;width:1.7%;height:3.4%;
+  border-radius:50%;background:currentColor;color:var(--text-3);
+  opacity:0;pointer-events:none;
+  animation:wb-steam 4.2s ease-out infinite;
+}
+.workbench .wb-steam.s2{left:81.5%;animation-delay:1.4s}
+.workbench .wb-steam.s3{left:77.5%;animation-delay:2.8s}
+@keyframes wb-steam{
+  0%  {opacity:0;   transform:translate(0,0) scale(.7)}
+  25% {opacity:.55; transform:translate(-1px,-6px) scale(1)}
+  60% {opacity:.32; transform:translate(2px,-14px) scale(1.25)}
+  100%{opacity:0;   transform:translate(-1px,-22px) scale(1.5)}
+}
+
+/* Someone who has asked for less movement gets a still picture, not a slower
+   one — the setting means "stop", not "ease off". */
+[data-motion="reduced"] .workbench :is(.wb-leaves,.wb-led,.wb-steam){animation:none}
+[data-motion="reduced"] .workbench .wb-steam{opacity:0}
+@media (prefers-reduced-motion:reduce){
+  .workbench :is(.wb-leaves,.wb-led,.wb-steam){animation:none}
+  .workbench .wb-steam{opacity:0}
+}
 .rail-workbench p{margin:12px 0 0;text-align:center;font-family:var(--mono);font-size:9px;color:var(--text-3)}
 
 /* Instruments preserve user-selected sizing, tints, and custom positioning. */
@@ -106,6 +165,39 @@
 [data-gui="workstation"] .big .u{letter-spacing:0}
 [data-gui="workstation"] .w-rs{width:13px;height:13px;opacity:.45}
 [data-gui="workstation"] :is(.bar,.strack,.stile){border:1px solid var(--rule);border-radius:3px}
+
+/* ---------------- bars: the fill has to follow the track ----------------
+   A rounded track filled with square-ended blocks reads as cheap, because the
+   corners disagree: the first and last segments overhang a curve they are
+   supposed to sit inside. Rounding the two end segments to the same radius as
+   the track makes the fill look like part of the bar rather than something
+   dropped on top of it. */
+[data-gui="workstation"] .meter{border-radius:4px;background:var(--sunk);border:1px solid var(--rule);padding:2px;gap:2px}
+[data-gui="workstation"] .meter i{border-radius:1px}
+[data-gui="workstation"] .meter i:first-child{border-top-left-radius:3px;border-bottom-left-radius:3px}
+[data-gui="workstation"] .meter i:last-child{border-top-right-radius:3px;border-bottom-right-radius:3px}
+
+/* The continuous bars are a single element, so they only need their own ends
+   rounding — and clipping, so a 100% fill cannot square off the corners. */
+[data-gui="workstation"] .strack{overflow:hidden}
+[data-gui="workstation"] .sfill{border-radius:2px 0 0 2px}
+[data-gui="workstation"] .rootcard .rbar{border-radius:4px;overflow:hidden}
+[data-gui="workstation"] .rootcard .rbar i{border-radius:3px 0 0 3px}
+
+/* Selection: a ring outside the border follows the widget's rounded corners,
+   where an inset outline cuts across them. The lift and the tinted header are
+   what make it obvious at a glance which cards are picked up. */
+[data-gui="workstation"] .w.selected{
+  outline:0;
+  border-color:var(--accent);
+  box-shadow:0 0 0 2px var(--accent), var(--shadow);
+}
+[data-gui="workstation"] .w.selected .w-head{
+  background:color-mix(in srgb, var(--accent) 18%, var(--sunk));
+  border-bottom-color:var(--accent);
+}
+[data-gui="workstation"] .w.selected.dragging{box-shadow:0 0 0 2px var(--accent-2), var(--shadow)}
+[data-gui="workstation"] .wband{border-radius:6px;border-width:1px}
 [data-gui="workstation"] .bar{height:10px}
 [data-gui="workstation"] .sbar .strack{height:8px}
 [data-gui="workstation"] .sfill{transition:width .35s ease-out}
@@ -133,6 +225,17 @@
 [data-gui="workstation"] :is(.warnbox,.sfind){border-left-width:1px}
 [data-gui="workstation"] :is(.joblog,.term,#termwrap,#ed-area){background:var(--terminal-bg);color:var(--terminal-text);border-color:var(--rule)}
 [data-gui="workstation"] .term pre{color:var(--terminal-text)}
+
+/* ---------------- terminal: the frame, not just the text ----------------
+   #xterm-host carries a hard-coded near-black from the original theme, so the
+   padding around the shell showed as a black border inside an otherwise green
+   panel. --terminal-bg is the palette's own colour a few shades down, which is
+   what "darker, but the same colour" means. The chrome around it matches, so
+   the whole block reads as one surface. */
+[data-gui="workstation"] #xterm-host{background:var(--terminal-bg);border-radius:0 0 7px 7px}
+[data-gui="workstation"] .termchrome{background:var(--terminal-bg);overflow:hidden}
+[data-gui="workstation"] .termbar{background:var(--sunk);border-bottom:1px solid var(--rule)}
+[data-gui="workstation"] #xterm-host .xterm-viewport{background:transparent!important}
 [data-gui="workstation"] #gate{overflow-y:auto}
 [data-gui="workstation"] .gatebox{width:min(440px,100%)}
 [data-gui="workstation"] .gatebody{padding:28px;gap:18px}
