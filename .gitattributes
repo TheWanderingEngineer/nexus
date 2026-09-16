@@ -1,0 +1,3 @@
+# Keep backup bytes identical across Windows and Linux for SHA-256 verification.
+backups/gui/before-workstation/** -text
+scripts/*.sh text eol=lf

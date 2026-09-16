@@ -1,6 +1,6 @@
 {
   "name": "nexus-dashboard",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Retro-pixel homelab dashboard, Docker manager and app store for a single Linux host",
   "type": "module",
   "license": "MIT",
@@ -12,7 +12,10 @@
     "dev": "node --watch server/index.js",
     "check": "node scripts/selfcheck.js",
     "vendor": "node scripts/vendor-xterm.js",
-    "store-check": "node scripts/store-check.js"
+    "store-check": "node scripts/store-check.js",
+    "gui:verify": "node scripts/gui-backup.js verify",
+    "gui:restore": "node scripts/gui-backup.js restore",
+    "gui:check": "node scripts/gui-check.js"
   },
   "dependencies": {
     "dockerode": "^4.0.2",

@@ -102,6 +102,12 @@ async function api(pathname, opts = {}) {
   if (!res.ok) {
     const err = new Error((data && data.error) || res.statusText || "request failed");
     err.status = res.status;
+    // Carry the detail the server attaches to a refusal. Without this a 409
+    // arrives as "1 item already exists" with no way to say which, and the
+    // overwrite prompt lists nothing.
+    for (const k of ["clashes", "conflicts", "wanted"]) {
+      if (data && data[k] !== undefined) err[k] = data[k];
+    }
     if (res.status === 401) showGate();
     throw err;
   }
@@ -1627,6 +1633,8 @@ function catPlace(r) {
  */
 const CAT_RISE = ["rise-1", "rise-2", "rise-3", "rise-4", "rise-5"];
 const RISE_MS = 95;               // ~475ms for the whole movement
+const reducedMotionQuery = matchMedia("(prefers-reduced-motion: reduce)");
+const prefersQuietMotion = () => document.documentElement.dataset.motion === "reduced" || reducedMotionQuery.matches;
 
 /** The pose the cat should be in, before any transition is applied. */
 function catPosture(r, cfg, mood, now) {
@@ -1670,6 +1678,8 @@ function catTick(r, cfg) {
 
   /* ---- posture, with a real transition between the two ---- */
   const want = asleep ? "sit" : catPosture(r, cfg, mood, now);
+  const quiet = prefersQuietMotion();
+  if (quiet) { r.posture = want; r.rise = null; r.frame = 0; r.blinkUntil = 0; }
   if (!r.posture) r.posture = want;
   if (want !== r.posture && !r.rise) {
     r.rise = { to: want, step: 0, at: now };     // start the sit<->stand sequence
@@ -1707,7 +1717,7 @@ function catTick(r, cfg) {
     : r.hovering ? Math.max(420, spec.beat * 0.45)
     : spec.beat;
 
-  if (now >= r.nextBeat) {
+  if (!quiet && now >= r.nextBeat) {
     r.frame ^= 1;
     r.nextBeat = now + beat;
     // Blinks are brief and occasional — a 50% duty cycle would look like a
@@ -1958,7 +1968,15 @@ addEventListener("keydown", e => {
     if (onDashboard() && selection.size) { e.preventDefault(); deleteSelection(); return; }
     if ($("#page-files")?.classList.contains("on") && fileSel.size) { e.preventDefault(); deleteFileSelection(); return; }
   }
-  if (e.key === "Escape") { clearSelection(); clearFileSelection(); }
+  if (e.key === "Escape") { clearSelection(); clearFileSelection(); clipClear(); }
+
+  // Ctrl/Cmd C, X, V on the files page — the shortcuts everyone already knows.
+  if (!$("#page-files")?.classList.contains("on")) return;
+  if (!(e.ctrlKey || e.metaKey)) return;
+  const k = e.key.toLowerCase();
+  if (k === "c" && fileSel.size) { e.preventDefault(); clipTake(false); }
+  else if (k === "x" && fileSel.size) { e.preventDefault(); clipTake(true); }
+  else if (k === "v" && fileClip.paths.length) { e.preventDefault(); pasteInto(curDir); }
 });
 
 // A press on empty canvas drops the selection.
@@ -2461,6 +2479,17 @@ let curDir = null, curParent = null, curEntries = [];
 let fileSel = new Set();
 let fileAnchor = null;
 
+/**
+ * The clipboard, and where you have been.
+ *
+ * The clipboard holds paths rather than entries: a cut folder may be pasted
+ * after several navigations, by which time the listing it came from is long
+ * gone. The server re-resolves and re-jails every path at paste time anyway,
+ * so holding anything richer would only be a staleness risk.
+ */
+const fileClip = { paths: [], move: false, from: null };
+const fileHistory = [];
+
 const fileRows = () => $$("#f-table tbody tr[data-path]");
 
 function markFileSel() {
@@ -2498,25 +2527,174 @@ function fileKind(en) {
  * showed what those were — so if the first root was /DATA you had no way to
  * reach /root at all. These buttons make every root one click away.
  */
-async function loadRoots() {
+let ROOTS = [];
+
+/**
+ * The drives strip.
+ *
+ * Each root is a card rather than a button: where it points, how full it is,
+ * and what you keep on it. The note is the part that earns its place — "/DATA"
+ * and "/mnt/data" are indistinguishable at a glance, and the difference between
+ * them is the whole reason you are looking.
+ */
+async function loadRoots(force = false) {
   const bar = $("#f-roots");
-  if (!bar || bar.dataset.loaded) return;
+  if (!bar) return;
+  if (bar.dataset.loaded && !force) return renderRoots();
   try {
-    const roots = await api("/files/roots");
+    ROOTS = await api("/files/roots");
     bar.dataset.loaded = "1";
-    bar.innerHTML = roots.map(r =>
-      `<button class="rootbtn${r.exists ? "" : " missing"}" data-root="${esc(r.path)}"
-               title="${esc(r.path)}"${r.exists ? "" : " disabled"}>
-         <span class="rn">${esc(r.name)}</span>
-         <span class="rp">${esc(r.path)}</span>
-       </button>`).join("") +
-      `<span class="hint rootshint">Only these paths are reachable — set <code>fileRoots</code> in
-        /etc/nexus/config.json to add more.</span>`;
-    bar.addEventListener("click", e => {
-      const b = e.target.closest("[data-root]");
-      if (b) loadFiles(b.dataset.root);
-    });
+    renderRoots();
+    wireRoots(bar);
   } catch { bar.innerHTML = ""; }
+}
+
+function renderRoots() {
+  const bar = $("#f-roots");
+  if (!bar) return;
+
+  bar.innerHTML = ROOTS.map(r => {
+    const known = r.size > 0 && r.usage != null;
+    const pct = known ? clamp(r.usage, 0, 100) : 0;
+    const lvl = pct >= 92 ? "crit" : pct >= 80 ? "warn" : "";
+    return `
+      <div class="rootcard${r.exists ? "" : " missing"}${known ? "" : " nostat"}"
+           data-root="${esc(r.path)}" draggable="true" tabindex="0" role="button"
+           aria-label="${esc(r.name)} — ${esc(r.path)}">
+        <span class="rhead">
+          <span class="rn">${esc(r.name)}</span>
+          ${known ? `<span class="rpct ${lvl}">${pct.toFixed(0)}%</span>` : ""}
+        </span>
+        <span class="rp mono">${esc(r.path)}</span>
+        ${known ? `
+          <span class="rbar ${lvl}"><i style="width:${pct.toFixed(1)}%"></i></span>
+          <span class="rfig mono">${bytes(r.used)} <b>/</b> ${bytes(r.used + r.available)}
+            <span class="rfree">· ${bytes(r.available)} free</span></span>`
+        : `<span class="rfig mono dim">${r.exists ? "size unavailable" : "not mounted"}</span>`}
+        <span class="rnote${r.note ? "" : " empty"}">${esc(r.note || "add a note")}</span>
+      </div>`;
+  }).join("") +
+    `<span class="hint rootshint">Drag a card to reorder. Right-click one for a note.
+      Only these paths are reachable — set <code>fileRoots</code> in
+      /etc/nexus/config.json to add more.</span>`;
+
+  if (curDir) markActiveRoot(curDir);
+}
+
+function wireRoots(bar) {
+  bar.addEventListener("click", e => {
+    const c = e.target.closest("[data-root]");
+    if (c && !c.classList.contains("missing")) loadFiles(c.dataset.root);
+  });
+  bar.addEventListener("keydown", e => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const c = e.target.closest("[data-root]");
+    if (c) { e.preventDefault(); c.click(); }
+  });
+  bar.addEventListener("contextmenu", e => {
+    const c = e.target.closest("[data-root]");
+    if (!c) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openRootMenu(e.clientX, e.clientY, ROOTS.find(r => r.path === c.dataset.root));
+  });
+
+  /* ---- drag to reorder ----
+     HTML5 drag-and-drop rather than pointer events, because these cards sit on
+     a page that already uses pointer drags for the rubber-band selection, and
+     the two would fight over the same gesture. */
+  let dragPath = null;
+  bar.addEventListener("dragstart", e => {
+    const c = e.target.closest("[data-root]");
+    if (!c) return;
+    dragPath = c.dataset.root;
+    c.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    // Firefox will not start a drag without data on the transfer.
+    try { e.dataTransfer.setData("text/plain", dragPath); } catch {}
+  });
+  bar.addEventListener("dragend", () => {
+    dragPath = null;
+    $$("#f-roots .rootcard").forEach(c => c.classList.remove("dragging", "dropbefore"));
+  });
+  bar.addEventListener("dragover", e => {
+    if (!dragPath) return;
+    e.preventDefault();
+    const c = e.target.closest("[data-root]");
+    $$("#f-roots .rootcard").forEach(x => x.classList.remove("dropbefore"));
+    if (c && c.dataset.root !== dragPath) c.classList.add("dropbefore");
+  });
+  bar.addEventListener("drop", async e => {
+    if (!dragPath) return;
+    e.preventDefault();
+    const c = e.target.closest("[data-root]");
+    $$("#f-roots .rootcard").forEach(x => x.classList.remove("dropbefore"));
+    if (!c || c.dataset.root === dragPath) return;
+
+    const from = ROOTS.findIndex(r => r.path === dragPath);
+    const to = ROOTS.findIndex(r => r.path === c.dataset.root);
+    if (from < 0 || to < 0) return;
+    ROOTS.splice(to, 0, ROOTS.splice(from, 1)[0]);
+    renderRoots();
+    await saveRootPrefs();
+  });
+}
+
+/** Persist order and notes together — the server stores one map for both. */
+async function saveRootPrefs() {
+  const prefs = {};
+  ROOTS.forEach((r, i) => { prefs[r.path] = { note: r.note || "", order: i }; });
+  try { await api("/files/roots/prefs", { method: "PUT", body: { prefs } }); }
+  catch (e) { toast(e.message.toUpperCase(), "err"); }
+}
+
+function openRootMenu(x, y, root) {
+  if (!root) return;
+  const body = $("#ctx-body");
+  $("#ctx-icon").src = ICON("storage");
+  $("#ctx-title").textContent = root.name.slice(0, 26).toUpperCase();
+  body.innerHTML = "";
+  ctxItems = [];
+
+  const actions = [
+    { label: root.note ? "EDIT NOTE" : "ADD NOTE", go: () => editRootNote(root) },
+    { label: "OPEN", go: () => loadFiles(root.path) }
+  ];
+  if (root.note) actions.push({ label: "CLEAR NOTE", go: () => setRootNote(root, "") });
+  if (fileClip.paths.length) {
+    actions.push({ label: `PASTE ${fileClip.paths.length} HERE`, go: () => pasteInto(root.path) });
+  }
+
+  const g = document.createElement("div");
+  g.className = "ctxgroup ctxstack";
+  actions.forEach(a => {
+    const b = document.createElement("button");
+    b.className = "ctxopt wide";
+    b.textContent = a.label;
+    b.addEventListener("click", () => { closeCtx(); a.go(); });
+    g.appendChild(b);
+  });
+  body.appendChild(g);
+
+  const note = document.createElement("p");
+  note.className = "ctxnote";
+  note.textContent = "A note is a label for you — it does not rename anything on disk.";
+  body.appendChild(note);
+
+  $(".ctxfoot").hidden = true;
+  placeCtx(x, y);
+}
+
+function editRootNote(root) {
+  const v = prompt(`Note for ${root.name} (${root.path}):\n\nThis is a label for you, not a rename.`, root.note || "");
+  if (v == null) return;
+  setRootNote(root, v.trim().slice(0, 120));
+}
+
+async function setRootNote(root, note) {
+  root.note = note;
+  renderRoots();
+  await saveRootPrefs();
 }
 
 function markActiveRoot(p) {
@@ -2524,24 +2702,35 @@ function markActiveRoot(p) {
   // every listing, and because markActiveRoot runs before the rows are written
   // the catch in loadFiles swallowed it and the file manager showed the type
   // error where the files should have been.
-  $$("#f-roots .rootbtn").forEach(b => {
+  const cards = $$("#f-roots .rootcard");
+  const under = r => p === r || p.startsWith(r.endsWith("/") ? r : r + "/") || p.startsWith(r + "\\");
+  // Longest match wins, so /DATA does not light up when you are inside a
+  // separate, more specific root nested under it.
+  let best = null;
+  cards.forEach(b => {
     const r = b.dataset.root;
-    // Longest matching root wins, so /DATA does not light up when you are in
-    // /DATA/Media under a separate /DATA/Media root.
-    b.classList.toggle("on", p === r || p.startsWith(r.endsWith("/") ? r : r + "/") || p.startsWith(r + "\\"));
+    if (under(r) && (!best || r.length > best.length)) best = r;
   });
+  cards.forEach(b => b.classList.toggle("on", b.dataset.root === best));
 }
 
-async function loadFiles(dir) {
+async function loadFiles(dir, { history = true } = {}) {
   const tb = $("#f-table tbody");
   try {
     const out = await api("/files" + (dir ? "?path=" + encodeURIComponent(dir) : ""));
+    // Record where we were, not where we are going, and only for a real move —
+    // a refresh of the same folder is not a step in the journey.
+    if (history && curDir && curDir !== out.path) {
+      fileHistory.push(curDir);
+      if (fileHistory.length > 50) fileHistory.shift();
+    }
     curDir = out.path;
     curParent = out.parent;
     curEntries = out.entries;
     clearFileSelection();
     renderCrumbs(out.path);
     markActiveRoot(out.path);
+    paintNav();
 
     if (!out.entries.length) {
       tb.innerHTML = '<tr><td colspan="4" class="empty">EMPTY FOLDER &mdash; RIGHT-CLICK TO CREATE SOMETHING</td></tr>';
@@ -2564,6 +2753,7 @@ async function loadFiles(dir) {
       ? `<tr><td colspan="4" class="empty">SHOWING ${out.entries.length} OF ${out.total} —
            OPEN A SUBFOLDER TO NARROW IT DOWN</td></tr>`
       : "");
+    paintClip();                   // re-dim anything still on the clipboard
   } catch (e) {
     tb.innerHTML = `<tr><td colspan="4" class="empty">${esc(e.message).toUpperCase()}</td></tr>`;
   }
@@ -2725,6 +2915,8 @@ function openFileMenu(x, y, entry) {
   if (entry && many) {
     // Only what makes sense for a set. Rename and edit are single-target by
     // nature; offering them here would just mean "does it to one at random".
+    actions.push({ label: `COPY ${fileSel.size}`, go: () => clipTake(false) });
+    actions.push({ label: `CUT ${fileSel.size}`, go: () => clipTake(true) });
     actions.push({ label: `DELETE ${fileSel.size} ITEMS`, go: deleteFileSelection, danger: true });
     actions.push({ label: "DOWNLOAD FILES", go: downloadFileSelection });
     actions.push({ label: "CLEAR SELECTION", go: clearFileSelection });
@@ -2732,13 +2924,24 @@ function openFileMenu(x, y, entry) {
     if (entry.dir) actions.push({ label: "OPEN", go: () => loadFiles(entry.path) });
     if (entry.text) actions.push({ label: "EDIT", go: () => openEditor(entry.path, entry.name) });
     if (!entry.dir) actions.push({ label: "DOWNLOAD", go: () => { location.href = "/api/files/download?path=" + encodeURIComponent(entry.path); } });
+    actions.push({ label: "COPY", go: () => clipTake(false) });
+    actions.push({ label: "CUT", go: () => clipTake(true) });
+    // Pasting onto a folder puts things inside it, which is what every file
+    // manager does and what the pointer is implicitly aiming at.
+    if (entry.dir && fileClip.paths.length) {
+      actions.push({ label: `PASTE ${fileClip.paths.length} INTO`, go: () => pasteInto(entry.path) });
+    }
     actions.push({ label: "RENAME", go: () => renameEntry(entry) });
     actions.push({ label: "DELETE", go: () => deleteEntry(entry), danger: true });
   }
+  if (fileClip.paths.length) {
+    actions.push({ label: `PASTE ${fileClip.paths.length} HERE`, go: () => pasteInto(curDir) });
+  }
   actions.push({ label: "SELECT ALL", go: selectAllFiles });
   actions.push({ label: "NEW FOLDER", go: makeFolder });
-  actions.push({ label: "REFRESH", go: () => loadFiles(curDir) });
+  actions.push({ label: "REFRESH", go: () => loadFiles(curDir, { history: false }) });
   if (curParent) actions.push({ label: "GO UP", go: () => loadFiles(curParent) });
+  if (fileHistory.length) actions.push({ label: "BACK", go: () => $("#f-back").click() });
 
   const g = document.createElement("div");
   g.className = "ctxgroup ctxstack";
@@ -2920,6 +3123,103 @@ on("#f-up", "click", () => {
   if (curParent) loadFiles(curParent); else toast("ALREADY AT A ROOT", "err");
 });
 on("#f-mkdir", "click", makeFolder);
+
+/* ============================ clipboard ============================ */
+
+function clipTake(move) {
+  const chosen = selectedEntries();
+  if (!chosen.length) return toast("NOTHING SELECTED", "err");
+  fileClip.paths = chosen.map(e => e.path);
+  fileClip.move = move;
+  fileClip.from = curDir;
+  paintClip();
+  toast(`${chosen.length} ITEM${chosen.length === 1 ? "" : "S"} ${move ? "CUT" : "COPIED"}`, "ok");
+}
+
+function clipClear() {
+  fileClip.paths = [];
+  fileClip.from = null;
+  paintClip();
+}
+
+/** The toolbar button and the status strip both reflect what is held. */
+function paintClip() {
+  const n = fileClip.paths.length;
+  const btn = $("#f-paste");
+  if (btn) {
+    btn.hidden = !n;
+    btn.textContent = `PASTE ${n}`;
+    btn.setAttribute("data-tip", n
+      ? `${fileClip.move ? "Move" : "Copy"} ${n} item${n === 1 ? "" : "s"} from ${fileClip.from} into this folder.`
+      : "");
+  }
+  const bar = $("#f-clipbar");
+  if (bar) {
+    bar.hidden = !n;
+    const t = $("#f-clipinfo");
+    if (t && n) {
+      t.textContent = `${n} ITEM${n === 1 ? "" : "S"} ${fileClip.move ? "CUT" : "COPIED"} FROM ${fileClip.from}`;
+    }
+  }
+  // Cut items are dimmed in place until the paste lands, so it is obvious what
+  // is about to move rather than silently vanishing later.
+  fileRows().forEach(tr =>
+    tr.classList.toggle("cut", fileClip.move && fileClip.paths.includes(tr.dataset.path)));
+}
+
+/**
+ * Paste into a folder.
+ *
+ * Clashes are reported by the server before anything is written, so the
+ * overwrite question is asked once for the batch rather than once per file —
+ * and asked before any bytes have moved, not halfway through.
+ */
+async function pasteInto(destDir) {
+  const n = fileClip.paths.length;
+  if (!n) return;
+  const dest = destDir || curDir;
+  if (!dest) return toast("OPEN A FOLDER FIRST", "err");
+
+  const body = { from: fileClip.paths, to: dest, move: fileClip.move };
+  const run = async overwrite => api("/files/transfer", { method: "POST", body: { ...body, overwrite } });
+
+  try {
+    await run(false);
+  } catch (e) {
+    if (e.status !== 409) { toast(e.message.toUpperCase(), "err"); return; }
+    const names = (e.clashes || []).slice(0, 6).join(", ");
+    const more = (e.clashes || []).length > 6 ? `\n…and ${e.clashes.length - 6} more` : "";
+    if (!confirm(`${e.message}:\n\n${names}${more}\n\nOverwrite them?`)) return;
+    try { await run(true); }
+    catch (ex) { toast(ex.message.toUpperCase(), "err"); return; }
+  }
+
+  toast(`${fileClip.move ? "MOVED" : "COPIED"} ${n} ITEM${n === 1 ? "" : "S"}`, "ok");
+  // A copy stays on the clipboard so it can be pasted into several places; a
+  // cut is spent, because the source no longer exists.
+  if (fileClip.move) clipClear(); else paintClip();
+  loadFiles(curDir);
+  loadRoots(true);                 // the paste changed how full something is
+}
+
+on("#f-copy", "click", () => clipTake(false));
+on("#f-cut", "click", () => clipTake(true));
+on("#f-paste", "click", () => pasteInto(curDir));
+on("#f-clipcancel", "click", () => { clipClear(); toast("CLIPBOARD CLEARED"); });
+
+/* ---- going back ---- */
+on("#f-back", "click", () => {
+  const prev = fileHistory.pop();
+  if (!prev) return toast("NOTHING TO GO BACK TO", "err");
+  loadFiles(prev, { history: false });
+});
+
+function paintNav() {
+  const back = $("#f-back");
+  if (back) back.disabled = !fileHistory.length;
+  const up = $("#f-up");
+  if (up) up.disabled = !curParent;
+}
 
 /* ============================ uploads ============================ */
 /**
@@ -3200,6 +3500,18 @@ function termTheme() {
   // Pull the palette straight from the CSS tokens so the terminal follows the
   // theme toggle instead of being a separate hard-coded colour scheme.
   const v = n => cssv(n) || undefined;
+  if (document.documentElement.dataset.gui === "workstation") {
+    return {
+      background: v("--terminal-bg"), foreground: v("--terminal-text"),
+      cursor: v("--accent"), cursorAccent: v("--terminal-bg"),
+      selectionBackground: "rgba(180,190,160,.3)",
+      black: "#202723", red: "#ee9b8e", green: "#b2cd95", yellow: "#e4c57d",
+      blue: "#9cbde0", magenta: "#c7afd2", cyan: "#9dc9c9", white: "#e5e7df",
+      brightBlack: "#9fa99e", brightRed: "#ffb9ab", brightGreen: "#d1e7b7",
+      brightYellow: "#f7dfa2", brightBlue: "#c0daf5", brightMagenta: "#e0cbed",
+      brightCyan: "#c0e8e3", brightWhite: "#fffdf5"
+    };
+  }
   const dark = document.documentElement.getAttribute("data-theme") === "dark" ||
     (!document.documentElement.getAttribute("data-theme") && matchMedia("(prefers-color-scheme:dark)").matches);
   return {
@@ -3300,10 +3612,12 @@ on("#t-clear", "click", () => { if (term) term.clear(); });
 addEventListener("resize", () => { if (term && $("#page-term").classList.contains("on")) fitTerm(); });
 
 async function loadSettings() {
+  paintAppearance();
   const crtBtn = $("#crt-toggle");
   if (crtBtn && !crtBtn.dataset.wired) {
     crtBtn.dataset.wired = "1";
     const paint = () => {
+      crtBtn.setAttribute("aria-pressed", String(document.documentElement.getAttribute("data-crt") === "on"));
       crtBtn.textContent = "CRT SCANLINES: " +
         (document.documentElement.getAttribute("data-crt") === "on" ? "ON" : "OFF");
     };
@@ -4296,12 +4610,18 @@ on("#cp-clear", "click", async () => {
 });
 
 /* ============================ navigation ============================ */
-const TITLES = { dash: "DASHBOARD", store: "APP STORE", containers: "CONTAINERS", files: "FILES", term: "TERMINAL", control: "CONTROL PANEL", settings: "SETTINGS" };
+const TITLES = { dash: "Dashboard", store: "App Store", containers: "Containers", files: "Files", term: "Terminal", control: "Control Panel", settings: "Settings" };
+const SUBTITLES = { dash: "Your homelab, at a glance.", store: "Find a new home for your next project.", containers: "The services that keep your homelab running.", files: "Everything in its place.", term: "A direct line to your machine.", control: "Your routines, running quietly in the background.", settings: "A workstation that feels like yours." };
 
 function go(page) {
-  $$(".nav").forEach(n => n.classList.toggle("on", n.dataset.page === page));
+  $$(".nav").forEach(n => {
+    n.classList.toggle("on", n.dataset.page === page);
+    if (n.dataset.page === page) n.setAttribute("aria-current", "page");
+    else n.removeAttribute("aria-current");
+  });
   $$(".page").forEach(p => p.classList.toggle("on", p.id === "page-" + page));
   $("#page-title").textContent = TITLES[page] || page;
+  $("#page-subtitle").textContent = SUBTITLES[page] || "";
   $("#tools-dash").hidden = page !== "dash";
   $("#tools-containers").hidden = page !== "containers";
   $("#tools-files").hidden = page !== "files";
@@ -4380,20 +4700,38 @@ on("#rail-grip", "pointerdown", e => {
 
 try {
   const saved = parseInt(localStorage.getItem("nexus.rail"));
-  setRail(Number.isFinite(saved) ? saved : 72, false);
-} catch { setRail(72, false); }
+  setRail(Number.isFinite(saved) ? saved : 192, false);
+} catch { setRail(192, false); }
 
 on("#theme", "click", () => {
-  const r = document.documentElement;
-  const dark = r.getAttribute("data-theme") === "dark" ||
-    (!r.getAttribute("data-theme") && matchMedia("(prefers-color-scheme:dark)").matches);
-  r.setAttribute("data-theme", dark ? "light" : "dark");
-  try { localStorage.setItem("nexus.theme", dark ? "light" : "dark"); } catch {}
-  renderWidgets();
-  if (term) { term.options.theme = termTheme(); }
+  go("settings");
+  $("#main").scrollTop = 0;
+  $(".palette-choice").focus({ preventScroll: true });
 });
-try { const t = localStorage.getItem("nexus.theme"); if (t) document.documentElement.setAttribute("data-theme", t); } catch {}
-try { if (localStorage.getItem("nexus.crt") === "on") document.documentElement.setAttribute("data-crt", "on"); } catch {}
+
+function paintAppearance() {
+  const a = window.NexusAppearance;
+  if (!a) return;
+  $$("[data-palette-choice]").forEach(button => button.setAttribute("aria-pressed", String(!a.classic && button.dataset.paletteChoice === a.palette)));
+  $("#appearance-status").textContent = a.classic ? "Classic GUI is active. Choose a palette to return to Workstation." : a.palettes[a.palette].name + " is active. Saved in this browser.";
+  $("#classic-toggle").textContent = a.classic ? "RETURN TO WORKSTATION" : "USE CLASSIC GUI";
+  $("#classic-toggle").setAttribute("aria-pressed", String(a.classic));
+  $("#motion-toggle").textContent = "REDUCE MOTION: " + (a.motion === "reduced" ? "ON" : "OFF");
+  $("#motion-toggle").setAttribute("aria-pressed", String(a.motion === "reduced"));
+}
+on(".palette-list", "click", e => {
+  const choice = e.target.closest("[data-palette-choice]");
+  if (choice) window.NexusAppearance?.setPalette(choice.dataset.paletteChoice);
+});
+on("#classic-toggle", "click", () => window.NexusAppearance?.setClassic(!window.NexusAppearance.classic));
+on("#motion-toggle", "click", () => window.NexusAppearance?.setMotion(window.NexusAppearance.motion === "reduced" ? "full" : "reduced"));
+document.addEventListener("nexus:appearance", () => {
+  paintAppearance();
+  renderWidgets();
+  layout(false);
+  if (term) { term.options.theme = termTheme(); requestAnimationFrame(fitTerm); }
+});
+paintAppearance();
 
 function toggleCRT() {
   const r = document.documentElement;

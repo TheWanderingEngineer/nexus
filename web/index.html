@@ -5,20 +5,19 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#14101F">
+<script src="/appearance.js?v=0.3.0"></script>
 <title>Nexus</title>
 <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/icons/nexus-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/assets/brand/icons/nexus-16.png">
 <link rel="apple-touch-icon" href="/assets/brand/icons/nexus-128.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Silkscreen:wght@400;700&display=swap">
 <link rel="stylesheet" href="/vendor/xterm.css">
 <link rel="stylesheet" href="/style.css?v=0.16.0">
+<link rel="stylesheet" href="/workstation.css?v=0.3.0">
 </head>
 <body>
 
 <div id="scan"></div>
-<div id="toast"></div>
+<div id="toast" role="status" aria-live="polite"></div>
 
 <!-- ============ LOGIN / FIRST-RUN SETUP ============ -->
 <div id="gate">
@@ -50,19 +49,19 @@
 
   <div id="topbar">
     <img id="logo" src="/assets/brand/nexus-logo.png" alt="Nexus">
-    <span class="brand">NEXUS<span class="v">v0.1</span></span>
+    <span class="brand">NEXUS<span class="v">PERSONAL SERVER</span></span>
     <span class="spacer"></span>
     <span class="stat" id="st-state" data-tip="Live metrics stream. Goes red if the connection to the server drops."><i class="dot live" style="color:var(--ok)"></i><span>LIVE</span></span>
     <span class="stat" data-tip="Whole-host CPU usage, refreshed every 2 seconds.">CPU <b id="tb-cpu">--</b></span>
     <span class="stat opt" data-tip="Memory in use, not counting cache.">RAM <b id="tb-mem">--</b></span>
     <span class="stat opt" data-tip="The hottest temperature sensor on the box right now.">TEMP <b id="tb-temp">--</b></span>
     <span id="clock" data-tip="Your local time, from this browser.">--:--:--</span>
-    <button class="btn" id="theme" data-tip="Switch between the dark CRT and the light workstation theme.">THEME</button>
+    <button class="btn" id="theme" data-tip="Choose a palette and display preferences in Settings.">PALETTE</button>
     <button class="btn" id="logout" data-tip="Sign out of Nexus.">EXIT</button>
   </div>
 
   <div id="body">
-    <nav id="rail">
+    <nav id="rail" aria-label="Main navigation">
       <button id="rail-toggle" title="Expand or collapse the menu"><span id="rail-toggle-txt">&#9776;</span></button>
       <button class="nav on" data-page="dash"><img src="/assets/brand/icons/ui-dashboard.png" alt=""><span class="nlabel">Dashboard</span><span class="tip">DASHBOARD</span></button>
       <button class="nav" data-page="store"><img src="/assets/brand/icons/ui-apps.png" alt=""><span class="nlabel">App Store</span><span class="tip">APP STORE</span></button>
@@ -71,13 +70,14 @@
       <button class="nav" data-page="term"><img src="/assets/brand/icons/ui-terminal.png" alt=""><span class="nlabel">Terminal</span><span class="tip">TERMINAL</span></button>
       <button class="nav" data-page="control"><img src="/assets/brand/icons/ui-power.png" alt=""><span class="nlabel">Control Panel</span><span class="tip">CONTROL PANEL</span></button>
       <span class="spacer"></span>
+      <div class="rail-workbench" aria-hidden="true"><img src="/assets/workstation/workbench.png" width="240" height="120" alt=""><p>A PLACE FOR YOUR MACHINE</p></div>
       <button class="nav" data-page="settings"><img src="/assets/brand/icons/ui-settings.png" alt=""><span class="nlabel">Settings</span><span class="tip">SETTINGS</span></button>
       <div id="rail-grip" title="Drag to resize the menu"></div>
     </nav>
 
     <div id="main">
       <div id="toolbar">
-        <h1 id="page-title">DASHBOARD</h1>
+        <div class="page-heading"><h1 id="page-title">Dashboard</h1><p class="page-subtitle" id="page-subtitle">Your homelab, at a glance.</p></div>
         <span class="spacer"></span>
         <div id="tools-dash">
           <button class="btn" id="add" data-tip="Open the widget library.">+ ADD WIDGET</button>
@@ -87,7 +87,11 @@
           <button class="btn" id="c-refresh" data-tip="Re-read the container list from Docker.">REFRESH</button>
         </div>
         <div id="tools-files" hidden>
+          <button class="btn" id="f-back" data-tip="Back to the folder you came from.">&#8592; BACK</button>
           <button class="btn" id="f-up" data-tip="Go up one folder. Stops at your configured roots.">PARENT</button>
+          <button class="btn" id="f-copy" data-tip="Copy the selection. Ctrl/&#8984;+C.">COPY</button>
+          <button class="btn" id="f-cut" data-tip="Cut the selection. Ctrl/&#8984;+X.">CUT</button>
+          <button class="btn primary" id="f-paste" data-tip="Paste into this folder. Ctrl/&#8984;+V." hidden>PASTE</button>
           <button class="btn" id="f-mkdir" data-tip="Create a folder here.">NEW FOLDER</button>
           <button class="btn primary" id="f-upload" data-tip="Upload files into this folder. You can also drop them anywhere on this page.">UPLOAD</button>
           <button class="btn" id="f-upload-dir" data-tip="Upload a whole folder, keeping its structure.">UPLOAD FOLDER</button>
@@ -132,6 +136,11 @@
       <section class="page" id="page-files">
         <div class="rootbar" id="f-roots"></div>
         <div class="crumbs" id="f-crumbs"></div>
+        <div class="clipbar" id="f-clipbar" hidden>
+          <span class="clipinfo" id="f-clipinfo"></span>
+          <span class="hint">Open a folder and press PASTE, or right-click a folder to paste inside it.</span>
+          <button class="btn sm" id="f-clipcancel">CANCEL</button>
+        </div>
         <div class="selbar" id="f-selbar" hidden>
           <span class="selc" id="f-selcount">0 ITEMS SELECTED</span>
           <span class="hint">Ctrl/&#8984;+click to add &middot; Shift+click for a run &middot; drag a box over empty space &middot; Delete removes them</span>
@@ -249,12 +258,46 @@
 
       <!-- settings -->
       <section class="page" id="page-settings">
+        <div class="section" id="appearance-section">
+          <div class="appearance-intro">
+            <div><h2>Make yourself at home.</h2><p>Three palettes for your personal workstation. Changes apply instantly and stay in this browser.</p></div>
+            <img class="appearance-art" src="/assets/workstation/workbench.png" width="240" height="120" alt="A pixel-art computer, plant and coffee on a wooden shelf">
+          </div>
+          <div class="palette-list" role="group" aria-label="Workstation palette">
+            <button type="button" class="palette-choice" data-palette-choice="parchment" aria-pressed="false">
+              <span class="palette-preview" data-preview="parchment" aria-hidden="true"><span class="mini-rail"><i></i><i></i><i></i></span><span class="mini-panels"><i><b></b></i><i><b></b></i><i><b></b></i></span></span>
+              <span class="palette-label">Parchment<span class="palette-status">SELECTED</span></span><span class="palette-detail">Warm paper &amp; olive. A little daylight.</span>
+            </button>
+            <button type="button" class="palette-choice" data-palette-choice="evergreen" aria-pressed="false">
+              <span class="palette-preview" data-preview="evergreen" aria-hidden="true"><span class="mini-rail"><i></i><i></i><i></i></span><span class="mini-panels"><i><b></b></i><i><b></b></i><i><b></b></i></span></span>
+              <span class="palette-label">Evergreen<span class="palette-status">SELECTED</span></span><span class="palette-detail">Forest green &amp; brass. Settle in.</span>
+            </button>
+            <button type="button" class="palette-choice" data-palette-choice="midnight" aria-pressed="false">
+              <span class="palette-preview" data-preview="midnight" aria-hidden="true"><span class="mini-rail"><i></i><i></i><i></i></span><span class="mini-panels"><i><b></b></i><i><b></b></i><i><b></b></i></span></span>
+              <span class="palette-label">Night Shift<span class="palette-status">SELECTED</span></span><span class="palette-detail">Slate &amp; amber. For the late hours.</span>
+            </button>
+          </div>
+          <p class="appearance-status" id="appearance-status" role="status" aria-live="polite"></p>
+        </div>
         <div class="section">
           <h2>DISPLAY</h2>
-          <div class="row" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-            <button class="btn" id="crt-toggle" data-tip="A scanline overlay. Looks good in screenshots, tiring to read through.">CRT SCANLINES: OFF</button>
-            <span class="hint">Adds a subtle scanline overlay. Off by default &mdash; it looks good in screenshots and gets tiring to read.</span>
+          <div class="display-row">
+            <div><h3>Interface motion</h3><p>Gentle drawer transitions and tactile controls. Your device's reduced-motion preference is always respected.</p></div>
+            <button class="btn" id="motion-toggle" aria-pressed="false">REDUCE MOTION: OFF</button>
           </div>
+          <div class="display-row">
+            <div><h3>CRT scanlines</h3><p>A faint CRT texture. Leave it off for the clearest reading.</p></div>
+            <button class="btn" id="crt-toggle" aria-pressed="false">CRT SCANLINES: OFF</button>
+          </div>
+        </div>
+        <div class="section">
+          <h2>AN EASY WAY BACK</h2>
+          <div class="display-row">
+            <div><h3>Classic GUI</h3><p>Switch to the original colors and controls. Your widgets, files and settings stay in place. Choose a palette above to return.</p></div>
+            <button class="btn" id="classic-toggle" aria-pressed="false">USE CLASSIC GUI</button>
+          </div>
+          <p class="hint">To restore the original GUI files, run this from your Nexus folder. The command saves the outgoing GUI first.</p>
+          <code class="restore-command">node scripts/gui-backup.js restore</code>
         </div>
         <div class="section">
           <h2>SYSTEM</h2>
@@ -316,6 +359,6 @@
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/xterm-addon-fit.js"></script>
 <script src="/vendor/xterm-addon-web-links.js"></script>
-<script src="/app.js?v=0.16.0"></script>
+<script src="/app.js?v=0.3.0"></script>
 </body>
 </html>

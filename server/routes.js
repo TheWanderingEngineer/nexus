@@ -146,7 +146,51 @@ export default function routes() {
   }));
 
   /* ---------------- files ---------------- */
-  r.get("/files/roots", (_req, res) => res.json(filesvc.listRoots()));
+  /**
+   * Roots, with capacity and the user's own labelling.
+   *
+   * Order and note are a browser-side concern conceptually, but they live in
+   * server settings on purpose: the point of "which drive is for films" is that
+   * it reads the same from the phone as from the desktop.
+   */
+  r.get("/files/roots", wrap(async (_req, res) => {
+    const prefs = db().settings?.fileRoots || {};
+    const rows = (await filesvc.listRootsDetailed()).map(r0 => ({
+      ...r0,
+      note: prefs[r0.path]?.note || "",
+      order: Number.isFinite(prefs[r0.path]?.order) ? prefs[r0.path].order : null
+    }));
+    // Unordered roots keep their config order, after the ones placed by hand.
+    rows.sort((a, b) =>
+      (a.order ?? 500 + rows.indexOf(a)) - (b.order ?? 500 + rows.indexOf(b)));
+    res.json(rows);
+  }));
+
+  r.put("/files/roots/prefs", (req, res) => {
+    const known = new Set(filesvc.listRoots().map(r0 => r0.path));
+    const incoming = req.body?.prefs;
+    if (!incoming || typeof incoming !== "object") {
+      return res.status(400).json({ error: "prefs must be an object" });
+    }
+    const out = {};
+    for (const [rawPath, v] of Object.entries(incoming)) {
+      // Normalise before comparing: listRoots resolves its paths, so on Windows
+      // it answers in backslashes while a caller may well send forward slashes.
+      // Comparing the raw strings silently matches nothing and drops every pref.
+      const p = path.resolve(String(rawPath));
+      // Only paths that are actually configured roots, so this endpoint cannot
+      // be used to grow the settings file with arbitrary keys.
+      if (!known.has(p) || !v || typeof v !== "object") continue;
+      out[p] = {
+        note: String(v.note ?? "").slice(0, 120),
+        order: clampInt(v.order, 0, 99)
+      };
+    }
+    const d = db();
+    d.settings = { ...d.settings, fileRoots: out };
+    save();
+    res.json({ ok: true, prefs: out });
+  });
 
   r.get("/files", wrap(async (req, res) => {
     const dir = req.query.path || filesvc.listRoots()[0]?.path;
@@ -163,6 +207,16 @@ export default function routes() {
   r.post("/files/rename", wrap(async (req, res) => {
     const out = await filesvc.rename(String(req.body?.from || ""), String(req.body?.to || ""));
     audit("files.rename", { from: req.body?.from, to: req.body?.to }, req);
+    res.json(out);
+  }));
+
+  r.post("/files/transfer", wrap(async (req, res) => {
+    const move = !!req.body?.move;
+    const out = await filesvc.transfer(req.body?.from, req.body?.to, {
+      move,
+      overwrite: !!req.body?.overwrite
+    });
+    audit(move ? "files.move" : "files.copy", { count: out.count, to: out.dest }, req);
     res.json(out);
   }));
 

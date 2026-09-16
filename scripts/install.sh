@@ -36,6 +36,10 @@ if [ ! -f "$SRC_DIR/server/index.js" ]; then
   c_err "run this from inside the cloned repository"
   exit 1
 fi
+if [ "$SRC_DIR" = "$APP_DIR" ]; then
+  c_err "run the installer from your source checkout, outside $APP_DIR"
+  exit 1
+fi
 
 # ---------------------------------------------------------------- packages
 c_info "checking packages"
@@ -79,12 +83,17 @@ mkdir -p "$APP_DIR" "$DATA_DIR" "$CONF_DIR"
 
 # Preserve node_modules across upgrades where possible; copy everything else.
 rsync -a --delete \
-  --exclude node_modules --exclude .git --exclude .nexus-data --exclude '.mcp.json' \
+  --exclude node_modules --exclude .git --exclude '.nexus-*' --exclude '.mcp.json' \
+  --exclude '.codex' --exclude '.claude' --exclude '.impeccable' --exclude '*.local.md' \
+  --exclude 'config.json' --exclude '*.log' \
+  --exclude '/backups/gui/before-restore-*' \
   "$SRC_DIR"/ "$APP_DIR"/ 2>/dev/null || {
     # rsync is not always present on a minimal server image
-    find "$APP_DIR" -mindepth 1 -maxdepth 1 ! -name node_modules -exec rm -rf {} +
+    find "$APP_DIR" -mindepth 1 -maxdepth 1 ! -name node_modules ! -name backups -exec rm -rf {} +
     cp -r "$SRC_DIR"/server "$SRC_DIR"/web "$SRC_DIR"/assets "$SRC_DIR"/scripts \
-          "$SRC_DIR"/package.json "$APP_DIR"/ 2>/dev/null || true
+          "$SRC_DIR"/package.json "$APP_DIR"/
+    [ ! -f "$SRC_DIR/package-lock.json" ] || cp "$SRC_DIR/package-lock.json" "$APP_DIR"/
+    [ ! -d "$SRC_DIR/backups" ] || cp -r "$SRC_DIR/backups" "$APP_DIR"/
   }
 
 cd "$APP_DIR"

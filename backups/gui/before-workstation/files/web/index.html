@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#14101F">
+<title>Nexus</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/icons/nexus-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/assets/brand/icons/nexus-16.png">
+<link rel="apple-touch-icon" href="/assets/brand/icons/nexus-128.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Silkscreen:wght@400;700&display=swap">
+<link rel="stylesheet" href="/vendor/xterm.css">
+<link rel="stylesheet" href="/style.css?v=0.16.0">
+</head>
+<body>
+
+<div id="scan"></div>
+<div id="toast"></div>
+
+<!-- ============ LOGIN / FIRST-RUN SETUP ============ -->
+<div id="gate">
+  <div class="gatebox raised">
+    <div class="gatehead"><span id="gate-title">NEXUS &mdash; SIGN IN</span></div>
+    <form class="gatebody" id="gate-form" autocomplete="on">
+      <img class="crt" src="/assets/brand/nexus-logo.png" alt="">
+      <p class="gatemsg" id="gate-msg">Sign in to your homelab.</p>
+      <div>
+        <label for="g-user">USERNAME</label>
+        <input id="g-user" name="username" type="text" autocomplete="username" required autocapitalize="none" spellcheck="false">
+      </div>
+      <div>
+        <label for="g-pass">PASSWORD</label>
+        <input id="g-pass" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <div id="g-confirm-wrap" hidden>
+        <label for="g-confirm">CONFIRM PASSWORD</label>
+        <input id="g-confirm" type="password" autocomplete="new-password">
+      </div>
+      <div class="gateerr" id="gate-err"></div>
+      <button class="btn primary" id="g-submit" type="submit">SIGN IN</button>
+    </form>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app" hidden>
+
+  <div id="topbar">
+    <img id="logo" src="/assets/brand/nexus-logo.png" alt="Nexus">
+    <span class="brand">NEXUS<span class="v">v0.1</span></span>
+    <span class="spacer"></span>
+    <span class="stat" id="st-state" data-tip="Live metrics stream. Goes red if the connection to the server drops."><i class="dot live" style="color:var(--ok)"></i><span>LIVE</span></span>
+    <span class="stat" data-tip="Whole-host CPU usage, refreshed every 2 seconds.">CPU <b id="tb-cpu">--</b></span>
+    <span class="stat opt" data-tip="Memory in use, not counting cache.">RAM <b id="tb-mem">--</b></span>
+    <span class="stat opt" data-tip="The hottest temperature sensor on the box right now.">TEMP <b id="tb-temp">--</b></span>
+    <span id="clock" data-tip="Your local time, from this browser.">--:--:--</span>
+    <button class="btn" id="theme" data-tip="Switch between the dark CRT and the light workstation theme.">THEME</button>
+    <button class="btn" id="logout" data-tip="Sign out of Nexus.">EXIT</button>
+  </div>
+
+  <div id="body">
+    <nav id="rail">
+      <button id="rail-toggle" title="Expand or collapse the menu"><span id="rail-toggle-txt">&#9776;</span></button>
+      <button class="nav on" data-page="dash"><img src="/assets/brand/icons/ui-dashboard.png" alt=""><span class="nlabel">Dashboard</span><span class="tip">DASHBOARD</span></button>
+      <button class="nav" data-page="store"><img src="/assets/brand/icons/ui-apps.png" alt=""><span class="nlabel">App Store</span><span class="tip">APP STORE</span></button>
+      <button class="nav" data-page="containers"><img src="/assets/brand/icons/ui-containers.png" alt=""><span class="nlabel">Containers</span><span class="tip">CONTAINERS</span></button>
+      <button class="nav" data-page="files"><img src="/assets/brand/icons/ui-files.png" alt=""><span class="nlabel">Files</span><span class="tip">FILES</span></button>
+      <button class="nav" data-page="term"><img src="/assets/brand/icons/ui-terminal.png" alt=""><span class="nlabel">Terminal</span><span class="tip">TERMINAL</span></button>
+      <button class="nav" data-page="control"><img src="/assets/brand/icons/ui-power.png" alt=""><span class="nlabel">Control Panel</span><span class="tip">CONTROL PANEL</span></button>
+      <span class="spacer"></span>
+      <button class="nav" data-page="settings"><img src="/assets/brand/icons/ui-settings.png" alt=""><span class="nlabel">Settings</span><span class="tip">SETTINGS</span></button>
+      <div id="rail-grip" title="Drag to resize the menu"></div>
+    </nav>
+
+    <div id="main">
+      <div id="toolbar">
+        <h1 id="page-title">DASHBOARD</h1>
+        <span class="spacer"></span>
+        <div id="tools-dash">
+          <button class="btn" id="add" data-tip="Open the widget library.">+ ADD WIDGET</button>
+          <button class="btn" id="reset" data-tip="Restore the default layout and close any gaps. Your widget styling is discarded.">RESET</button>
+        </div>
+        <div id="tools-containers" hidden>
+          <button class="btn" id="c-refresh" data-tip="Re-read the container list from Docker.">REFRESH</button>
+        </div>
+        <div id="tools-files" hidden>
+          <button class="btn" id="f-up" data-tip="Go up one folder. Stops at your configured roots.">PARENT</button>
+          <button class="btn" id="f-mkdir" data-tip="Create a folder here.">NEW FOLDER</button>
+          <button class="btn primary" id="f-upload" data-tip="Upload files into this folder. You can also drop them anywhere on this page.">UPLOAD</button>
+          <button class="btn" id="f-upload-dir" data-tip="Upload a whole folder, keeping its structure.">UPLOAD FOLDER</button>
+          <input id="f-file-input" type="file" multiple hidden>
+          <input id="f-dir-input" type="file" webkitdirectory directory multiple hidden>
+        </div>
+        <div id="tools-store" hidden>
+          <button class="btn" id="st-installed-btn" data-tip="Apps installed through Nexus, and how to remove them.">INSTALLED</button>
+          <button class="btn" id="st-github" data-tip="Install from a repo, a compose URL, or pasted YAML.">+ FROM GITHUB</button>
+          <button class="btn" id="st-libs" data-tip="Add or sync the git repositories the catalogue is built from.">LIBRARIES</button>
+        </div>
+        <div id="tools-term" hidden>
+          <button class="btn" id="t-new" data-tip="Close this shell and open a fresh one.">NEW SESSION</button>
+          <button class="btn" id="t-clear" data-tip="Wipe the screen. The session keeps running.">CLEAR</button>
+        </div>
+        <div id="tools-control" hidden>
+          <button class="btn" id="cp-new-rule" data-tip="Watch something and act when it stays wrong.">+ NEW RULE</button>
+          <button class="btn" id="cp-new-task" data-tip="Restart a container on a schedule.">+ NEW TASK</button>
+        </div>
+      </div>
+
+      <!-- dashboard -->
+      <section class="page on" id="page-dash">
+        <div class="selbar" id="selbar" hidden>
+          <span class="selc" id="selcount">0 WIDGETS SELECTED</span>
+          <span class="hint">Ctrl/&#8984;+click to add &middot; drag any of them to move the group &middot; right-click for shared settings &middot; Delete removes them</span>
+        </div>
+        <div id="grid"></div>
+        <div class="empty" id="grid-empty" hidden>NO WIDGETS &mdash; PRESS &ldquo;+ ADD WIDGET&rdquo;</div>
+      </section>
+
+      <!-- containers -->
+      <section class="page" id="page-containers">
+        <div id="c-status"></div>
+        <div class="tw"><table id="c-table">
+          <thead><tr><th>Name</th><th>Image</th><th>State</th><th>Ports</th><th>Managed</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </section>
+
+      <!-- files -->
+      <section class="page" id="page-files">
+        <div class="rootbar" id="f-roots"></div>
+        <div class="crumbs" id="f-crumbs"></div>
+        <div class="selbar" id="f-selbar" hidden>
+          <span class="selc" id="f-selcount">0 ITEMS SELECTED</span>
+          <span class="hint">Ctrl/&#8984;+click to add &middot; Shift+click for a run &middot; drag a box over empty space &middot; Delete removes them</span>
+        </div>
+        <div class="tw"><table id="f-table">
+          <thead><tr><th>Name</th><th>Size</th><th>Modified</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+
+        <!-- Shown while a file is dragged over the page -->
+        <div id="f-drop" hidden>
+          <div class="dropcard">
+            <img src="/assets/brand/icons/ui-upload.png" alt="">
+            <span class="dt">DROP TO UPLOAD</span>
+            <span class="dp" id="f-drop-path"></span>
+            <span class="hint">Folders are uploaded with their structure intact.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Upload progress. Fixed, so it never shifts the list underneath it. -->
+      <div id="uploader" hidden>
+        <div class="donut sm">
+          <svg viewBox="0 0 128 128" role="img" aria-label="Upload progress">
+            <circle class="track" cx="64" cy="64" r="52"></circle>
+            <circle class="fill" id="up-ring" cx="64" cy="64" r="52"></circle>
+          </svg>
+          <div class="dnum"><span id="up-pct">0</span><i>%</i></div>
+        </div>
+        <div class="upmeta">
+          <span class="uptitle" id="up-title">UPLOADING</span>
+          <span class="upname mono" id="up-name">&nbsp;</span>
+          <span class="hint" id="up-stat">&nbsp;</span>
+        </div>
+        <button class="btn danger" id="up-cancel" data-tip="Stop after the current file.">CANCEL</button>
+      </div>
+
+      <!-- app store -->
+      <section class="page" id="page-store">
+        <div id="st-warn"></div>
+
+        <div class="storebar">
+          <div class="searchwrap">
+            <img class="si" src="/assets/brand/icons/ui-search.png" alt="">
+            <input id="st-q" type="search" placeholder="Search apps…" autocapitalize="none" spellcheck="false">
+          </div>
+          <select id="st-cat" class="sel"><option value="">All categories</option></select>
+          <span class="hint" id="st-count"></span>
+        </div>
+
+        <div id="st-grid" class="appgrid"></div>
+        <div id="st-more" class="loadmore" hidden><button class="btn" id="st-more-btn">LOAD MORE</button></div>
+      </section>
+
+      <!-- terminal -->
+      <section class="page" id="page-term">
+        <div class="section" id="term-off" hidden>
+          <h2>TERMINAL DISABLED</h2>
+          <p class="hint">The terminal is switched off in the server config. Set <code>terminal.enabled</code> to true and restart to use it.</p>
+        </div>
+        <div id="term-on">
+          <div class="termchrome raised">
+            <div class="termbar">
+              <img src="/assets/brand/icons/ui-terminal.png" alt="">
+              <span class="tt" id="term-title">/bin/bash</span>
+              <span class="spacer"></span>
+              <span class="pill idle" id="term-backend">—</span>
+              <span class="pill ok" id="term-state"><i class="dot live"></i>CONNECTED</span>
+            </div>
+            <div id="xterm-host"></div>
+          </div>
+          <p class="hint" style="margin-top:8px">
+            Full PTY — arrow keys, tab completion, colours and curses apps all work.
+            Every session is written to the audit log.
+          </p>
+        </div>
+      </section>
+
+      <!-- control panel -->
+      <section class="page" id="page-control">
+        <div class="section">
+          <h2>ALERTS</h2>
+          <p class="hint">What has tripped, newest first. Kept on the server, so this survives a reload
+             &mdash; and a restart.</p>
+          <div class="rowbtns" style="margin:8px 0 12px">
+            <button class="btn" id="cp-ack" data-tip="Mark every alert as seen. Nothing is deleted.">MARK ALL READ</button>
+            <button class="btn danger" id="cp-clear" data-tip="Delete the alert history permanently.">CLEAR HISTORY</button>
+          </div>
+          <div id="cp-alerts"></div>
+        </div>
+
+        <div class="section">
+          <h2>WATCH RULES</h2>
+          <p class="hint">A rule watches one thing and does something when it stays wrong for long enough.
+             Sustain and cooldown are what keep this useful rather than noisy.</p>
+          <div id="cp-rules"></div>
+        </div>
+
+        <div class="section">
+          <h2>SCHEDULED TASKS</h2>
+          <p class="hint">Container restarts on a clock, in the server&rsquo;s local time.</p>
+          <div id="cp-schedules"></div>
+        </div>
+
+        <div class="section">
+          <h2>NOTIFICATIONS</h2>
+          <div id="cp-notify"></div>
+        </div>
+
+        <div class="section">
+          <h2>POWER</h2>
+          <div id="cp-power"></div>
+        </div>
+      </section>
+
+      <!-- settings -->
+      <section class="page" id="page-settings">
+        <div class="section">
+          <h2>DISPLAY</h2>
+          <div class="row" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <button class="btn" id="crt-toggle" data-tip="A scanline overlay. Looks good in screenshots, tiring to read through.">CRT SCANLINES: OFF</button>
+            <span class="hint">Adds a subtle scanline overlay. Off by default &mdash; it looks good in screenshots and gets tiring to read.</span>
+          </div>
+        </div>
+        <div class="section">
+          <h2>SYSTEM</h2>
+          <dl class="kv" id="s-system"></dl>
+        </div>
+        <div class="section">
+          <h2>SERVICES</h2>
+          <dl class="kv" id="s-services"></dl>
+        </div>
+        <div class="section">
+          <h2>STORAGE HEALTH (SMART)</h2>
+          <div id="s-smart"></div>
+        </div>
+        <div class="section">
+          <h2>RECENT ACTIVITY</h2>
+          <div class="tw"><table id="s-audit">
+            <thead><tr><th>When</th><th>Action</th><th>Who</th><th>Detail</th></tr></thead>
+            <tbody></tbody>
+          </table></div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- ============ WIDGET LIBRARY ============ -->
+<div id="drawer">
+  <div class="dw raised">
+    <div class="dw-head"><span>WIDGET LIBRARY</span><span class="dcount" id="dcount"></span><span class="spacer"></span><button class="btn" id="dclose">CLOSE</button></div>
+    <div class="dw-body" id="dbody"></div>
+  </div>
+</div>
+
+<!-- ============ WIDGET CONTEXT MENU (right-click) ============ -->
+<div id="ctx">
+  <div class="ctxhead"><img id="ctx-icon" src="/assets/brand/icons/ui-settings.png" alt=""><span id="ctx-title">WIDGET</span></div>
+  <div id="ctx-body"></div>
+  <div class="ctxfoot">
+    <button class="ctxopt" id="ctx-select">SELECT</button>
+    <button class="ctxopt" id="ctx-reset">RESET STYLE</button>
+    <button class="ctxopt" id="ctx-remove" style="color:var(--crit)">REMOVE</button>
+  </div>
+</div>
+
+<!-- ============ GENERIC MODAL (store detail, install, libraries) ============ -->
+<div id="modal">
+  <div class="mw raised">
+    <div class="mw-head">
+      <img id="mw-icon" src="/assets/brand/icons/ui-apps.png" alt="">
+      <span id="mw-title">TITLE</span>
+      <span class="spacer"></span>
+      <button class="btn" id="mw-close">CLOSE</button>
+    </div>
+    <div class="mw-body" id="mw-body"></div>
+    <div class="mw-foot" id="mw-foot"></div>
+  </div>
+</div>
+
+<script src="/vendor/xterm.js"></script>
+<script src="/vendor/xterm-addon-fit.js"></script>
+<script src="/vendor/xterm-addon-web-links.js"></script>
+<script src="/app.js?v=0.16.0"></script>
+</body>
+</html>

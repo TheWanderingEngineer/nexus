@@ -71,14 +71,33 @@ app.get("*", (req, res, next) => {
   res.sendFile(path.join(WEB_DIR, "index.html"));
 });
 
-// Error handler last. Never leak a stack trace to the browser.
+/**
+ * Error handler last. Never leak a stack trace to the browser.
+ *
+ * A refusal is more useful when it says what it refused over. These few fields
+ * are carried through by name — an allowlist, so a future error cannot leak
+ * something by attaching it to itself:
+ *
+ *   clashes    which names already exist at a copy/move destination
+ *   conflicts  which published ports are already bound on the host
+ *   wanted     which ports an app asked for
+ *
+ * Without this the client can only say "something already exists" and make the
+ * user go and find out which.
+ */
+const ERROR_DETAIL = ["clashes", "conflicts", "wanted"];
+
 app.use((err, req, res, _next) => {
   const status = err.status || 500;
   if (status >= 500) console.error("[api]", req.method, req.path, err);
-  res.status(status).json({ error: err.expose === false ? "internal error" : (err.message || "internal error") });
+  const body = { error: err.expose === false ? "internal error" : (err.message || "internal error") };
+  if (err.expose !== false) {
+    for (const k of ERROR_DETAIL) if (err[k] !== undefined) body[k] = err[k];
+  }
+  res.status(status).json(body);
 });
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 const server = http.createServer(app);
 
 /* ============================ WebSockets ============================ */

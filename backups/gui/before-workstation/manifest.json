@@ -1,0 +1,330 @@
+{
+  "version": 1,
+  "created": "2026-09-14T13:21:52.724Z",
+  "files": [
+    {
+      "path": "web/app.js",
+      "sha256": "5b7d9f046a7775648dba9b20c597bcd63054f5bfa74f8e2a57767ee9d540a9b0"
+    },
+    {
+      "path": "web/index.html",
+      "sha256": "2e6458eee496a7f0e8d12b1e6a4203099c320ec08d2e24227e36cec7ab142c37"
+    },
+    {
+      "path": "web/prototype/index.html",
+      "sha256": "e6279e1b9ab85482cdc519219ef6ae85ae2996249f8373cdfe806d99c71fdfdd"
+    },
+    {
+      "path": "web/style.css",
+      "sha256": "9843a340e00468fb025b6ca8dadf96845bc6cff060d07d505013db897444efd7"
+    },
+    {
+      "path": "web/vendor/xterm-addon-fit.js",
+      "sha256": "ba3ea256ce0620a0992a197d6c9baea64823fc93d8da07a9e366ca9943c18527"
+    },
+    {
+      "path": "web/vendor/xterm-addon-web-links.js",
+      "sha256": "b74864125ef3889753b94e61eb4dabb99b2a27f920f0c9a7bd53cbe6d10f032a"
+    },
+    {
+      "path": "web/vendor/xterm.css",
+      "sha256": "854a7c0fb70e8b1a083c16797ab827299fb18744f5ad34f227b48337e33293c6"
+    },
+    {
+      "path": "web/vendor/xterm.js",
+      "sha256": "14903579ff54664cd72f8e8699e6961a6272c21863ec1c3b118cdc8af5d4a972"
+    },
+    {
+      "path": "assets/brand/anim/crt-0.png",
+      "sha256": "86af92d7c775f19ba910a00a99cb53d8c613f0adc0356e165cd53e6a1082f66f"
+    },
+    {
+      "path": "assets/brand/anim/crt-1.png",
+      "sha256": "c4b3ac02f7643891fb61b8f8afd44d3e3939e412163b809898e7786bea433acb"
+    },
+    {
+      "path": "assets/brand/anim/crt-2.png",
+      "sha256": "d09e596d4fc4cf997194b0923e26049806ff4218cda1c8a7a20ed2d91834f57a"
+    },
+    {
+      "path": "assets/brand/anim/crt-3.png",
+      "sha256": "b65a335e1f4593941ae2cf634cfc3dc45c43c71d28278cc9e10c14de3ec3a71c"
+    },
+    {
+      "path": "assets/brand/anim/crt-4.png",
+      "sha256": "2b21d2c76c6e5bb950818bea78aca46da9ad661f8a8c37931de2927a242240e8"
+    },
+    {
+      "path": "assets/brand/anim/crt-5.png",
+      "sha256": "bdc648e473b9e1fe1c03ca92ea058252275e24c45fd32c570641ffb46259802a"
+    },
+    {
+      "path": "assets/brand/anim/crt-6.png",
+      "sha256": "df7f39f7e32759b16c1ae69685d17621566d0614ac76287673ca2d64688de3c2"
+    },
+    {
+      "path": "assets/brand/anim/crt-7.png",
+      "sha256": "db99757609005aaf2ee696704b3732a67804824d33f0e37ff58a5354bf1d6422"
+    },
+    {
+      "path": "assets/brand/anim/crt-8.png",
+      "sha256": "27c2a17a8b816e8e8dc02b01cb5f2d1a794757eac21dd3ae5daf28422929e0ba"
+    },
+    {
+      "path": "assets/brand/candidates/house-00.png",
+      "sha256": "469c747d0b49d98c0c664e4366cb3cca077d5dfacf43181b0041719cf5f11747"
+    },
+    {
+      "path": "assets/brand/candidates/house-01.png",
+      "sha256": "19daabcd138e32d5078cd4296b66d2c43de9a4bedbe4bde4fb21d7f088f7158b"
+    },
+    {
+      "path": "assets/brand/candidates/house-02.png",
+      "sha256": "d220ddb1577a6a3f2aa1a3e904c8113104fc2a880815a9a897d0559e236224a0"
+    },
+    {
+      "path": "assets/brand/candidates/house-03.png",
+      "sha256": "02b958b6afd43b52c2de1a3798b411c1f7e2e01e097c16e4aa47cc1582126afd"
+    },
+    {
+      "path": "assets/brand/candidates/house-04.png",
+      "sha256": "e5933d6b4ef20470f9813346b93c31a6824dff625b6e5e8af0a541c690b13a37"
+    },
+    {
+      "path": "assets/brand/candidates/house-05.png",
+      "sha256": "6c4bed328e685247ad5e197b7bbc8348d032ce8e8700bda5ae15e9331d0cd1d5"
+    },
+    {
+      "path": "assets/brand/candidates/house-06.png",
+      "sha256": "f66c761f0e91ca9d829c5ebbc386ec8521865328651283f2f68fd80ec519bf2b"
+    },
+    {
+      "path": "assets/brand/candidates/house-07.png",
+      "sha256": "76b40c6210b89117d16845fa971d4a0acac57eb7d9fc6ba2034eb7fc6856d11f"
+    },
+    {
+      "path": "assets/brand/candidates/house-08.png",
+      "sha256": "d2b311ca4d361ff8a3495aaae472b933daeeb1a474a42009d4f83b25d89a71b2"
+    },
+    {
+      "path": "assets/brand/candidates/house-09.png",
+      "sha256": "ab2e24de1ad9054799e9661fabacab42073fe2a5dcc09cecae5ed2e4a406730e"
+    },
+    {
+      "path": "assets/brand/candidates/house-10.png",
+      "sha256": "19202d2f5ab1fc6e2ce310188e10334ed2595af9a4406f7f0aad537c5f14e8d4"
+    },
+    {
+      "path": "assets/brand/candidates/house-11.png",
+      "sha256": "12d0da076a78d741e23d6ca4b0478a6c1e614c1fcb20bb68a1d1d9c176781e4f"
+    },
+    {
+      "path": "assets/brand/candidates/house-12.png",
+      "sha256": "9e32ae0d47281b9798ea28d7c6d9de50a59d8f287ea07e095c09d2995efdf730"
+    },
+    {
+      "path": "assets/brand/candidates/house-13.png",
+      "sha256": "8e1910eca64268d54da79527249988c773d3141e05d833a6b448340a1c3a9f9e"
+    },
+    {
+      "path": "assets/brand/candidates/house-14.png",
+      "sha256": "0d06bbedb09c1a0787536648e793d07e53b51605b19ab15215ef503dbdcddaf5"
+    },
+    {
+      "path": "assets/brand/candidates/house-15.png",
+      "sha256": "7c00f8734fa83c1570b9ca6565789c306f939389fb1a3eb2c3e919de1369bed3"
+    },
+    {
+      "path": "assets/brand/cat/alert-a.png",
+      "sha256": "088b0edd4d4b5053820ec3ced8a2cd1fc2436cc74e9fe1dbf7ee5c7e14b5f298"
+    },
+    {
+      "path": "assets/brand/cat/alert-b.png",
+      "sha256": "228682be6b626f0f93ce2857df17a425892be022ac3a9d440fde4ed3b9e47464"
+    },
+    {
+      "path": "assets/brand/cat/alert-blink.png",
+      "sha256": "2d21b1460096a651052690fac9d8e9a4440059a6351b16f8378bd06695fe7822"
+    },
+    {
+      "path": "assets/brand/cat/content-a.png",
+      "sha256": "af1556cfbd81bd7ae9af5bd66610a362969c28f22d8bfe2ba2bd73a50b9d9332"
+    },
+    {
+      "path": "assets/brand/cat/content-b.png",
+      "sha256": "a86cd56c99d87c599465ac93559e069629af9d4014d6b5fd2ebfcd637ad44c39"
+    },
+    {
+      "path": "assets/brand/cat/content-blink.png",
+      "sha256": "aab340fe0edda8548cb580d7d581fd188c17e795a68692a7d0fa72bf45b9811c"
+    },
+    {
+      "path": "assets/brand/cat/grumpy-a.png",
+      "sha256": "94cfc4c5b84e42586ea501827d3c854387e09e03c3f736f92a723c40cb6c0a19"
+    },
+    {
+      "path": "assets/brand/cat/grumpy-b.png",
+      "sha256": "b9dfca93a0f4ea60fd61fa7ffc87ea088c3230f319040be747bfc3440d1aea4d"
+    },
+    {
+      "path": "assets/brand/cat/rise-1.png",
+      "sha256": "392a715aa54e94629491b5f4dd2bb60751f2ee148ff48ae48d9cf431c71ebbc0"
+    },
+    {
+      "path": "assets/brand/cat/rise-2.png",
+      "sha256": "294b3fa75c304bc8f96acaf763141bbbc245e16ebffe6be8e505ee0f09740a6b"
+    },
+    {
+      "path": "assets/brand/cat/rise-3.png",
+      "sha256": "b0cbcaf5aebd8254fcb0c067de0699b2295503330d0095d6eb68f9bd44174616"
+    },
+    {
+      "path": "assets/brand/cat/rise-4.png",
+      "sha256": "695d1c818c8cd2acb56d53154baf8433fdd37bce2bdce806ae55441807bc90c3"
+    },
+    {
+      "path": "assets/brand/cat/rise-5.png",
+      "sha256": "2a791f863424e3766610f5db5fae5897c92f566d5d3571ed4c5fa50790a53bd3"
+    },
+    {
+      "path": "assets/brand/cat/sleepy-a.png",
+      "sha256": "012ac5eff90d28b95bd109f59978677c615502c9e3eb3cfed48355751df502dd"
+    },
+    {
+      "path": "assets/brand/cat/sleepy-b.png",
+      "sha256": "9939e841e2620c6a8c51fcc2c59058ec4bc6e28f723a5ea5a33a282f3bdf14d0"
+    },
+    {
+      "path": "assets/brand/cat/stand-a.png",
+      "sha256": "4bc4c4ba46f92093bf7423b7e217c5b566baede74f9c79520977012f86b8faba"
+    },
+    {
+      "path": "assets/brand/cat/stand-b.png",
+      "sha256": "3dd39ef5c44c1fb0bbe77f1220f356980a9cd9829c722f0f1a28d7efc312f4f1"
+    },
+    {
+      "path": "assets/brand/cat-sleeping.png",
+      "sha256": "f57a55210d62c19b051e6be9035e4926705702e7929c765275e76951054df648"
+    },
+    {
+      "path": "assets/brand/crt-concept.png",
+      "sha256": "1a9568b3737fcf54f78287c097c23c509521e098523aa350e53ba6aad081395b"
+    },
+    {
+      "path": "assets/brand/icons/nexus-128.png",
+      "sha256": "b1cc6f59b5fc18eeed266bffbf1ef8489b40153db2fbf0a3f097c01cefb9c6ef"
+    },
+    {
+      "path": "assets/brand/icons/nexus-16.png",
+      "sha256": "3933ed0f646f565479bc100bf9d2886b49a1ddeb67f3e50aa6ad46854720d59c"
+    },
+    {
+      "path": "assets/brand/icons/nexus-256.png",
+      "sha256": "ddf6018ccd9010562c86c56311899f87ea39d04e0d11d2b574b4b7855ccfb609"
+    },
+    {
+      "path": "assets/brand/icons/nexus-32.png",
+      "sha256": "6f8960ead471bb9c354ed240b1149cf2250d04b571ee9a19cd7a8baa84d5c206"
+    },
+    {
+      "path": "assets/brand/icons/nexus-64.png",
+      "sha256": "099bd23172bf402465e1a14db2b0bc0b14557862f17d93e251b0a28bec7212d3"
+    },
+    {
+      "path": "assets/brand/icons/ui-apps.png",
+      "sha256": "2aa2e13e86699a9c50528ce832b6e4ab50df102e060f0da085f4db5e9de8478d"
+    },
+    {
+      "path": "assets/brand/icons/ui-boot.png",
+      "sha256": "a0095764c84d1319a7a9a043b3712170b3394b37a7493da20f4feff4adefc684"
+    },
+    {
+      "path": "assets/brand/icons/ui-clock.png",
+      "sha256": "586e139689dc91bdd6b6d6d6a9be1456b5fe4e0402a4bec7df4619023ace19d0"
+    },
+    {
+      "path": "assets/brand/icons/ui-containers.png",
+      "sha256": "1a48a78f895d991a3b3f90fecd1f4a042d5ef8de9a166d7c6e9d420a7369cae4"
+    },
+    {
+      "path": "assets/brand/icons/ui-cpu.png",
+      "sha256": "8b1cefee8d3898b0d783e92086df75dd281ab72e3bb9ed5a5f65bf69f98338bf"
+    },
+    {
+      "path": "assets/brand/icons/ui-dashboard.png",
+      "sha256": "9ef7b65c0156d89ff107b48ac545cdc0f05fda39cf55e22a6edad3dcb642fd61"
+    },
+    {
+      "path": "assets/brand/icons/ui-files.png",
+      "sha256": "0d8f3ce7e4c606ca942c30a0988da0f9191444c3c312d7df5061b0ed4ce91017"
+    },
+    {
+      "path": "assets/brand/icons/ui-home.png",
+      "sha256": "800dd7a141905a118550128c8d3ef8b53c5ac2bd37c5565ce6ecac99c9412958"
+    },
+    {
+      "path": "assets/brand/icons/ui-lock.png",
+      "sha256": "56f265d26714e1c226b3d96eec6ed1e710b939ead9f7eff891533c902edb8ccf"
+    },
+    {
+      "path": "assets/brand/icons/ui-memory.png",
+      "sha256": "519f79366aefac9df4e031135fbddfd898ab61a7c761acaf8a21ed39dc30f51e"
+    },
+    {
+      "path": "assets/brand/icons/ui-network.png",
+      "sha256": "da91f717961bd58266550594ebbd7b82d65d0b92d01062d21f750d4f0c7584f5"
+    },
+    {
+      "path": "assets/brand/icons/ui-palette.png",
+      "sha256": "1d2727aecfc1835b1745f94b0dc18adab5baab3a7cef0f5321641f743cb8e619"
+    },
+    {
+      "path": "assets/brand/icons/ui-power.png",
+      "sha256": "1d87666de6d279acea53bbb4dea24f8deeac6988f3e32c89f8e1f37069f040f4"
+    },
+    {
+      "path": "assets/brand/icons/ui-refresh.png",
+      "sha256": "ac98a80446aebb3ebeb4bc1a71525430f9a406b15efaccc164b6774ce25fe9da"
+    },
+    {
+      "path": "assets/brand/icons/ui-search.png",
+      "sha256": "7b6035aa062e29b5bcac11cddfef8c2061075def120f3b45bc51ce023bd2a48f"
+    },
+    {
+      "path": "assets/brand/icons/ui-settings.png",
+      "sha256": "55c5b3c8c13a72b89fd2c162702606fd10edd1eb807a09b5371ddfa0055674ee"
+    },
+    {
+      "path": "assets/brand/icons/ui-storage.png",
+      "sha256": "0c00bf5589c5013edce4f6bc35647e7e32ee5a437b516fbbc769449145eabc76"
+    },
+    {
+      "path": "assets/brand/icons/ui-temp.png",
+      "sha256": "46dfae0c499cdfd17757e1619aa24bfeab6128342df792ed4527d6d88a2a1157"
+    },
+    {
+      "path": "assets/brand/icons/ui-terminal.png",
+      "sha256": "f3e1ec612cc2b56b5b049bc84b3e413c8d43068408b1708f71b2eebe8ba288cd"
+    },
+    {
+      "path": "assets/brand/icons/ui-textsize.png",
+      "sha256": "e6d6ccdcd9870c4dd45c49061edd0d1c59610158f1bab6d34f357c2c106a0956"
+    },
+    {
+      "path": "assets/brand/icons/ui-trash.png",
+      "sha256": "046210d4e77149ce3103a26514761187993c0cc1418c62173567d4f2a1af10c4"
+    },
+    {
+      "path": "assets/brand/icons/ui-upload.png",
+      "sha256": "7010324a390dfa07b494d4a8dac5b7e6db41279a54d8344e19c12a24ca74a83d"
+    },
+    {
+      "path": "assets/brand/icons/ui-warning.png",
+      "sha256": "530baf2c917af0a12af47395f35f7adea0d6797b2f3b7c4c70bf50d0a71c4d73"
+    },
+    {
+      "path": "assets/brand/nexus-logo.png",
+      "sha256": "1a9568b3737fcf54f78287c097c23c509521e098523aa350e53ba6aad081395b"
+    }
+  ]
+}

@@ -20,6 +20,43 @@ export function listRoots() {
   return roots().map(r => ({ name: r.name, path: r.path, exists: fsSync.existsSync(r.path) }));
 }
 
+/**
+ * Roots with the capacity of the filesystem each one sits on.
+ *
+ * statfs answers for the path itself, so a root nested inside another mount
+ * reports its own filesystem rather than whichever configured mount happens to
+ * be the longest prefix — matching mount strings is the version of this that
+ * quietly gives the wrong number for /mnt/data.
+ *
+ * `available` is deliberately bavail, not bfree: on ext4 a few percent is
+ * reserved for root, and reporting space that ordinary writes cannot use makes
+ * a disk look emptier than it is.
+ */
+export async function listRootsDetailed() {
+  const out = [];
+  for (const r of roots()) {
+    const row = { name: r.name, path: r.path, exists: fsSync.existsSync(r.path) };
+    if (row.exists) {
+      try {
+        const s = await fs.statfs(r.path);
+        const size = s.blocks * s.bsize;
+        const available = s.bavail * s.bsize;
+        row.size = size;
+        row.available = available;
+        row.used = (s.blocks - s.bfree) * s.bsize;
+        // Against the usable total, so the bar agrees with the numbers beside it.
+        const usable = row.used + available;
+        row.usage = usable > 0 ? Math.round((row.used / usable) * 1000) / 10 : null;
+      } catch {
+        // A root on a filesystem that cannot answer still lists and still works;
+        // it simply has no bar. Absent is not zero.
+      }
+    }
+    out.push(row);
+  }
+  return out;
+}
+
 export class PathError extends Error {
   constructor(msg) { super(msg); this.status = 403; }
 }
@@ -194,6 +231,80 @@ export async function rename(from, to) {
   const b = await resolveSafe(to, { mustExist: false });
   await fs.rename(a, b);
   return { path: b };
+}
+
+/**
+ * Copy or move a set of entries into a destination directory.
+ *
+ * Both sides are jailed independently, so a move from /DATA to /mnt/data is
+ * allowed while a move to anywhere outside the configured roots is not.
+ *
+ * Two refusals matter more than the rest:
+ *
+ *  - A directory cannot be copied or moved **into itself or its own
+ *    descendant**. `fs.cp` will happily recurse into the copy it is writing and
+ *    fill the disk; this is the classic way a file manager destroys an evening.
+ *  - Nothing is overwritten unless asked. Clashes come back as a list so the
+ *    caller can ask once, before anything has moved.
+ */
+export async function transfer(sources, destDir, { move = false, overwrite = false } = {}) {
+  const dest = await resolveSafe(String(destDir || ""));
+  const dst = await fs.stat(dest);
+  if (!dst.isDirectory()) throw new PathError("destination is not a folder");
+
+  const items = [];
+  for (const raw of (Array.isArray(sources) ? sources : []).slice(0, 2000)) {
+    const src = await resolveSafe(String(raw));
+    const name = path.basename(src);
+    const target = path.join(dest, name);
+
+    if (src === target) throw Object.assign(new Error(`"${name}" is already here`), { status: 409 });
+
+    const st = await fs.lstat(src);
+    if (st.isDirectory() && (dest === src || dest.startsWith(src + path.sep))) {
+      throw Object.assign(
+        new Error(`cannot ${move ? "move" : "copy"} "${name}" into itself`),
+        { status: 400 }
+      );
+    }
+    if (move && roots().some(r => r.path === src)) {
+      throw new PathError("refusing to move a configured root");
+    }
+    items.push({ src, target, name, dir: st.isDirectory() });
+  }
+
+  if (!overwrite) {
+    const clashes = [];
+    for (const it of items) {
+      if (await fs.stat(it.target).then(() => true, () => false)) clashes.push(it.name);
+    }
+    if (clashes.length) {
+      throw Object.assign(
+        new Error(`${clashes.length} item${clashes.length === 1 ? "" : "s"} already exist there`),
+        { status: 409, clashes }
+      );
+    }
+  }
+
+  const done = [];
+  for (const it of items) {
+    if (move) {
+      try {
+        if (overwrite) await fs.rm(it.target, { recursive: true, force: true });
+        await fs.rename(it.src, it.target);
+      } catch (err) {
+        // Renaming across filesystems is not a rename. /DATA and /mnt/data are
+        // different mounts, so this is the normal path here, not the edge case.
+        if (err.code !== "EXDEV") throw err;
+        await fs.cp(it.src, it.target, { recursive: true, force: true });
+        await fs.rm(it.src, { recursive: true, force: true });
+      }
+    } else {
+      await fs.cp(it.src, it.target, { recursive: true, force: !!overwrite, errorOnExist: !overwrite });
+    }
+    done.push(it.target);
+  }
+  return { ok: true, count: done.length, dest, paths: done };
 }
 
 export async function remove(target) {

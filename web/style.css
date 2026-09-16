@@ -606,22 +606,89 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
 
 
 /* ---------------- file manager: root switcher ---------------- */
-.rootbar{display:flex;flex-wrap:wrap;gap:calc(var(--u)*2);align-items:center;
-         margin-bottom:calc(var(--u)*3)}
-.rootbtn{
-  display:flex;flex-direction:column;gap:1px;text-align:left;
-  padding:calc(var(--u)*1.5) calc(var(--u)*3);background:var(--panel);
+/* Cards, not buttons. A path alone does not tell you what a drive is for, and
+   "how full is it" is the question you are usually holding when you look. */
+.rootbar{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));
+  gap:calc(var(--u)*2);align-items:stretch;margin-bottom:calc(var(--u)*3);
+}
+.rootcard{
+  display:flex;flex-direction:column;gap:calc(var(--u));min-width:0;
+  padding:calc(var(--u)*2) calc(var(--u)*2.5);background:var(--panel);
+  text-align:left;cursor:pointer;
   border-top:2px solid var(--bevel-lt);border-left:2px solid var(--bevel-lt);
   border-right:2px solid var(--bevel-dk);border-bottom:2px solid var(--bevel-dk);
 }
-.rootbtn:hover{background:var(--panel-hi)}
-.rootbtn.on{background:var(--accent);color:var(--on-accent)}
-.rootbtn.on .rp{color:var(--on-accent);opacity:.75}
-.rootbtn.missing{opacity:.45}
-.rootbtn .rn{font-family:var(--screen);font-weight:600;font-size:11px;letter-spacing:.06em}
-.rootbtn .rp{font-family:var(--mono);font-size:10px;color:var(--text-3)}
-.rootshint{flex:1 1 220px;min-width:0}
+.rootcard:hover{background:var(--panel-hi)}
+.rootcard.on{
+  background:var(--panel-hi);
+  border-left:var(--u) solid var(--accent);
+  border-top-color:var(--bevel-dk);
+}
+.rootcard.missing{opacity:.5;cursor:not-allowed}
+.rootcard.dragging{opacity:.45}
+.rootcard.dropbefore{box-shadow:inset 3px 0 0 var(--accent-2)}
+
+.rootcard .rhead{display:flex;align-items:baseline;gap:calc(var(--u)*2);min-width:0}
+.rootcard .rn{
+  font-family:var(--screen);font-weight:700;font-size:12px;letter-spacing:.07em;
+  color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.rootcard .rpct{
+  font-family:var(--mono);font-size:11px;font-variant-numeric:tabular-nums;
+  color:var(--text-2);flex:none;
+}
+.rootcard .rpct.warn{color:var(--warn)}
+.rootcard .rpct.crit{color:var(--crit)}
+.rootcard .rp{
+  font-size:10.5px;color:var(--text-3);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+
+/* The bar is the point of the redesign: a number you have to read is not the
+   same as a shape you can judge at a glance. */
+.rootcard .rbar{
+  display:block;height:calc(var(--u)*2);background:var(--sunk);margin-top:2px;
+  border-top:2px solid var(--bevel-dk);border-left:2px solid var(--bevel-dk);
+  border-right:2px solid var(--bevel-lt);border-bottom:2px solid var(--bevel-lt);
+}
+.rootcard .rbar i{display:block;height:100%;background:var(--accent);transition:width .3s linear}
+.rootcard .rbar.warn i{background:var(--warn)}
+.rootcard .rbar.crit i{background:var(--crit)}
+
+.rootcard .rfig{
+  font-size:11px;color:var(--text-2);font-variant-numeric:tabular-nums;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.rootcard .rfig b{color:var(--text-3);font-weight:400}
+.rootcard .rfig .rfree{color:var(--text-3)}
+.rootcard .rfig.dim{color:var(--text-3)}
+
+.rootcard .rnote{
+  font-size:11px;line-height:1.35;color:var(--text-2);
+  padding-top:calc(var(--u));border-top:2px solid var(--rule);margin-top:auto;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.rootcard .rnote.empty{color:var(--text-3);opacity:.6;font-style:italic}
+
+.rootshint{grid-column:1/-1;min-width:0}
 .rootshint code{font-size:.9em}
+
+/* ---------------- file manager: the clipboard ---------------- */
+.clipbar{
+  display:flex;align-items:center;gap:calc(var(--u)*3);flex-wrap:wrap;
+  padding:calc(var(--u)*2) calc(var(--u)*3);margin-bottom:calc(var(--u)*3);
+  background:var(--sunk);border-left:var(--u) solid var(--accent-2);
+}
+.clipbar .clipinfo{
+  font-family:var(--screen);font-weight:700;font-size:11px;letter-spacing:.07em;
+  color:var(--accent-2);
+}
+.clipbar .hint{flex:1 1 200px;font-size:11px}
+
+/* Cut rows stay visible but greyed, so it is clear what is about to move
+   rather than it vanishing from under you when the paste lands. */
+#f-table tr.cut td{opacity:.45;font-style:italic}
 
 
 /* ============================================================
@@ -960,10 +1027,10 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
   .w-rs{width:30px;height:30px}
   #f-table td,#c-table td,.tw td{padding-top:calc(var(--u)*2.5);padding-bottom:calc(var(--u)*2.5)}
   .crumbs button{padding:calc(var(--u)*1.5) calc(var(--u)*2)}
-  .rootbtn{min-height:46px}
+  .rootcard{min-height:46px}
   input[type=text],input[type=password],input[type=search],select,.sel{min-height:42px}
   /* Hover states are noise on touch — they latch on after a tap. */
-  .btn:hover,.nav:hover,.ctxopt:hover,.rootbtn:hover{background:inherit}
+  .btn:hover,.nav:hover,.ctxopt:hover,.rootcard:hover{background:inherit}
 }
 
 /* ============================================================

@@ -1,6 +1,10 @@
 # MCP config carries the Pixel Lab API key in plaintext — never commit it.
 .mcp.json
 
+# Same reason: .codex/config.toml holds the PixelLab bearer token, and the rest
+# of the directory is agent tooling rather than part of the app.
+.codex/
+
 # Local working notes: project context, the mini PC's details, environment
 # gotchas. Useful to keep, not something to publish.
 *.local.md
@@ -26,3 +30,8 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Local review evidence and rescue snapshots (the verified baseline is tracked).
+.impeccable/review/
+.impeccable/build/
+backups/gui/before-restore-*/
