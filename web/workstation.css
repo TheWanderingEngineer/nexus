@@ -205,7 +205,7 @@
    is thin-stroked and a heavy crosshair would outweigh the data it points at. */
 [data-gui="workstation"] #probe{--probe-line:var(--text-3);transition:opacity .13s ease-out}
 @supports (color:color-mix(in srgb,red,blue)){
-  [data-gui="workstation"] #probe{--probe-line:color-mix(in srgb,var(--text) 38%,transparent)}
+  [data-gui="workstation"] #probe{--probe-line:color-mix(in srgb,var(--text) 50%,transparent)}
 }
 [data-gui="workstation"] .pb-dot{width:8px;height:8px;margin:-4px 0 0 -4px;border-radius:50%}
 [data-gui="workstation"] .pb-key{border-radius:2px}

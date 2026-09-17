@@ -301,9 +301,18 @@ allowed to *start*:
 
 | Gesture | Starts on |
 |---|---|
-| Move a widget | the widget |
+| Move a widget | its title bar, or anywhere on a widget already selected (`dragHandle`). Touch keeps hold-to-drag from anywhere |
+| Read a chart | the chart, on hover — no press, so it never competes for the press |
 | Rubber-band select | bare canvas (`e.target === gridEl`) |
 | Pick up the cat | the cat sprite, which stops propagation |
+
+The body was a drag handle once, and giving it up was the right trade. A widget
+that is entirely a grab handle wears the grab cursor everywhere, and that cursor
+says the only thing here is a thing to move — so the readable parts inside it,
+the charts above all, read as decoration you are not meant to touch. Each cursor
+in the `WHERE A WIDGET IS PICKED UP` block of `style.css` now names exactly one
+thing the spot under it will do, and the crosshair on a chart is the only notice
+anyone gets that it can be read.
 
 Because the starting element decides, none of them ever has to arbitrate
 mid-gesture. Keep that property: a gesture that has to guess will guess wrong.

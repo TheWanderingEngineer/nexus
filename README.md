@@ -167,10 +167,11 @@ Widgets float where you drop them — gravity only applies when you press RESET.
 
 | Gesture | Effect |
 |---|---|
+| Drag a widget's title bar | Moves it. The body is not a handle — so the things inside it stay usable |
 | Right-click a widget | Its own settings: size, colour, background tint, plus per-type options |
 | Ctrl/⌘ + click | Add or remove a widget from the selection |
 | Ctrl/⌘ + A | Select every widget, including any below the fold |
-| Drag a selected widget | Moves the whole selection, keeping its internal spacing |
+| Drag a selected widget | Moves the whole selection, keeping its internal spacing. A selected widget moves from anywhere on it, not just its title bar |
 | Right-click a selection | Only the settings they all share; per-type options appear when the types match |
 | Delete / Backspace | Remove the selection |
 | Escape | Clear it |
@@ -243,9 +244,11 @@ The gear in each widget's header opens the same settings menu, because touch has
 no right-click. On phones it opens as a bottom sheet rather than a menu pinned to
 a fingertip.
 
-**Hold a widget to pick it up.** A press that moves is a scroll; a press that
-stays still for a moment becomes a drag, with a short buzz to say so. Below
-640px the canvas becomes a single column and dragging reorders the list.
+**Hold a widget to pick it up** — anywhere on it, not just the title bar, since
+a finger has no hover to protect and no cursor to mislead. A press that moves is
+a scroll; a press that stays still for a moment becomes a drag, with a short buzz
+to say so. Below 640px the canvas becomes a single column and dragging reorders
+the list.
 
 That phone order is stored separately from the desktop x/y, so rearranging on
 your phone does not flatten the layout you built on a real screen. The two are

@@ -910,7 +910,7 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
   --probe-ring:var(--pbg,var(--panel));
 }
 @supports (color:color-mix(in srgb,red,blue)){
-  #probe{--probe-line:color-mix(in srgb,var(--text) 42%,transparent)}
+  #probe{--probe-line:color-mix(in srgb,var(--text) 55%,transparent)}
 }
 #probe.on{opacity:1;visibility:visible}
 
@@ -946,17 +946,23 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
 .pb-val{font-family:var(--mono);font-size:12px;font-weight:600;font-variant-numeric:tabular-nums}
 
 /* ============================================================
-   DRAG THE WHOLE WIDGET
-   The body is a drag handle now, so it must not look like selectable text —
-   but everything inside it that owns a click keeps its own cursor.
+   WHERE A WIDGET IS PICKED UP
+   The title bar, or anywhere on a widget that is already selected. The body
+   used to be a handle everywhere, which put the grab cursor over the whole
+   widget — and a widget that is entirely something to move reads as having
+   nothing in it worth touching. Each cursor here names exactly one thing the
+   spot under it will do.
    ============================================================ */
-.w{cursor:grab;user-select:none}
-.w.dragging{cursor:grabbing}
+.w{cursor:default;user-select:none}
 .w button,.w a,.w input,.w select,.w textarea{cursor:pointer}
 .w .w-rs{cursor:nwse-resize}
-/* A chart is readable as well as draggable, and the cursor is the only place
-   that can say so before you try it. */
-.w .chart{cursor:crosshair}
+/* Selected widgets move from anywhere, so they wear the handle cursor. */
+.w.selected{cursor:grab}
+/* A chart is read, not dragged, and the cursor is the only place that can say
+   so before you try it. Last, so it holds on a selected widget too. */
+.w .chart,.w.selected .chart{cursor:crosshair}
+/* Mid-drag nothing under the pointer is anything but the drag. */
+.w.dragging,.w.dragging .chart,.w.dragging .w-head{cursor:grabbing}
 #grid.stack .w{cursor:default}
 
 /* ============================================================

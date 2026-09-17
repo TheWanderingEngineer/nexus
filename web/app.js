@@ -605,7 +605,13 @@ addEventListener("pointermove", e => {
   });
 }, { passive: true });
 
-addEventListener("pointerdown", hideProbe, true);
+addEventListener("pointerdown", e => {
+  // A press on the chart you are already reading starts nothing — the body is
+  // not a drag handle any more — so the readout has no reason to blink out and
+  // come straight back. Every other press is a gesture beginning somewhere else.
+  if (probeSvg && e.target?.closest?.("svg.chart") === probeSvg) return;
+  hideProbe();
+}, true);
 addEventListener("pointercancel", hideProbe, true);
 // Leaving the window fires no further pointermove, so the crosshair would be
 // left standing on the last chart the pointer crossed.
@@ -2369,6 +2375,26 @@ async function pollSecurity() {
 /** Things inside a widget that own their own click and must not start a drag. */
 const NO_DRAG = "button, a, input, select, textarea, .w-rs, [contenteditable]";
 
+/**
+ * Where a mouse or pen may begin a drag: the title bar, or anywhere on a widget
+ * that is already selected.
+ *
+ * The body used to be a drag handle too, and it cost more than it gave. A
+ * widget that is entirely a grab handle wears the grab cursor everywhere, which
+ * says "the only thing here is a thing to move" — so the readable parts inside
+ * it, the charts above all, read as decoration you are not meant to touch. The
+ * title bar is the handle every other windowed interface uses, and a selected
+ * widget stays draggable from anywhere so that picking up several at once still
+ * works from whichever one is under the pointer.
+ *
+ * Touch keeps hold-to-drag from anywhere. There is no cursor to mislead anyone
+ * and no hover to protect, and a press that travels is already a scroll.
+ */
+function dragHandle(it, target) {
+  if (target.closest(NO_DRAG)) return false;
+  return !!target.closest(".w-head") || selection.has(it.id);
+}
+
 /** The drag in progress, so Escape can reach it from anywhere. */
 let activeDrag = null;
 
@@ -2532,7 +2558,7 @@ function dragify(el, it) {
   el.addEventListener("pointerdown", e => {
     if (e.pointerType === "touch") return;   // handled by the touch path below
     if (e.button !== 0) return;
-    if (e.target.closest(NO_DRAG)) return;
+    if (!dragHandle(it, e.target)) return;
     if (e.ctrlKey || e.metaKey) return;      // that gesture is "select", not "move"
 
     const sx = e.clientX, sy = e.clientY;
