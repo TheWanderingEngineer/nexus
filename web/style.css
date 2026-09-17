@@ -892,6 +892,60 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
 #tip.on{opacity:1;visibility:visible}
 
 /* ============================================================
+   CHART CROSSHAIR
+   One floating overlay, moved over whichever chart is being hovered. It cannot
+   live inside the <svg>: every widget rewrites its chart once a second and
+   would erase it mid-hover.
+
+   Everything here is structure and the classic look. The workstation theme
+   rounds the dot and the card in workstation.css; the geometry is shared.
+   ============================================================ */
+#probe{
+  position:fixed;z-index:1150;pointer-events:none;
+  opacity:0;visibility:hidden;
+  transition:opacity .1s steps(2,end);
+  /* Derived from the palette's own ink, so the line is legible on parchment and
+     on a dark panel without either theme having to name a colour for it. */
+  --probe-line:var(--text-3);
+  --probe-ring:var(--pbg,var(--panel));
+}
+@supports (color:color-mix(in srgb,red,blue)){
+  #probe{--probe-line:color-mix(in srgb,var(--text) 42%,transparent)}
+}
+#probe.on{opacity:1;visibility:visible}
+
+/* Snapped to a sample, so the short glide is between two real readings rather
+   than a line chasing the cursor through the gaps. */
+.pb-line{
+  position:absolute;top:0;bottom:0;left:0;width:1px;
+  background:var(--probe-line);
+  transition:transform .07s linear;
+}
+.pb-dot{
+  position:absolute;top:0;left:0;width:7px;height:7px;margin:-4px 0 0 -4px;
+  background:var(--pc,var(--accent));
+  box-shadow:0 0 0 2px var(--probe-ring);
+  transition:transform .07s linear;
+}
+.pb-dot[hidden],.pb-row[hidden]{display:none}
+
+.pb-card{
+  position:absolute;top:0;left:0;
+  display:flex;flex-direction:column;gap:var(--u);
+  padding:calc(var(--u)*1.5) calc(var(--u)*2.5);
+  background:var(--panel-hi);color:var(--text);white-space:nowrap;
+  border-top:2px solid var(--bevel-lt);border-left:2px solid var(--bevel-lt);
+  border-right:2px solid var(--bevel-dk);border-bottom:2px solid var(--bevel-dk);
+  transition:transform .07s linear;
+}
+.pb-when{font-family:var(--mono);font-size:10px;letter-spacing:.03em;color:var(--text-3)}
+.pb-rows{display:flex;flex-direction:column;gap:var(--u)}
+.pb-row{display:flex;align-items:center;gap:calc(var(--u)*3)}
+.pb-key{width:7px;height:7px;flex:none}
+.pb-lbl{font-family:var(--screen);font-size:9px;letter-spacing:.1em;color:var(--text-2);flex:1}
+.pb-val{font-family:var(--mono);font-size:12px;font-weight:600;font-variant-numeric:tabular-nums}
+
+/* ============================================================
    DRAG THE WHOLE WIDGET
    The body is a drag handle now, so it must not look like selectable text —
    but everything inside it that owns a click keeps its own cursor.
@@ -900,6 +954,9 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
 .w.dragging{cursor:grabbing}
 .w button,.w a,.w input,.w select,.w textarea{cursor:pointer}
 .w .w-rs{cursor:nwse-resize}
+/* A chart is readable as well as draggable, and the cursor is the only place
+   that can say so before you try it. */
+.w .chart{cursor:crosshair}
 #grid.stack .w{cursor:default}
 
 /* ============================================================

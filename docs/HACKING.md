@@ -118,6 +118,63 @@ Anything that reads colour from JavaScript must read it from the CSS tokens
 that: the terminal painted its own near-black frame inside a green panel, and
 the widget charts stopped following the palette.
 
+## Charts, and the crosshair that reads them
+
+`drawChart` (one series) and `drawMirror` (two, mirrored around a centre line)
+draw at the element's real pixel size — the viewBox matches the measured box
+1:1, so nothing is scaled and the line stays crisp on a wide widget.
+
+Both also record a **probe descriptor** on the SVG element, `svg.__probe`, and
+that is what the hover crosshair reads:
+
+```js
+svg.__probe = {
+  w, h, n,                      // viewBox size and number of samples
+  at,                           // when the NEWEST sample was taken (LIVE.t)
+  step,                         // ms between samples — 1000, the collector's tick
+  fmt,                          // value -> string, e.g. rate() or v => v + "%"
+  series: [{ label, vals, color, y }]   // y(v) -> viewBox y for that value
+};
+```
+
+Three things about it are load-bearing:
+
+- **It lives on the element, not in a closure.** Every widget rewrites its
+  chart's `innerHTML` once a second, so a crosshair drawn *inside* the SVG would
+  be erased between one pointer move and the next. `#probe` is a single floating
+  overlay — the same arrangement as `#tip` — that re-reads `svg.__probe` after
+  every redraw, which is also why `renderWidgets()` ends with `refreshProbe()`.
+- **A chart with nothing to draw must call `emptyChart(svg)`,** not
+  `svg.innerHTML = ""`. Clearing the pixels without clearing the descriptor
+  leaves the crosshair quoting samples that are no longer on screen. Disk
+  Activity on a platform that cannot report throughput is the live case.
+- **Series are read right-aligned** (`sampleAt`): the newest sample is the last
+  one, so a series that is one sample short is missing it from the *start*.
+
+The line snaps to a sample rather than tracking the cursor. Between two samples
+there is no reading, and a crosshair that stops where a measurement exists is
+the difference between an exact value and a plausible-looking guess. Time comes
+from `LIVE.t` — the frame's own timestamp — worked backwards a `step` per
+sample, not from the browser clock.
+
+Mouse and pen only, deliberately. A finger has no hover, and a chart sits inside
+a widget body that a long press picks up to drag; scrubbing would have to fight
+both that gesture and the page scroll and would win neither cleanly. The
+crosshair also hides itself while a drag is running: a widget being moved is not
+a widget being read.
+
+Adding a chart to a new widget needs nothing beyond passing `label` and `fmt`:
+
+```js
+drawChart(r.svg, LIVE.history.cpu, 100, colorCss(cfg.color),
+  { label: "LOAD", fmt: v => v.toFixed(1) + "%" });
+```
+
+Structure and the classic look are in `style.css` under `#probe`; the rounded,
+soft-edged reading of the same geometry is in `workstation.css`. The line colour
+is derived from `--text` with `color-mix`, with a `--text-3` fallback, so it
+follows all three palettes without either theme naming a colour for it.
+
 ## The file manager
 
 Beyond listing and uploading, it does capacity, notes, a clipboard, and drag and

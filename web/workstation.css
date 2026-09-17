@@ -198,6 +198,27 @@
 }
 [data-gui="workstation"] .w.selected.dragging{box-shadow:0 0 0 2px var(--accent-2), var(--shadow)}
 [data-gui="workstation"] .wband{border-radius:6px;border-width:1px}
+
+/* ---------------- the chart crosshair ----------------
+   Same geometry as Classic; this is the round, soft-edged reading of it. The
+   line is a hairline rather than a ruled 1px bar, because a workstation chart
+   is thin-stroked and a heavy crosshair would outweigh the data it points at. */
+[data-gui="workstation"] #probe{--probe-line:var(--text-3);transition:opacity .13s ease-out}
+@supports (color:color-mix(in srgb,red,blue)){
+  [data-gui="workstation"] #probe{--probe-line:color-mix(in srgb,var(--text) 38%,transparent)}
+}
+[data-gui="workstation"] .pb-dot{width:8px;height:8px;margin:-4px 0 0 -4px;border-radius:50%}
+[data-gui="workstation"] .pb-key{border-radius:2px}
+/* Kept small on purpose: these charts are a few hundred pixels wide, and a
+   readout that covers the shape you are reading defeats itself. */
+[data-gui="workstation"] .pb-card{
+  gap:3px;padding:7px 10px;border:1px solid var(--rule);border-radius:7px;
+  background:var(--panel-hi);box-shadow:var(--shadow);
+}
+[data-gui="workstation"] .pb-when{font-size:9.5px;letter-spacing:.02em}
+[data-gui="workstation"] .pb-lbl{font-family:var(--pixel);font-size:10px;font-weight:600;letter-spacing:.06em}
+[data-gui="workstation"] .pb-val{font-size:12px;font-weight:500}
+[data-gui="workstation"] :is(.pb-line,.pb-dot,.pb-card){transition:transform .09s cubic-bezier(.16,1,.3,1)}
 [data-gui="workstation"] .bar{height:10px}
 [data-gui="workstation"] .sbar .strack{height:8px}
 [data-gui="workstation"] .sfill{transition:width .35s ease-out}

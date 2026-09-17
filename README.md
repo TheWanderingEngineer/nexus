@@ -192,6 +192,20 @@ Host, Server Cat — plus four that answer more specific questions:
 | **Disk Activity** | Read and write throughput, mirrored around a centre line. Linux only; `fsStats` reads `/proc/diskstats`. |
 | **Security Watch** | Failed logins, what is listening on all interfaces, pending security updates, who is logged in. |
 
+### Reading a chart
+
+Hover any chart — CPU, Network, Disk Activity — and a crosshair reads the sample
+under the pointer: the exact value and the clock time it was taken, down to the
+second. The line snaps to a sample rather than following the cursor, because
+between two samples there is no reading to give; the dot sits on the point being
+quoted, so there is never a question of which one the number belongs to. Disk
+Activity reads both halves at once, since "what was the disk doing at 14:31:08"
+is one question and not two. Leave the pointer where it is and the readout keeps
+up with the machine instead of freezing at whatever it said when you arrived.
+
+Mouse and pen only. A finger has no hover, and the chart sits inside a widget
+body that a long press picks up to drag.
+
 **Server Cat** is a mood ring for the machine. Four moods — sleepy, content,
 alert, grumpy — each driven by real readings (CPU, temperature, memory, disk,
 whether a container has fallen over), each with its own two-frame sprite
