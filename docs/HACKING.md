@@ -1,8 +1,21 @@
 # Hacking on Nexus
 
-Written for whoever picks this up next, including future me. `docs/DESIGN.md`
-covers what it should *look* like; this covers how it is *built* and which
-decisions are load-bearing.
+Written for whoever picks this up next, including future me. This covers how it
+is *built* and which decisions are load-bearing.
+
+**Which document to read:**
+
+| | |
+|---|---|
+| `docs/HACKING.md` | this file — architecture, invariants, how to extend it |
+| `docs/DESIGN.md` | the original pixel design system. Historical in places: it predates the workstation theme and its "no border-radius" rule now governs only the classic look |
+| `PRODUCT.md` | what the product is meant to be |
+| `HANDOFF.md` | a transient note between agents, if one is present. Delete it once settled |
+| `README.md` | install, configure, and what each feature does |
+
+Two things are true of the whole codebase and explain a lot of what follows:
+**nothing is faked when it cannot be measured**, and **no gesture has to guess
+what it is** — each one is decided by where it starts.
 
 ---
 
@@ -29,10 +42,19 @@ server/
   routes.js       the whole REST surface
 web/
   app.js          one IIFE, no framework, no bundler
-  style.css       one stylesheet, design tokens at the top
+  appearance.js   loaded before paint; sets the theme attributes on <html>
+  style.css       the original pixel theme, and every layout rule
+  workstation.css the workstation theme, layered on top of style.css
   vendor/         xterm.js, vendored because CSP forbids CDN scripts
-assets/brand/     pixel art (PixelLab); cat/ holds the Server Cat frames
+assets/brand/       pixel art (PixelLab); cat/ holds the Server Cat frames
+assets/workstation/ workbench scene and the theme's fonts
 ```
+
+Both stylesheets always load. `workstation.css` is an override layer scoped to
+`[data-gui="workstation"]`, not a replacement, so anything structural — layout,
+positioning, new components — belongs in `style.css` and only the *look* is
+overridden. A rule written only in `workstation.css` disappears for anyone on
+the classic theme.
 
 ---
 
@@ -67,6 +89,65 @@ host, un-guarded periodic work queues behind itself until the calls overlap
 permanently. See `procLoop` in `metrics.js`.
 
 ---
+
+## Two themes, three palettes
+
+`appearance.js` runs before first paint — that is why it is a blocking script in
+`<head>` — and stamps four attributes on `<html>`:
+
+| Attribute | Values |
+|---|---|
+| `data-gui` | `workstation` (default) or `classic` |
+| `data-palette` | `parchment` (light), `evergreen` (dark), `midnight` (dark) |
+| `data-theme` | `light` / `dark`, derived from the above |
+| `data-motion` | `full` or `reduced` |
+
+All four are browser-local (`localStorage`), never server state — the same
+account on two machines can look different, deliberately. `window.NexusAppearance`
+is the only supported way to change them; it writes, re-applies and fires a
+`nexus:appearance` event that the rest of the app listens for.
+
+**The two themes disagree about corners, and that is fine.** `docs/DESIGN.md`
+forbids `border-radius` anywhere — that rule belongs to the *classic* pixel
+theme and still holds there. The workstation theme is rounded throughout. Before
+adding a shape, decide which theme you are styling; a radius written into
+`style.css` leaks into the pixel theme and looks wrong there.
+
+Anything that reads colour from JavaScript must read it from the CSS tokens
+(`cssv("--accent")`), never hard-code a hex. Two bugs have come from ignoring
+that: the terminal painted its own near-black frame inside a green panel, and
+the widget charts stopped following the palette.
+
+## The file manager
+
+Beyond listing and uploading, it does capacity, notes, a clipboard, and drag and
+drop. Points worth knowing before changing any of it:
+
+- **`GET /files/roots`** returns each root with `size`, `used`, `available`,
+  `usage`, plus the user's `note` and `order`. Capacity comes from `statfs` on
+  the root itself, not by matching its path against a list of mounts — a root
+  nested inside another mount must report its own filesystem. `available` is
+  `bavail`, not `bfree`, because the root-reserved blocks are not space you can
+  write to.
+- **`PUT /files/roots/prefs`** stores note and order together, keyed by resolved
+  path, and drops any key that is not a configured root. Normalise with
+  `path.resolve()` before comparing — `listRoots()` resolves its paths, so a
+  raw-string comparison silently matches nothing on Windows.
+- **`POST /files/transfer`** is the single copy/move endpoint. `transferTo()` in
+  `app.js` is its single caller: both the clipboard paste and drag-and-drop go
+  through it, so clash handling cannot drift between them.
+- **Three refusals are load-bearing.** A directory cannot go into itself or a
+  descendant (`fs.cp` will otherwise recurse into the copy it is writing and
+  fill the disk); nothing is overwritten unless asked, with the clashing names
+  returned *before* anything moves; a configured root cannot be moved.
+- **`EXDEV` is the normal path, not an edge case.** `/DATA` and `/mnt/data` are
+  different filesystems, so a "move" between them falls back to copy-then-delete.
+
+A refusal can carry detail. `server/index.js` forwards `clashes`, `conflicts`
+and `wanted` from a thrown error through a **named allowlist**, and `api()` in
+`app.js` copies the same three onto the Error it throws. Add a field in both
+places or it silently does not arrive — without this a 409 reaches the user as
+"1 item already exists" with no way to say which.
 
 ## Adding a widget
 
@@ -150,9 +231,28 @@ so reordering on a phone does not flatten the desktop canvas.
 
 ---
 
-## Dragging widgets
+There are fifteen widgets today: `cpu`, `memory`, `storage`, `network`,
+`sensors`, `containers`, `uptime`, `clock`, `boot`, `cat`, `cores`, `procs`,
+`diskio`, `security`, `host`. **One of each** — `addWidget` refuses a duplicate
+and the library greys out what is already placed, so the rule holds however a
+widget is added.
 
-Two rules make it non-destructive, and both are easy to undo by accident:
+## Dragging and selecting
+
+Three gestures share the dashboard, and they are kept apart by where each one is
+allowed to *start*:
+
+| Gesture | Starts on |
+|---|---|
+| Move a widget | the widget |
+| Rubber-band select | bare canvas (`e.target === gridEl`) |
+| Pick up the cat | the cat sprite, which stops propagation |
+
+Because the starting element decides, none of them ever has to arbitrate
+mid-gesture. Keep that property: a gesture that has to guess will guess wrong.
+
+Two more rules make dragging non-destructive, and both are easy to undo by
+accident:
 
 1. **Every frame is computed from a snapshot taken at pointer-down**, never from
    the previous frame. Otherwise `resolve()` displaces widgets, they stay
@@ -199,6 +299,28 @@ display time. Never hardcode the cat's name or gender into a line.
 
 Position (`catX`/`catY`) is a **fraction of the stage**, not pixels, so where
 she is put survives a resize.
+
+## The workbench scene
+
+`assets/workstation/workbench.png` is the still illustration, used on the
+Settings page. The rail shows an animated version built from two derived layers:
+
+- `workbench-base.png` — the scene with the foliage removed
+- `workbench-leaves.png` — the foliage only, on the same 240×120 canvas so it
+  registers exactly over the hole
+
+Layers rather than a clipped copy of the whole scene: rotating a clip leaves the
+original leaves visible underneath and the plant appears to grow a second set.
+
+Three things move — leaves, indicator, steam — and every overlay is positioned
+as a **percentage measured from the PNG's own pixels**, not eyeballed. The
+indicator sits exactly on the 4×4 red square already in the art so it pulses,
+rather than adding a second light beside it. If the art is ever regenerated,
+re-measure: scan for the red pixels and the foliage bounding box, then redo the
+percentages.
+
+Motion stops completely under `[data-motion="reduced"]` and
+`prefers-reduced-motion`. "Reduced" means stop, not slow down.
 
 ---
 
@@ -252,3 +374,7 @@ template literal landed as `content:;` and silently killed two pseudo-elements.
 - **`npm run check` fails one assertion on a slow Windows box** (`system info
   returns data`). `si.osInfo()` has been measured at 97 seconds there, so warmup
   has not finished when the assertion runs. It passes on Linux.
+- **Every drive card can show the same capacity.** Two roots on one filesystem
+  genuinely have one pool of free space. `statfs` is answering correctly.
+- **`npm run vendor` is broken** — it points at `scripts/vendor-xterm.js`, which
+  does not exist. Long-standing, and harmless unless you re-vendor xterm.
