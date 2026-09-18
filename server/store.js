@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import cfg from "./config.js";
+import { peerInList } from "./netmatch.js";
 
 /**
  * A tiny JSON-file store with atomic writes.
@@ -86,7 +87,7 @@ export function clientIp(req) {
   const xff = req?.headers?.["x-forwarded-for"];
   const remote = req?.socket?.remoteAddress || "";
   // Only believe X-Forwarded-For when the immediate peer is a configured proxy.
-  if (xff && cfg.trustedProxies.some(p => remote.includes(p))) {
+  if (xff && peerInList(remote, cfg.trustedProxies)) {
     return String(xff).split(",")[0].trim();
   }
   return remote;

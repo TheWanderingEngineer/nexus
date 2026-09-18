@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import cfg from "./config.js";
+import { peerInList } from "./netmatch.js";
 import { db, save, audit, clientIp } from "./store.js";
 
 /**
@@ -103,8 +104,7 @@ function parseCookies(req) {
 
 function isSecureRequest(req) {
   if (req.socket?.encrypted) return true;
-  const remote = req.socket?.remoteAddress || "";
-  if (cfg.trustedProxies.some(p => remote.includes(p)) && req.headers["x-forwarded-proto"] === "https") return true;
+  if (fromTrustedProxy(req) && req.headers["x-forwarded-proto"] === "https") return true;
   return false;
 }
 
@@ -191,19 +191,59 @@ export function noteLoginSuccess(ip) { attempts.delete(ip); }
  * — with your cookies attached — and get a root shell. Same-origin by default;
  * extra origins only if explicitly configured.
  */
-export function originAllowed(req) {
-  const origin = req.headers.origin;
-  if (!origin) return true;              // non-browser client (CLI, curl); no ambient cookies to abuse
-  if (cfg.allowedOrigins.includes(origin)) return true;
+/** Is the immediate peer one of the proxies the operator said to believe? */
+function fromTrustedProxy(req) {
+  return peerInList(req?.socket?.remoteAddress || "", cfg.trustedProxies);
+}
 
-  const host = req.headers.host;
-  if (!host) return false;
-  try {
-    const u = new URL(origin);
-    return u.host === host;
-  } catch {
-    return false;
+/**
+ * Why an upgrade was allowed or refused, in enough detail to fix it.
+ *
+ * Split out from `originAllowed` because a rejected WebSocket is invisible from
+ * the browser — the socket just closes — and "no data and I don't know why" is
+ * how a reverse-proxy setup eats an afternoon. `/api/system/proxy-check` hands
+ * this straight to the UI.
+ */
+export function originDiagnosis(req, forcedOrigin) {
+  // `forcedOrigin` is for the diagnostic endpoint only. A same-origin GET from
+  // a browser usually carries no Origin header at all, while the WebSocket
+  // handshake always does — so without this the check would be asked about a
+  // request that looks nothing like the one that actually failed, and would
+  // cheerfully answer "fine". It decides nothing; only /system/proxy-check
+  // passes it, and that endpoint already requires a session.
+  const origin = forcedOrigin || req.headers.origin || null;
+  const host = req.headers.host || null;
+  const fwdHost = req.headers["x-forwarded-host"] || null;
+  const fwdProto = req.headers["x-forwarded-proto"] || null;
+  const peer = req?.socket?.remoteAddress || null;
+  const trusted = fromTrustedProxy(req);
+
+  const d = { origin, host, forwardedHost: fwdHost, forwardedProto: fwdProto,
+              peer, trustedPeer: trusted, allowedOrigins: cfg.allowedOrigins,
+              behindProxy: !!(fwdHost || fwdProto), ok: false, reason: null };
+
+  if (!origin) { d.ok = true; d.reason = "no Origin header — not a browser"; return d; }
+  if (cfg.allowedOrigins.includes(origin)) { d.ok = true; d.reason = "listed in allowedOrigins"; return d; }
+
+  let u;
+  try { u = new URL(origin); } catch { d.reason = "the Origin header is not a URL"; return d; }
+
+  if (host && u.host === host) { d.ok = true; d.reason = "Origin matches Host"; return d; }
+
+  // A reverse proxy that rewrites Host to the upstream address is a normal
+  // configuration, not an attack — but only the operator can say which proxy is
+  // theirs, so this is believed from a trusted peer and nowhere else.
+  if (trusted && fwdHost && u.host === fwdHost) {
+    d.ok = true; d.reason = "Origin matches X-Forwarded-Host from a trusted proxy"; return d;
   }
+  d.reason = fwdHost && u.host === fwdHost
+    ? `Origin matches X-Forwarded-Host (${fwdHost}) but ${peer} is not in trustedProxies`
+    : `Origin ${origin} matches neither Host (${host}) nor any allowed origin`;
+  return d;
+}
+
+export function originAllowed(req) {
+  return originDiagnosis(req).ok;
 }
 
 export function sessionFromUpgrade(req) {

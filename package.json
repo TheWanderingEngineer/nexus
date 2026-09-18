@@ -16,7 +16,8 @@
     "gui:verify": "node scripts/gui-backup.js verify",
     "gui:restore": "node scripts/gui-backup.js restore",
     "gui:check": "node scripts/gui-check.js",
-    "agent:check": "node scripts/agent-check.js"
+    "agent:check": "node scripts/agent-check.js",
+    "proxy:check": "node scripts/proxy-check.js"
   },
   "dependencies": {
     "dockerode": "^4.0.2",

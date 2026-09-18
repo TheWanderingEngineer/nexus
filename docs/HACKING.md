@@ -295,6 +295,52 @@ used to be written out in four places, three of them drifted, and "are you
 actually running the new build?" became unanswerable — which is exactly the
 question you need answered first when a UI change appears not to have worked.
 
+## Behind a reverse proxy
+
+The common deployment — a DuckDNS name, Nginx Proxy Manager, TLS — breaks the
+live dashboard in a way that looks like the backend is dead: the page loads, the
+API answers, and every number is zero. nginx does not forward a WebSocket
+upgrade unless configured to, and NPM ships that switch off.
+
+Three pieces handle it, and they are deliberately separate:
+
+**`originDiagnosis(req, forcedOrigin)`** in `auth.js` replaced the boolean
+`originAllowed`, which still exists and calls it. It returns *why*, not just
+whether. Two things about it are load-bearing:
+
+- It accepts `X-Forwarded-Host` **only from a peer in `trustedProxies`**. That
+  header is attacker-controlled everywhere else, so the selfcheck asserts a
+  forged one still gets a 403. Do not relax that to "any private address".
+- `forcedOrigin` exists because a same-origin `GET` usually carries no `Origin`
+  header at all, while a WebSocket handshake always does. Diagnosing the
+  diagnostic request rather than the failing one answered "fine" every time.
+  Only `/system/proxy-check` passes it, and it decides nothing.
+
+**The fallback.** `connectWS()` arms a 6-second deadline on the first attempt.
+If nothing has opened by then, `startPolling()` fetches `/system/metrics` every
+3s and `applyFull()` maps it into the same `LIVE` shape the socket frame uses —
+one function knows both shapes, so they cannot drift. A deadline rather than a
+retry count: with exponential backoff, "three attempts" is fifteen seconds of a
+page that says CONNECTING and shows nothing.
+
+**The banner.** `diagnoseLink()` asks the server what it sees and names the
+cause — origin refused (with the JSON to paste, built from the live config) or
+upgrade never arrived. The status pill has four states and `#st-state[data-link]`
+carries the colour, because the workstation theme used to pin it green and it
+read LIVE while nothing was.
+
+**`netmatch.js`** decides whether a peer is one of the operator's proxies. It
+replaced `remote.includes(pattern)`, which was wrong both ways: a CIDR like
+`172.18.0.0/16` matched nothing, so the documented way to trust a Docker network
+silently did not work; and the pattern `10.0.0.1` matched the peer `110.0.0.1`,
+so it could trust an address nobody meant. That list gates whether
+`X-Forwarded-Proto` and `X-Forwarded-Host` are believed, so both directions
+matter. `gui:check` covers the cases.
+
+`npm run proxy:check` drives a real browser through four proxy shapes: upgrade
+forwarded, upgrade dropped, `Host` rewritten with `trustedProxies` empty, and
+the same once it is set. If you touch any of the above, run it.
+
 ## The file manager
 
 Beyond listing and uploading, it does capacity, notes, a clipboard, and drag and

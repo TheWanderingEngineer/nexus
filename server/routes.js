@@ -18,7 +18,7 @@ import * as agentSkills from "./skills.js";
 import {
   hashPassword, verifyPassword, createSession, destroySession,
   setSessionCookies, clearSessionCookies, requireAuth, requireCsrf,
-  loginAllowed, noteLoginFailure, noteLoginSuccess
+  loginAllowed, noteLoginFailure, noteLoginSuccess, originDiagnosis
 } from "./auth.js";
 
 export default function routes() {
@@ -112,6 +112,32 @@ export default function routes() {
   });
 
   r.get("/system/metrics", (_req, res) => res.json(metrics.full()));
+
+  /**
+   * What the server sees about how this request reached it.
+   *
+   * The browser cannot tell a refused WebSocket from one a proxy silently
+   * dropped — both are just a socket that closed. This endpoint arrives over
+   * plain HTTP, which is the half of the connection that IS working, and says
+   * whether an upgrade from this same origin would be allowed. The UI uses that
+   * to name the actual cause instead of showing zeroes.
+   */
+  r.get("/system/proxy-check", (req, res) => {
+    // The caller tells us the origin its WebSocket would use, because this
+    // request's own Origin header is usually absent on a same-origin GET.
+    const asked = typeof req.query.origin === "string" ? req.query.origin.slice(0, 300) : null;
+    const d = originDiagnosis(req, asked);
+    res.json({
+      ...d,
+      wsPath: "/ws/metrics",
+      configFile: cfg.loadedFrom || "/etc/nexus/config.json",
+      // The exact strings to paste, rather than a paragraph describing them.
+      suggest: {
+        allowedOrigins: d.origin && !d.ok ? [...cfg.allowedOrigins, d.origin] : null,
+        trustedProxies: d.behindProxy && !d.trustedPeer && d.peer ? [...cfg.trustedProxies, d.peer] : null
+      }
+    });
+  });
 
   r.get("/system/security", wrap(async (req, res) => {
     res.json(await security.scan({ hours: Number(req.query.hours) || 24, force: req.query.refresh === "1" }));

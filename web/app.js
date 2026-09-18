@@ -236,35 +236,185 @@ const LIVE = {
   info: null, disks: [], containers: [], installed: []
 };
 
+/* ============================ the live link ============================
+ * The metrics socket is the fast path. It is not the only path.
+ *
+ * Reached through a reverse proxy — a DuckDNS name in front of Nginx Proxy
+ * Manager is the common case — a WebSocket is the one thing that needs the
+ * proxy to have been told about it. nginx does not forward an Upgrade unless
+ * it is configured to, and NPM ships that switch OFF. The socket then never
+ * opens, and every reading on the dashboard sits at zero with no explanation,
+ * which is exactly what happened to this dashboard's owner.
+ *
+ * So: the socket is tried, and if it will not open the dashboard falls back to
+ * polling the same numbers over plain HTTP, which is the half of the connection
+ * that demonstrably works — you are reading this page over it. The status pill
+ * says which mode it is in, and `diagnoseLink()` asks the server what it can
+ * see so the banner can name the actual cause instead of shrugging.
+ */
 let ws = null, wsRetry = 0;
+let wsEverOpen = false, pollTimer = null, linkState = "connecting";
+
+/* A deadline rather than a retry count. With exponential backoff, "three
+   attempts" can be fifteen seconds of a page that says CONNECTING and shows
+   nothing — longer than anyone waits before deciding it is broken. */
+const WS_DEADLINE_MS = 6000;
+let wsDeadline = null;
+
+function setLinkState(state, tip) {
+  linkState = state;
+  const el = $("#st-state");
+  if (!el) return;
+  const look = {
+    connecting: ["var(--text-3)", "CONNECTING", "Opening the live metrics stream."],
+    live:       ["var(--ok)",     "LIVE",       "Live metrics stream over a WebSocket."],
+    polling:    ["var(--warn)",   "POLLING",    "The WebSocket could not be opened, so readings are being fetched over HTTP instead."],
+    offline:    ["var(--crit)",   "OFFLINE",    "No connection to the server."]
+  }[state] || ["var(--crit)", "OFFLINE", ""];
+  el.innerHTML = `<i class="dot${state === "live" ? " live" : ""}" style="color:${look[0]}"></i><span>${look[1]}</span>`;
+  // The colour lives in CSS keyed off this, so the workstation theme cannot
+  // pin the pill green while the link is actually down.
+  el.dataset.link = state;
+  el.setAttribute("data-tip", tip || look[2]);
+}
+
+/** The WebSocket frame and GET /system/metrics describe the same machine in two
+ *  different shapes. This is the one place that knows both. */
+function applyFrame(d) {
+  Object.assign(LIVE, {
+    t: d.t || Date.now(),
+    cpu: d.cpu, mem: d.mem, net: d.net,
+    memUsed: d.memUsed, memTotal: d.memTotal, bootAt: d.bootAt,
+    uptimeSec: d.uptimeSec, sensors: d.sensors || [], history: d.history || LIVE.history,
+    cores: d.cores || [], disk: d.disk ?? null,
+    procs: d.procs || LIVE.procs,
+    loadavg: d.loadavg || LIVE.loadavg,
+    swapUsed: d.swapUsed ?? 0, swapTotal: d.swapTotal ?? 0
+  });
+  paintTopbar();
+  renderWidgets();
+}
+
+function applyFull(m) {
+  applyFrame({
+    t: m.updatedAt || Date.now(),
+    cpu: m.cpu?.usage ?? 0, mem: m.mem?.usage ?? 0,
+    net: m.net || { rx: 0, tx: 0 },
+    memUsed: m.mem?.used ?? 0, memTotal: m.mem?.total ?? 0,
+    bootAt: Date.now() - (m.uptimeSec || 0) * 1000,
+    uptimeSec: m.uptimeSec, sensors: m.sensors, history: m.history,
+    cores: m.cores, disk: m.diskIO ?? null, procs: m.procs,
+    loadavg: m.cpu?.loadavg, swapUsed: m.mem?.swapUsed, swapTotal: m.mem?.swapTotal
+  });
+  LIVE.disks = m.disks || LIVE.disks;
+}
+
+/** Ask the server what it sees, so the banner can say what is actually wrong. */
+async function diagnoseLink() {
+  let d = null;
+  // Tell the server which origin the socket would announce — this GET does not
+  // carry one, and diagnosing the wrong request gives the wrong answer.
+  try { d = await api("/system/proxy-check?origin=" + encodeURIComponent(location.origin)); }
+  catch { /* the whole API is down */ }
+  if (!d) {
+    return showLinkBanner("crit", "Nexus is not answering.",
+      "The page is loaded but the API is unreachable. Check that the service is running: <code>systemctl status nexus</code>.");
+  }
+  if (!d.ok) {
+    // The origin check refused the upgrade. That is a config answer, and we
+    // know exactly which line to paste.
+    return showLinkBanner("warn", "Live updates are blocked by the origin check.",
+      `The server refused the WebSocket: ${esc(d.reason)}.<br>` +
+      `Add this to <code>${esc(d.configFile)}</code> and restart Nexus:` +
+      `<pre>${esc(JSON.stringify(
+        d.suggest.trustedProxies
+          ? { allowedOrigins: d.suggest.allowedOrigins || [], trustedProxies: d.suggest.trustedProxies }
+          : { allowedOrigins: d.suggest.allowedOrigins || [] }, null, 2))}</pre>`);
+  }
+  // The origin is fine, so the upgrade is not reaching us at all — something in
+  // front of Nexus is dropping it.
+  return showLinkBanner("warn", "Your reverse proxy is not forwarding WebSockets.",
+    (d.behindProxy
+      ? `Nexus is being reached through a proxy at <code>${esc(d.peer || "?")}</code>, and the ` +
+        `origin is allowed — but the upgrade request never arrives. In <b>Nginx Proxy Manager</b>, ` +
+        `open this host and turn on <b>Websockets Support</b>. In plain nginx, the location needs ` +
+        `<code>proxy_set_header Upgrade $http_upgrade;</code> and ` +
+        `<code>proxy_set_header Connection "upgrade";</code>.`
+      : `The browser could not open a WebSocket to this server. A proxy, VPN or firewall between ` +
+        `you and Nexus is dropping the upgrade.`) +
+    `<br>Readings below are being polled over HTTP instead, so they update every few seconds ` +
+    `rather than every second. <b>The terminal needs the WebSocket and will not work until this is fixed.</b>`);
+}
+
+function showLinkBanner(kind, title, html) {
+  let el = $("#wsbanner");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "wsbanner";
+    el.setAttribute("role", "status");
+    $("#main")?.prepend(el);
+  }
+  el.className = "wsbanner " + kind;
+  el.innerHTML = `<div class="wsb-body"><b>${esc(title)}</b><div>${html}</div></div>` +
+                 `<button class="wsb-x" type="button" aria-label="Dismiss">&times;</button>`;
+  $(".wsb-x", el).addEventListener("click", () => el.remove());
+}
+
+function startPolling() {
+  if (pollTimer) return;
+  setLinkState("polling");
+  const tick = () => api("/system/metrics").then(applyFull).catch(() => setLinkState("offline"));
+  tick();
+  pollTimer = setInterval(tick, 3000);
+}
+
+function stopPolling() {
+  if (!pollTimer) return;
+  clearInterval(pollTimer);
+  pollTimer = null;
+}
 
 function connectWS() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  ws = new WebSocket(`${proto}//${location.host}/ws/metrics`);
 
-  ws.onopen = () => { wsRetry = 0; $("#st-state").innerHTML = '<i class="dot live" style="color:var(--ok)"></i><span>LIVE</span>'; };
+  // Armed once, on the first attempt. If nothing has opened by the time it
+  // fires, stop waiting and start polling — whatever the retry count is up to.
+  if (!wsEverOpen && !pollTimer && wsDeadline === null) {
+    wsDeadline = setTimeout(() => {
+      wsDeadline = null;
+      if (!wsEverOpen && !pollTimer) { startPolling(); diagnoseLink(); }
+    }, WS_DEADLINE_MS);
+  }
+
+  try { ws = new WebSocket(`${proto}//${location.host}/ws/metrics`); }
+  catch { return void onWsDown(); }
+
+  if (!wsEverOpen && !pollTimer) setLinkState("connecting");
+
+  ws.onopen = () => {
+    wsRetry = 0; wsEverOpen = true;
+    if (wsDeadline !== null) { clearTimeout(wsDeadline); wsDeadline = null; }
+    stopPolling();
+    $("#wsbanner")?.remove();
+    setLinkState("live");
+  };
   ws.onmessage = ev => {
     let msg; try { msg = JSON.parse(ev.data); } catch { return; }
     if (msg.type !== "metrics") return;
-    Object.assign(LIVE, {
-      t: msg.data.t || Date.now(),
-      cpu: msg.data.cpu, mem: msg.data.mem, net: msg.data.net,
-      memUsed: msg.data.memUsed, memTotal: msg.data.memTotal, bootAt: msg.data.bootAt,
-      uptimeSec: msg.data.uptimeSec, sensors: msg.data.sensors || [], history: msg.data.history || LIVE.history,
-      cores: msg.data.cores || [], disk: msg.data.disk ?? null,
-      procs: msg.data.procs || LIVE.procs,
-      loadavg: msg.data.loadavg || LIVE.loadavg,
-      swapUsed: msg.data.swapUsed ?? 0, swapTotal: msg.data.swapTotal ?? 0
-    });
-    paintTopbar();
-    renderWidgets();
+    applyFrame(msg.data);
   };
-  ws.onclose = () => {
-    $("#st-state").innerHTML = '<i class="dot" style="color:var(--crit)"></i><span>OFFLINE</span>';
-    wsRetry = Math.min(wsRetry + 1, 6);
-    setTimeout(connectWS, 500 * 2 ** wsRetry);
-  };
+  ws.onclose = () => onWsDown();
   ws.onerror = () => { try { ws.close(); } catch {} };
+}
+
+function onWsDown() {
+  wsRetry++;
+  // A socket that has worked before is probably just a restart or a dropped
+  // connection: keep the old reading on screen and reconnect quietly. One that
+  // has NEVER opened is a different fact, and is worth saying out loud.
+  if (wsEverOpen) setLinkState("offline");
+
+  setTimeout(connectWS, Math.min(500 * 2 ** Math.min(wsRetry, 6), 30000));
 }
 
 function paintTopbar() {
@@ -3989,10 +4139,23 @@ function connectTerminal() {
     term.write(typeof ev.data === "string" ? ev.data : new Uint8Array(ev.data));
   };
   termWS.onclose = () => {
+    const opened = termReady;
     termReady = false;
     state.className = "pill crit";
     state.innerHTML = '<i class="dot"></i>DISCONNECTED';
-    term.write("\r\n\x1b[90m[session closed — press NEW SESSION to reconnect]\x1b[0m\r\n");
+    // A shell that never opened is not a closed session, and telling someone to
+    // press NEW SESSION when the upgrade is being eaten by a proxy just makes
+    // them press it again. Say the real thing.
+    if (opened) {
+      term.write("\r\n\x1b[90m[session closed — press NEW SESSION to reconnect]\x1b[0m\r\n");
+    } else {
+      term.write("\r\n\x1b[33m[the shell could not be opened]\x1b[0m\r\n");
+      term.write("\x1b[90mThe terminal needs a WebSocket. If you are reaching Nexus through a reverse\r\n");
+      term.write("proxy, turn on Websockets Support for this host (Nginx Proxy Manager), or set\r\n");
+      term.write("proxy_set_header Upgrade / Connection in nginx. The dashboard banner has the\r\n");
+      term.write("exact diagnosis for your setup.\x1b[0m\r\n");
+      if (linkState === "polling") diagnoseLink();
+    }
   };
   termWS.onerror = () => {
     state.className = "pill crit";

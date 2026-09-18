@@ -54,7 +54,7 @@ labels, so apps you installed through CasaOS appear in Nexus immediately, tagged
   "host": "0.0.0.0",
   "port": 8080,
   "allowedOrigins": [],          // extra origins allowed to open a WebSocket
-  "trustedProxies": [],          // CIDRs whose X-Forwarded-For we believe
+  "trustedProxies": [],          // proxy addresses to believe: "172.18.0.0/16", "192.168.1.5", "192.168." or "localhost"
   "terminal": { "enabled": true, "shell": "/bin/bash" },
   "docker":   { "enabled": true, "socket": "/var/run/docker.sock" },
   "fileRoots": [                 // the file manager cannot escape these
@@ -100,7 +100,72 @@ over Tailscale/WireGuard. If you must publish it, put it behind a reverse proxy
 with TLS and an auth layer in front, set `trustedProxies`, and turn the terminal
 off.
 
+## Reaching it from outside (DuckDNS, Nginx Proxy Manager)
+
+Nexus behind a reverse proxy is the normal way to reach it from off the LAN, and
+it is where the live dashboard quietly stops working. **nginx does not forward a
+WebSocket upgrade unless you tell it to, and Nginx Proxy Manager ships that
+switch off.** Without it the page loads, you log in, and every reading sits at
+zero.
+
+Two things to set:
+
+**1. Websockets Support.** In Nginx Proxy Manager, open the proxy host →
+**Details** → turn on **Websockets Support**. In plain nginx, the location needs:
+
+```nginx
+proxy_set_header Upgrade    $http_upgrade;
+proxy_set_header Connection "upgrade";
+proxy_set_header Host       $host;
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+proxy_read_timeout 3600s;          # the terminal is a long-lived socket
+```
+
+**2. `trustedProxies`.** Add the address Nexus sees the proxy arriving from:
+
+```jsonc
+{ "trustedProxies": ["172.18.0.0/16"] }      // or whatever your proxy's address is
+```
+
+A CIDR block, a single address, a dotted prefix (`192.168.`) or `localhost`.
+Find the address Nexus actually sees with
+`journalctl -u nexus | grep '\[ws\]'`, or from the **proxy** field the dashboard
+banner prints.
+
+This does two jobs: it lets Nexus believe `X-Forwarded-Proto` and mark your
+session cookie `Secure`, and it lets the WebSocket origin check accept
+`X-Forwarded-Host` — needed if your proxy rewrites `Host` to the upstream
+address. Without it, an audit-log entry also records the proxy's address rather
+than yours.
+
+If your proxy passes the original `Host` through (the NPM default), Nexus works
+without `allowedOrigins`. If it does not, add the address you type in the browser:
+
+```jsonc
+{ "allowedOrigins": ["https://nexus.yourname.duckdns.org"] }
+```
+
+`sudo systemctl restart nexus` after either change.
+
+### If something is still wrong
+
+**The dashboard tells you.** When the metrics socket cannot be opened, Nexus
+falls back to polling over plain HTTP — so the readings keep working, a few
+seconds behind instead of every second — and shows a banner naming the actual
+cause: an origin the check refused (with the exact JSON to paste), or an upgrade
+that never arrived at all. The status pill reads **POLLING** rather than
+claiming LIVE.
+
+The terminal genuinely needs the WebSocket and says so instead of hanging. The
+Nexus Expert works either way; it talks over ordinary HTTP.
+
+Server-side, a refused upgrade is logged with its reason and the exact config
+line to add — `journalctl -u nexus | grep '\[ws\]'`.
+
 ## The app store
+
+
 
 **Libraries** are git repositories of app definitions. Two layouts are read:
 

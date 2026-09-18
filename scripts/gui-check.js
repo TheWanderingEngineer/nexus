@@ -23,7 +23,27 @@ function appearance(saved = {}, blocked = false) {
   vm.runInNewContext(fs.readFileSync(path.join(root, 'web/appearance.js'), 'utf8'), context);
   return { api: context.window.NexusAppearance, attrs, values };
 }
+const { peerMatches } = await import('../server/netmatch.js');
+
 try {
+  check('trusted-proxy patterns match the way the docs say they do', () => {
+    // CIDR — the form the README tells people to use for a Docker network.
+    assert.equal(peerMatches('172.18.0.5', '172.18.0.0/16'), true);
+    assert.equal(peerMatches('::ffff:172.18.0.5', '172.18.0.0/16'), true);
+    assert.equal(peerMatches('172.19.0.5', '172.18.0.0/16'), false);
+    assert.equal(peerMatches('10.1.2.3', '10.0.0.0/8'), true);
+    assert.equal(peerMatches('11.1.2.3', '10.0.0.0/8'), false);
+    // Exact, loopback, dotted prefix.
+    assert.equal(peerMatches('192.168.1.50', '192.168.1.50'), true);
+    assert.equal(peerMatches('127.0.0.1', 'localhost'), true);
+    assert.equal(peerMatches('::1', 'localhost'), true);
+    assert.equal(peerMatches('192.168.1.7', '192.168.'), true);
+    // The old substring match trusted this. It must not.
+    assert.equal(peerMatches('110.0.0.1', '10.0.0.1'), false);
+    assert.equal(peerMatches('8.8.8.8', '192.168.0.0/16'), false);
+    assert.equal(peerMatches('172.18.0.5', ''), false);
+    assert.equal(peerMatches('', '172.18.0.0/16'), false);
+  });
   check('new browser defaults to Parchment before paint', () => {
     assert.equal(appearance().attrs.palette, 'parchment');
     assert.equal(appearance().attrs.theme, 'light');

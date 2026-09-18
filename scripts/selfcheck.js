@@ -213,6 +213,19 @@ try {
     const anon = await wsHandshake("/ws/metrics", { Origin: BASE });
     check("WebSocket without a session is refused", anon === 401, `expected 401, got ${anon}`);
   }
+  {
+    // The origin check now also accepts X-Forwarded-Host, so that a reverse
+    // proxy which rewrites Host is not permanently locked out. That header is
+    // attacker-controlled unless the peer is a configured proxy, so a forged
+    // one from anywhere else must change nothing at all.
+    const forged = await wsHandshake("/ws/metrics", {
+      Origin: "https://evil.example",
+      "X-Forwarded-Host": "evil.example",
+      "X-Forwarded-Proto": "https",
+      Cookie: cookies
+    });
+    check("a forged X-Forwarded-Host cannot get a WebSocket", forged === 403, `expected 403, got ${forged}`);
+  }
 
   /* ---- app store ---- */
   {

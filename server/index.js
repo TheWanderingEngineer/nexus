@@ -6,7 +6,7 @@ import { WebSocketServer } from "ws";
 
 import cfg from "./config.js";
 import { db, audit } from "./store.js";
-import { attachUser, originAllowed, sessionFromUpgrade } from "./auth.js";
+import { attachUser, originDiagnosis, sessionFromUpgrade } from "./auth.js";
 import routes from "./routes.js";
 import * as metrics from "./metrics.js";
 import * as dockerx from "./dockerx.js";
@@ -107,11 +107,22 @@ const wssTerminal = new WebSocketServer({ noServer: true });
 const wssLogs = new WebSocketServer({ noServer: true });
 const wssEvents = new WebSocketServer({ noServer: true });
 
+let lastOriginWarn = 0;
 server.on("upgrade", (req, socket, head) => {
   // 1. Origin check FIRST. Browsers do not apply CORS to WebSockets, so without
   //    this any site you visit while logged in could open a socket to this box
   //    with your cookies attached. This is the highest-consequence check here.
-  if (!originAllowed(req)) {
+  const od = originDiagnosis(req);
+  if (!od.ok) {
+    // A refused upgrade is invisible in the browser, so say why here. Throttled:
+    // a page that retries every few seconds must not fill the journal.
+    const now = Date.now();
+    if (now - lastOriginWarn > 30000) {
+      lastOriginWarn = now;
+      console.error(`[ws] refused an upgrade: ${od.reason}`);
+      console.error(`[ws] if that is your reverse proxy, add "${od.origin}" to allowedOrigins, ` +
+                    `or add "${od.peer}" to trustedProxies, in ${cfg.loadedFrom || "/etc/nexus/config.json"}`);
+    }
     socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
     return socket.destroy();
   }
