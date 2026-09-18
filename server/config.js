@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
 
 /**
  * Config precedence: env vars > config file > defaults.
@@ -106,6 +107,22 @@ if (process.platform !== "linux") {
 
 cfg.isLinux = process.platform === "linux";
 cfg.loadedFrom = loadedFrom;
+
+/**
+ * One version string, read from package.json.
+ *
+ * It used to be written out in four places and three of them drifted — the
+ * banner said one thing, /api/health another, and the browser a third, which
+ * made "are you actually running the new build?" impossible to answer. Reading
+ * the manifest means the answer is always the same number.
+ */
+export const VERSION = (() => {
+  try {
+    const pkg = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "package.json");
+    return JSON.parse(fs.readFileSync(pkg, "utf8")).version || "0.0.0";
+  } catch { return "0.0.0"; }
+})();
+cfg.version = VERSION;
 
 fs.mkdirSync(cfg.dataDir, { recursive: true });
 

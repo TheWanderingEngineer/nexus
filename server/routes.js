@@ -13,6 +13,7 @@ import * as terminal from "./terminal.js";
 import * as library from "./library.js";
 import * as apps from "./apps.js";
 import * as automation from "./automation.js";
+import * as agent from "./agent.js";
 import {
   hashPassword, verifyPassword, createSession, destroySession,
   setSessionCookies, clearSessionCookies, requireAuth, requireCsrf,
@@ -25,7 +26,7 @@ export default function routes() {
   const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
   /* ---------------- health (unauthenticated, for uptime monitors) ------------ */
-  r.get("/health", (_req, res) => res.json({ ok: true, version: "0.1.0", uptimeSec: Math.floor(process.uptime()) }));
+  r.get("/health", (_req, res) => res.json({ ok: true, version: cfg.version, uptimeSec: Math.floor(process.uptime()) }));
 
   /* ---------------- first-run setup ---------------- */
   r.get("/setup/status", (_req, res) => {
@@ -96,6 +97,7 @@ export default function routes() {
   /* ---------------- system ---------------- */
   r.get("/system/info", (_req, res) => {
     res.json({
+      version: cfg.version,
       host: metrics.snapshot.host,
       cpu: { model: metrics.snapshot.cpu.model, cores: metrics.snapshot.cpu.cores },
       simulated: metrics.snapshot.simulated,
@@ -508,6 +510,11 @@ export default function routes() {
 
   r.put("/settings", (req, res) => {
     const s = req.body && typeof req.body === "object" ? req.body : {};
+    // The agent's config and its token counters are not general settings: they
+    // are validated and clamped by agent.js, and this endpoint merges whatever
+    // it is given. Without this the capability switches — including the root
+    // shell — could be set from here with none of those checks run.
+    delete s.agent; delete s.agentUsage;
     db().settings = { ...db().settings, ...s };
     save();
     res.json(db().settings);
@@ -516,6 +523,50 @@ export default function routes() {
   r.get("/audit", (req, res) => {
     const limit = Math.min(Number(req.query.limit) || 100, 500);
     res.json(db().audit.slice(0, limit));
+  });
+
+  /* ---------------- Nexus Expert (Hermes) ----------------
+     Everything here is behind requireAuth + requireCsrf like the rest of this
+     router. No endpoint returns an API key; `publicConfig()` reports only
+     whether one is set and its last four characters. */
+  r.get("/agent/config", (_req, res) => res.json(agent.publicConfig()));
+
+  r.put("/agent/config", (req, res) => {
+    const next = agent.saveSettings(req.body || {});
+    // The capability set is the security-relevant part, so that is what the
+    // audit log records — not the whole blob.
+    audit("agent.config", { provider: next.provider, model: next.model, approval: next.approval, caps: next.caps, roots: next.roots }, req);
+    res.json(agent.publicConfig());
+  });
+
+  r.put("/agent/key", (req, res) => {
+    const provider = String(req.body?.provider || "");
+    if (!agent.PROVIDERS.some(p => p.id === provider)) throw Object.assign(new Error("unknown provider"), { status: 400 });
+    const key = req.body?.key;
+    agent.setKey(provider, key === null || key === "" ? null : String(key));
+    // The key itself is never logged — only that one was set or cleared.
+    audit("agent.key", { provider, set: !!key }, req);
+    res.json({ keys: agent.keyStatus() });
+  });
+
+  r.post("/agent/run", (_req, res) => res.json({ id: agent.newRun() }));
+
+  r.post("/agent/run/:id/send", wrap(async (req, res) => {
+    const text = String(req.body?.text || "").trim();
+    if (!text) throw Object.assign(new Error("say something first"), { status: 400 });
+    res.json(await agent.send(req.params.id, text, req));
+  }));
+
+  r.post("/agent/run/:id/approve", wrap(async (req, res) => {
+    const decision = req.body?.decision === "allow" ? "allow" : "deny";
+    audit("agent.approval", { decision }, req);
+    res.json(await agent.resume(req.params.id, decision, req));
+  }));
+
+  r.delete("/agent/usage", (req, res) => {
+    agent.resetUsage();
+    audit("agent.usage.reset", null, req);
+    res.json(agent.usage());
   });
 
   return r;

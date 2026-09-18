@@ -175,6 +175,74 @@ soft-edged reading of the same geometry is in `workstation.css`. The line colour
 is derived from `--text` with `color-mix`, with a `--text-3` fallback, so it
 follows all three palettes without either theme naming a colour for it.
 
+## The agent
+
+`server/agent.js` is self-contained: a provider catalogue, a tool table, and a
+run loop. `routes.js` only exposes it. Four things in there are load-bearing.
+
+**Capabilities gate the tool list, not just the tool.** `toolsFor(settings)`
+decides which tools are even *described* to the model. A switched-off capability
+does not produce a refusal the model can argue with — the tool does not exist as
+far as it knows. `execute()` re-checks the capability anyway, because a paused
+run can be approved after the switch was turned off.
+
+**Two jails, in series.** `agentPath()` calls the file manager's `resolveSafe`
+(or `resolveForCreate`), which answers "may Nexus touch this", and then checks
+the result against the roots ticked for the agent, which answers "may Hermes".
+`allowedRoots()` intersects the saved list with the *currently configured* roots
+every time, so editing `config.json` can only ever narrow what a stale saved path
+reaches.
+
+**`PUT /settings` must never be a way in.** That endpoint merges whatever it is
+given into `settings`, so it explicitly deletes `agent` and `agentUsage`. Without
+that, the root-shell switch could be set without any of `saveSettings()`'s
+validation. If you add another validated settings island, delete it there too.
+
+**Transcripts stay in memory.** A conversation can contain file contents and
+command output; writing it to `state.json` would quietly turn a chat into a copy
+of the machine. Only the audit entries and the token counters reach disk.
+
+### Adding a tool
+
+One entry in the `TOOLS` array:
+
+```js
+{
+  name: "read_file", cap: "readFiles", risk: "read",
+  description: "What the model reads to decide whether to call it.",
+  schema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+  preview: a => `${a.path}`,        // only for risk "write"/"exec": what ALLOW is agreeing to
+  async run(args, settings) { return "text the model gets back"; }
+}
+```
+
+`risk` decides the approval gate: `read` never asks, `write` and `exec` ask
+unless the owner has chosen full access. `cap` must be one of the keys in
+`DEFAULTS.caps`, or the tool can never be enabled. The return value is a string
+and is clipped — `clip()` exists because a 200 MB log would otherwise become a
+200 MB request.
+
+### Providers
+
+Three wire shapes behind one normalised `{text, calls, usage}`: `anthropicCall`,
+`openaiCall` (OpenAI, DeepSeek, and every local server that copies them) and
+`googleCall`. Raw `fetch` rather than the vendors' SDKs, because `npm ci` on the
+target box must never need a compiler and one adapter is less code than three
+SDKs plus the glue to make them interchangeable behind a single model picker.
+
+Prices in `PROVIDERS` carry `PRICING_AS_OF` and a `priced` flag. **Do not invent
+a rate for a model you could not verify** — set `priced: false` and the UI says
+"see pricing" and reports tokens without a dollar figure. Absent is not zero here
+either.
+
+## The version string
+
+`cfg.version` in `config.js`, read from `package.json`, is the only one. The
+banner, `/api/health`, `/api/system/info` and the Settings page all print it. It
+used to be written out in four places, three of them drifted, and "are you
+actually running the new build?" became unanswerable — which is exactly the
+question you need answered first when a UI change appears not to have worked.
+
 ## The file manager
 
 Beyond listing and uploading, it does capacity, notes, a clipboard, and drag and

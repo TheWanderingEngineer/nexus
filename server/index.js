@@ -97,7 +97,7 @@ app.use((err, req, res, _next) => {
   res.status(status).json(body);
 });
 
-const VERSION = "0.3.0";
+const VERSION = cfg.version;
 const server = http.createServer(app);
 
 /* ============================ WebSockets ============================ */

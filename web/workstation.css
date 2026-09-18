@@ -348,3 +348,52 @@
 }
 @media(pointer:coarse){[data-gui="workstation"] .btn,[data-gui="workstation"] .btn.sm{min-height:44px}}
 @media(min-width:1800px){[data-gui="workstation"] #main{padding:36px 40px 88px}[data-gui="workstation"] #toolbar h1{font-size:36px}}
+
+/* ---------------- Nexus Expert ----------------
+   Same geometry as Classic, rounded and lifted. The robot keeps its pixel grid
+   — it is drawn on a 16-unit lattice and that is the joke — but its corners
+   soften so it sits in a workstation rather than on a CRT. */
+[data-gui="workstation"] .hb-head{rx:2.2px}
+[data-gui="workstation"] .hb-visor{rx:1.4px}
+[data-gui="workstation"] :is(.hb-ear,.hb-stalk,.hb-bulb,.hb-tooth){rx:.5px}
+
+[data-gui="workstation"] #hermes-open{
+  border:1px solid var(--rule);border-radius:999px;padding:8px 16px 8px 10px;
+  background:var(--panel);box-shadow:var(--shadow);
+  font-family:var(--pixel);font-size:11px;letter-spacing:.06em;
+  transition:transform .2s cubic-bezier(.16,1,.3,1),box-shadow .2s ease-out,background-color .15s ease-out;
+}
+[data-gui="workstation"] #hermes-open:hover{
+  transform:translateY(-3px);box-shadow:0 12px 28px rgba(0,0,0,.18);background:var(--panel-hi);
+}
+[data-gui="workstation"] #hermes-open.tucked{transform:translateY(120%) scale(.9)}
+
+[data-gui="workstation"] #hermes{
+  border:1px solid var(--rule);border-radius:12px;box-shadow:var(--shadow);
+  animation:workstation-open .24s cubic-bezier(.16,1,.3,1);
+}
+[data-gui="workstation"] .hx-head{background:var(--panel-hi);border-bottom:1px solid var(--rule);
+  border-radius:11px 11px 0 0;padding:10px 12px}
+[data-gui="workstation"] .hx-who b{font-family:var(--pixel);font-size:12px;letter-spacing:.08em}
+[data-gui="workstation"] .hx-ico{border-radius:6px}
+[data-gui="workstation"] :is(.hx-bub,.hx-err,.hx-tool,.hx-preview,.hx-code){border-radius:9px}
+[data-gui="workstation"] .hx-tool{border-left-width:3px;border-radius:0 9px 9px 0}
+[data-gui="workstation"] .hx-bub code{border-radius:4px;padding:1px 4px}
+[data-gui="workstation"] .hx-tick{border-radius:50%}
+[data-gui="workstation"] .hx-think i{border-radius:50%}
+[data-gui="workstation"] .hx-risk{border-radius:4px}
+[data-gui="workstation"] .hx-compose{border-top:1px solid var(--rule)}
+[data-gui="workstation"] .hx-foot{border-radius:0 0 11px 11px}
+[data-gui="workstation"] .hx-link{font-family:var(--pixel);font-size:10px;font-weight:600}
+
+[data-gui="workstation"] :is(.ag-prov,.ag-model,.ag-cap,.ag-check,.ag-mode){
+  border-width:1px;border-radius:8px;
+  transition:border-color .15s ease-out,background-color .15s ease-out,transform .15s ease-out;
+}
+[data-gui="workstation"] :is(.ag-prov,.ag-model,.ag-mode):hover{border-color:var(--accent);transform:translateY(-1px)}
+[data-gui="workstation"] :is(.ag-prov,.ag-model,.ag-mode).on{box-shadow:0 0 0 1px var(--accent)}
+[data-gui="workstation"] .ag-cap:hover{border-color:var(--accent)}
+[data-gui="workstation"] .ag-cap.off:hover{border-color:var(--rule)}
+[data-gui="workstation"] .ag-block h3{font-family:var(--pixel);font-size:12px;letter-spacing:.04em;font-weight:600}
+[data-gui="workstation"] .ag-tier{font-family:var(--pixel);font-size:10px;letter-spacing:.06em;font-weight:600}
+[data-gui="workstation"] .warnline{border-radius:0 6px 6px 0;padding:8px 10px;background:var(--sunk)}
