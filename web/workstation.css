@@ -397,3 +397,16 @@
 [data-gui="workstation"] .ag-block h3{font-family:var(--pixel);font-size:12px;letter-spacing:.04em;font-weight:600}
 [data-gui="workstation"] .ag-tier{font-family:var(--pixel);font-size:10px;letter-spacing:.06em;font-weight:600}
 [data-gui="workstation"] .warnline{border-radius:0 6px 6px 0;padding:8px 10px;background:var(--sunk)}
+
+/* ---- skill library, rounded ---- */
+[data-gui="workstation"] :is(.sk-sum,.sk-drop,.sk-item,.sk-body,.sk-track,.sk-mode,.sk-seed){border-radius:7px}
+[data-gui="workstation"] :is(.sk-sum,.sk-item){border-width:1px}
+[data-gui="workstation"] .sk-item{transition:border-color .15s ease-out,opacity .15s ease-out}
+[data-gui="workstation"] .sk-item:hover{border-color:var(--accent)}
+[data-gui="workstation"] .sk-drop{border-width:2px;border-radius:10px}
+[data-gui="workstation"] .sk-mode{font-family:var(--pixel);font-size:9.5px;font-weight:600;letter-spacing:.05em;border-radius:4px}
+[data-gui="workstation"] .sk-seed{font-family:var(--pixel);font-size:9.5px;font-weight:600;letter-spacing:.05em;border-radius:4px}
+[data-gui="workstation"] .sk-track{border-radius:3px}
+[data-gui="workstation"] .sk-track i{border-radius:3px}
+[data-gui="workstation"] .sk-body{border-width:1px;border-radius:8px}
+[data-gui="workstation"] .ag-test{font-size:12px}

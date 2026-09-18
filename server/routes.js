@@ -14,6 +14,7 @@ import * as library from "./library.js";
 import * as apps from "./apps.js";
 import * as automation from "./automation.js";
 import * as agent from "./agent.js";
+import * as agentSkills from "./skills.js";
 import {
   hashPassword, verifyPassword, createSession, destroySession,
   setSessionCookies, clearSessionCookies, requireAuth, requireCsrf,
@@ -562,6 +563,51 @@ export default function routes() {
     audit("agent.approval", { decision }, req);
     res.json(await agent.resume(req.params.id, decision, req));
   }));
+
+  r.post("/agent/test", wrap(async (req, res) => {
+    const out = await agent.testKey();
+    audit("agent.test", { provider: out.provider, model: out.model, ok: out.ok }, req);
+    res.json(out);
+  }));
+
+  /* ---- the skill library ----
+     Skills are Markdown on disk under <dataDir>/agent-skills. The id is
+     slugified in skills.js so a dropped filename cannot address anything
+     outside that folder. */
+  r.get("/agent/skills", (_req, res) => res.json({ list: agentSkills.list(), budget: agentSkills.budget(), seeds: agentSkills.seedNames() }));
+
+  r.get("/agent/skills/:id", (req, res) => res.json(agentSkills.read(req.params.id)));
+
+  r.post("/agent/skills", (req, res) => {
+    const { id, name, content, description, mode } = req.body || {};
+    if (typeof content !== "string" || !content.trim()) {
+      throw Object.assign(new Error("a skill needs some text in it"), { status: 400 });
+    }
+    const savedId = agentSkills.write({ id, name, content, description, mode });
+    audit("agent.skill.save", { id: savedId, bytes: content.length }, req);
+    res.json({ id: savedId, list: agentSkills.list(), budget: agentSkills.budget() });
+  });
+
+  r.put("/agent/skills/:id", (req, res) => {
+    if (typeof req.body?.enabled === "boolean") agentSkills.setEnabled(req.params.id, req.body.enabled);
+    if (req.body?.mode) agentSkills.setMode(req.params.id, req.body.mode);
+    audit("agent.skill.update", { id: req.params.id, enabled: req.body?.enabled, mode: req.body?.mode }, req);
+    res.json({ list: agentSkills.list(), budget: agentSkills.budget() });
+  });
+
+  r.delete("/agent/skills/:id", (req, res) => {
+    agentSkills.remove(req.params.id);
+    audit("agent.skill.delete", { id: req.params.id }, req);
+    res.json({ list: agentSkills.list(), budget: agentSkills.budget() });
+  });
+
+  /* Restore, not reset: a skill you edited keeps your version, a skill you
+     deleted comes back. */
+  r.post("/agent/skills/restore", (req, res) => {
+    const added = agentSkills.seed();
+    audit("agent.skill.restore", { added }, req);
+    res.json({ added, list: agentSkills.list(), budget: agentSkills.budget() });
+  });
 
   r.delete("/agent/usage", (req, res) => {
     agent.resetUsage();

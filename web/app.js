@@ -5520,8 +5520,10 @@ async function renderAgentSettings() {
         <input id="ag-key" type="password" autocomplete="off" spellcheck="false"
                placeholder="${key.set ? "saved — " + esc(key.hint) + ", type to replace" : esc(prov.keyHint || "paste your key")}">
         <button class="btn sm" id="ag-key-save" type="button">SAVE KEY</button>
+        <button class="btn sm" id="ag-key-test" type="button">TEST</button>
         ${key.set ? `<button class="btn sm danger" id="ag-key-clear" type="button">REMOVE</button>` : ""}
       </div>
+      <p class="ag-test" id="ag-test" role="status" aria-live="polite"></p>
       <p class="hint">Stored on this server only, in a file only root can read, and never sent back to a
         browser. ${prov.keyUrl ? `<a href="${esc(prov.keyUrl)}" target="_blank" rel="noopener">Get a key &rarr;</a>` : ""}</p>
     </div>
@@ -5564,6 +5566,15 @@ async function renderAgentSettings() {
         <label for="ag-steps">Tool calls per message</label>
         <input id="ag-steps" type="number" min="1" max="40" value="${Number(s.maxSteps)}">
         <span class="hint">It stops here and waits for you to say "carry on".</span>
+      </div>
+    </div>
+
+    <div class="ag-block">
+      <h3>Skills <small>what Hermes knows before you tell him</small></h3>
+      ${skillSummary(c.skills)}
+      <div class="ag-row">
+        <button class="btn" id="ag-skills-open" type="button">OPEN SKILL LIBRARY</button>
+        <span class="hint">Markdown files. Drop one in, switch it on or off, or delete it for good.</span>
       </div>
     </div>
 
@@ -5618,6 +5629,27 @@ async function renderAgentSettings() {
     await api("/agent/key", { method: "PUT", body: { provider: s.provider, key: null } }).catch(() => {});
     renderAgentSettings(); refreshAgentConfig();
   });
+  on($("#ag-skills-open", host), "click", () => openSkillLibrary());
+
+  on($("#ag-key-test", host), "click", async e => {
+    const out = $("#ag-test", host);
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    out.className = "ag-test working";
+    out.textContent = "calling " + prov.label + "…";
+    try {
+      const r = await api("/agent/test", { method: "POST" });
+      out.className = "ag-test " + (r.ok ? "ok" : "bad");
+      out.textContent = r.ok
+        ? `${r.provider} answered as ${r.model} in ${r.ms} ms — ${r.tokens.in} in, ${r.tokens.out} out.`
+        : `${r.provider} refused: ${r.error}`;
+      refreshAgentConfig();
+    } catch (err) {
+      out.className = "ag-test bad";
+      out.textContent = err.message || "the test could not be run";
+    } finally { btn.disabled = false; }
+  });
+
   on($("#ag-usage-reset", host), "click", async () => {
     await api("/agent/usage", { method: "DELETE" }).catch(() => {});
     renderAgentSettings(); refreshAgentConfig();
@@ -5629,6 +5661,190 @@ const allUnpriced = u => {
   const rows = Object.values(u.byModel || {});
   return rows.length > 0 && rows.every(m => !m.priced);
 };
+
+/* ==================== the skill library ====================
+ * Skills are Markdown files. The library is a modal rather than more rows in
+ * the settings page, because it is a place you go to do a job — read one, drop
+ * a few in, decide what is memory and what is on demand — and then leave.
+ */
+
+function skillSummary(sk) {
+  if (!sk) return "";
+  const on = sk.list.filter(x => x.enabled);
+  const always = on.filter(x => x.mode === "always");
+  const demand = on.filter(x => x.mode === "ondemand");
+  const pct = Math.min(100, Math.round((sk.budget.used / sk.budget.limit) * 100));
+  return `<div class="sk-sum">
+    <div class="sk-sumrow"><b>${always.length}</b><span>in memory, sent every message</span></div>
+    <div class="sk-sumrow"><b>${demand.length}</b><span>on demand, fetched when needed</span></div>
+    <div class="sk-sumrow"><b>${sk.list.length - on.length}</b><span>switched off</span></div>
+    <div class="sk-budget${sk.budget.over ? " over" : ""}">
+      <div class="sk-track"><i style="width:${pct}%"></i></div>
+      <span>${(sk.budget.used / 1024).toFixed(1)} kB of ${(sk.budget.limit / 1024).toFixed(0)} kB memory budget${
+        sk.budget.over ? " — over; move something to on-demand" : ""}</span>
+    </div>
+  </div>`;
+}
+
+let SK = { list: [], budget: null, seeds: [] };
+
+async function openSkillLibrary() {
+  openModal({
+    title: "SKILL LIBRARY",
+    icon: ICON("terminal"),
+    body: `<div id="sk-wrap"><div class="sk-loading">loading…</div></div>`,
+    foot: `<span class="hint sk-foothint">Markdown, front matter optional.</span>
+           <span class="spacer"></span>
+           <button class="btn sm" id="sk-restore" type="button">RESTORE DEFAULTS</button>
+           <button class="btn sm" id="sk-new" type="button">NEW SKILL</button>
+           <button class="btn primary sm" id="sk-done" type="button">DONE</button>`
+  });
+  on("#sk-done", "click", () => { closeModal(); renderAgentSettings(); });
+  on("#sk-new", "click", () => editSkill(null));
+  on("#sk-restore", "click", async () => {
+    const r = await api("/agent/skills/restore", { method: "POST" }).catch(e => { toast(e.message, "err"); });
+    if (r) { toast(r.added ? `${r.added} restored` : "nothing was missing", "ok"); paintSkills(r); }
+  });
+  paintSkills(await api("/agent/skills").catch(() => ({ list: [], budget: null, seeds: [] })));
+}
+
+function paintSkills(data) {
+  if (data) SK = data;
+  const wrap = $("#sk-wrap");
+  if (!wrap) return;
+
+  const row = k => `
+    <div class="sk-item${k.enabled ? "" : " off"}" data-id="${esc(k.id)}">
+      <label class="sk-on" data-tip="${k.enabled ? "Switch off — kept on disk" : "Switch on"}">
+        <input type="checkbox" data-sk-on${k.enabled ? " checked" : ""}>
+      </label>
+      <div class="sk-main">
+        <div class="sk-name">${esc(k.name)}
+          <span class="sk-mode ${k.mode}" data-tip="${k.mode === "always"
+            ? "In memory: sent with every message"
+            : "On demand: Hermes loads it when a question needs it"}">${k.mode === "always" ? "MEMORY" : "ON DEMAND"}</span>
+          ${k.seeded ? `<span class="sk-seed" data-tip="Shipped with Nexus — RESTORE DEFAULTS brings it back">STOCK</span>` : ""}
+        </div>
+        <div class="sk-desc">${esc(k.description || "no description")}</div>
+        <div class="sk-meta">${(k.bytes / 1024).toFixed(1)} kB · ${esc(k.id)}</div>
+      </div>
+      <div class="sk-acts">
+        <button class="btn sm" data-sk-swap type="button">${k.mode === "always" ? "→ ON DEMAND" : "→ MEMORY"}</button>
+        <button class="btn sm" data-sk-edit type="button">OPEN</button>
+        <button class="btn sm danger" data-sk-del type="button">DELETE</button>
+      </div>
+    </div>`;
+
+  wrap.innerHTML = `
+    <div class="sk-drop" id="sk-drop">
+      <b>Drop .md files here</b>
+      <span>or <button class="hx-link" id="sk-pick" type="button">choose files</button></span>
+      <input type="file" id="sk-file" accept=".md,.markdown,text/markdown,text/plain" multiple hidden>
+    </div>
+    ${SK.budget ? skillSummary(SK) : ""}
+    <div class="sk-list">${SK.list.length ? SK.list.map(row).join("")
+      : `<p class="hint">The library is empty. Drop a Markdown file in, or press RESTORE DEFAULTS.</p>`}</div>`;
+
+  /* ---- drop zone ---- */
+  const drop = $("#sk-drop"), file = $("#sk-file");
+  on("#sk-pick", "click", () => file.click());
+  file.addEventListener("change", () => { addSkillFiles([...file.files]); file.value = ""; });
+  // dragover must be prevented or the browser navigates to the file instead.
+  ["dragenter", "dragover"].forEach(ev =>
+    drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach(ev =>
+    drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", e => addSkillFiles([...(e.dataTransfer?.files || [])]));
+
+  /* ---- per-row ---- */
+  $$("[data-sk-on]", wrap).forEach(b => b.addEventListener("change", async e => {
+    const id = e.target.closest(".sk-item").dataset.id;
+    paintSkills(await api(`/agent/skills/${encodeURIComponent(id)}`, {
+      method: "PUT", body: { enabled: e.target.checked } }).catch(() => null));
+  }));
+  $$("[data-sk-swap]", wrap).forEach(b => b.addEventListener("click", async e => {
+    const item = e.target.closest(".sk-item");
+    const cur = SK.list.find(k => k.id === item.dataset.id);
+    paintSkills(await api(`/agent/skills/${encodeURIComponent(item.dataset.id)}`, {
+      method: "PUT", body: { mode: cur.mode === "always" ? "ondemand" : "always" } }).catch(() => null));
+  }));
+  $$("[data-sk-edit]", wrap).forEach(b => b.addEventListener("click", e =>
+    editSkill(e.target.closest(".sk-item").dataset.id)));
+  $$("[data-sk-del]", wrap).forEach(b => b.addEventListener("click", async e => {
+    const item = e.target.closest(".sk-item");
+    const k = SK.list.find(x => x.id === item.dataset.id);
+    if (!confirm(`Delete "${k.name}" permanently?\n\n` +
+                 (k.seeded ? "It ships with Nexus, so RESTORE DEFAULTS would bring it back."
+                           : "There is no copy of this one — it is gone for good."))) return;
+    paintSkills(await api(`/agent/skills/${encodeURIComponent(item.dataset.id)}`, { method: "DELETE" })
+      .catch(err => { toast(err.message, "err"); return null; }));
+  }));
+}
+
+async function addSkillFiles(files) {
+  const md = files.filter(f => /\.(md|markdown|txt)$/i.test(f.name));
+  if (!md.length) return toast("markdown files only", "err");
+  let last = null;
+  for (const f of md) {
+    try {
+      const content = await f.text();
+      last = await api("/agent/skills", { method: "POST", body: { name: f.name, content } });
+    } catch (e) { toast(`${f.name}: ${e.message}`, "err"); }
+  }
+  if (last) { toast(md.length === 1 ? "SKILL ADDED" : `${md.length} SKILLS ADDED`, "ok"); paintSkills(last); }
+}
+
+/** Read or write one skill. The same form for both, because "open" almost always
+ *  turns into "change one line". */
+async function editSkill(id) {
+  let k = { id: "", name: "", description: "", mode: "ondemand", body: "" };
+  if (id) { try { k = await api(`/agent/skills/${encodeURIComponent(id)}`); } catch { return; } }
+
+  const form = document.createElement("div");
+  form.className = "sk-edit";
+  form.innerHTML = `
+    <div class="ag-row"><label for="sk-e-name">Name</label>
+      <input id="sk-e-name" type="text" value="${esc(k.name)}" placeholder="What this skill is called"></div>
+    <div class="ag-row"><label for="sk-e-desc">One line</label>
+      <input id="sk-e-desc" type="text" value="${esc(k.description)}"
+             placeholder="How Hermes decides whether he needs it"></div>
+    <div class="ag-row"><label>When</label>
+      <div class="ag-modes sk-modes">
+        <button type="button" class="ag-mode${k.mode === "always" ? " on" : ""}" data-m="always">
+          <b>In memory</b><span>Sent with every message. Keep it short.</span></button>
+        <button type="button" class="ag-mode${k.mode === "ondemand" ? " on" : ""}" data-m="ondemand">
+          <b>On demand</b><span>Only its name and one line cost anything.</span></button>
+      </div></div>
+    <textarea id="sk-e-body" class="sk-body" spellcheck="false"
+              placeholder="Markdown. Write it as instructions to Hermes.">${esc(k.body)}</textarea>`;
+
+  let mode = k.mode;
+  openModal({
+    title: id ? "EDIT SKILL" : "NEW SKILL",
+    icon: ICON("terminal"),
+    body: form,
+    foot: `<span class="spacer"></span>
+           <button class="btn sm" id="sk-e-back" type="button">BACK</button>
+           <button class="btn primary sm" id="sk-e-save" type="button">SAVE</button>`
+  });
+  $$("[data-m]", form).forEach(b => b.addEventListener("click", () => {
+    mode = b.dataset.m;
+    $$("[data-m]", form).forEach(x => x.classList.toggle("on", x === b));
+  }));
+  on("#sk-e-back", "click", () => openSkillLibrary());
+  on("#sk-e-save", "click", async () => {
+    const name = $("#sk-e-name", form).value.trim();
+    const body = $("#sk-e-body", form).value;
+    if (!name) return toast("give it a name", "err");
+    if (!body.trim()) return toast("give it some text", "err");
+    try {
+      await api("/agent/skills", { method: "POST", body: {
+        id: k.id || name, name, description: $("#sk-e-desc", form).value.trim(), mode, content: body } });
+      toast("SKILL SAVED", "ok");
+      openSkillLibrary();
+    } catch (e) { toast(e.message || "could not save", "err"); }
+  });
+}
 
 function capRow(key, title, sub, on_, disabled, danger) {
   return `<label class="ag-cap${danger ? " danger" : ""}${disabled ? " off" : ""}">

@@ -202,6 +202,47 @@ validation. If you add another validated settings island, delete it there too.
 command output; writing it to `state.json` would quietly turn a chat into a copy
 of the machine. Only the audit entries and the token counters reach disk.
 
+### Skills
+
+`server/skills.js`. A skill is a Markdown file with front matter, living in
+`<dataDir>/agent-skills`. `mode: always` is concatenated into the system prompt
+every turn; `mode: ondemand` contributes only its name and description, and the
+body arrives through the `load_skill` tool when the model asks for it.
+
+- **The file is the skill.** Name, description, mode and body all live in it, so
+  one can be copied to another install and still be itself. Whether it is
+  switched *off* lives in the store, and it stores what is OFF, not what is on —
+  a file dropped into the folder appears rather than being silently ignored.
+- **`slug()` jails by construction.** It takes a filename straight from a
+  dropped file, so it strips to `[a-z0-9._-]` and drops leading dots: what
+  survives is one flat component that cannot address a parent directory. Do not
+  replace it with a check-afterwards.
+- **`memory()` clips to `ALWAYS_BUDGET`** and says in the prompt that it did.
+  Silently dropping a skill the owner switched on would be worse than the token
+  cost.
+- **`load_skill` has `cap: null`** — it is the only tool that is not capability
+  gated, because it returns text the owner put there themselves, not machine
+  access. `execute()` and `allTools()` both account for that.
+
+Seeds live in `assets/agent-skills/` and are copied on first boot and by RESTORE
+DEFAULTS, which is a restore rather than a reset: an edited skill keeps your
+version, a deleted one comes back.
+
+### The briefing
+
+`briefing()` builds a snapshot of the machine once per user turn — not once per
+model call, or a dozen tool steps would mean a dozen trips to the Docker socket.
+It is stamped with the time and the prompt says it is a snapshot.
+
+It honours the capability switches: no container list without `docker`, no
+folder list without `readFiles`. A switch that does not stop information flowing
+is decorative.
+
+And it states absences rather than omitting them. The collector starts a moment
+*after* the socket opens (deliberately — see `index.js`), so "Memory: not
+reported" is a real state the first few seconds after boot. An empty line where
+a reading should be is something a model will fill in for you.
+
 ### Adding a tool
 
 One entry in the `TOOLS` array:
@@ -233,7 +274,18 @@ SDKs plus the glue to make them interchangeable behind a single model picker.
 Prices in `PROVIDERS` carry `PRICING_AS_OF` and a `priced` flag. **Do not invent
 a rate for a model you could not verify** — set `priced: false` and the UI says
 "see pricing" and reports tokens without a dollar figure. Absent is not zero here
-either.
+either. Two live consequences of that rule in the current catalogue: DeepSeek
+lists two models rather than three, because its third alias was retired and
+inventing one would be worse than a short list; and `gpt-5.6-sol` is unpriced
+because the sources disagreed about its promotional rate.
+
+Where a provider bills by time of day (DeepSeek's peak/off-peak), quote the
+**peak** rate. Being wrong in the expensive direction is the safe one.
+
+`testKey()` exists so a failure surfaces at the settings page rather than twenty
+seconds into a conversation. It calls the model with capabilities stripped and
+no skills attached, so it measures the connection rather than the configuration
+around it — and it counts the tokens it spends, because they are real.
 
 ## The version string
 

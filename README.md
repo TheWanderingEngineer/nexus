@@ -194,6 +194,38 @@ that and an action.
 Every tool call it makes lands in the audit log on the Settings page, whichever
 mode you are in.
 
+### What it already knows
+
+Hermes does not have to go looking for the machine it is running on. Every
+message you send carries a **Right now** block: hostname, OS, kernel, uptime,
+CPU and memory load, every filesystem with its usage, the containers and their
+states, and the folders shared with it. It respects the capability switches — no
+container list without the Docker capability — and it is stamped with the moment
+it was taken, because after Hermes restarts something the block describes the
+past. Readings that have not been taken yet say so rather than going quiet.
+
+### Skills
+
+**Settings → Nexus Expert → Skills** is a library of Markdown files. Drag `.md`
+files in, switch them on and off, or delete them for good. Each one is either:
+
+- **Memory** — pasted into every message. Who Hermes is, what this machine is,
+  what Nexus is. You pay for it every turn, so there is a budget bar and the page
+  tells you when you are over it.
+- **On demand** — only its name and one-line description cost anything. Hermes
+  loads the body himself when a question lands in its territory.
+
+Nexus ships eight to start with: **Who you are**, **This machine** and **Nexus
+itself** as memory; **Docker on this box**, **Ubuntu Server administration**,
+**The media stack** (Jellyfin, Jellyseerr, Radarr, Sonarr, Prowlarr,
+qBittorrent, Kaizoku — and the path layout that makes hardlinks work), **Remote
+access** (Nginx Proxy Manager, DuckDNS, ports, certificates) and **Homelab
+practice** on demand.
+
+They are ordinary files in `/var/lib/nexus/agent-skills`, so you can edit them in
+the browser, drop your own in, or copy one to another machine. **RESTORE
+DEFAULTS** brings back anything stock you deleted without touching your edits.
+
 ### Provider, model and what it costs
 
 Anthropic, DeepSeek, Google Gemini, OpenAI, or anything that speaks the
@@ -204,6 +236,11 @@ Each provider offers three models, strongest to cheapest, with a per-million-tok
 price and the date that price was checked. They are a guide, not a quote, and each
 one links to the provider's own pricing page. There is a free-text box for a model
 id of your own, because this list will age.
+
+**TEST** next to the key does a one-token round trip with no tools attached and
+reports what came back, how long it took, and what it cost. It separates the
+three things a failure usually conflates: a bad key, a model id this provider
+does not know, and a box that cannot reach the internet at all.
 
 Your API key is stored on the server in a file only root can read, is never
 returned to a browser, and never appears in the audit log. Token usage — in, out,

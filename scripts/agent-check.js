@@ -134,7 +134,85 @@ try{
   await A('/agent/usage',{method:'DELETE'});
   ok('resetting clears the counters', (await A('/agent/config')).body.usage.inTokens===0);
 
-  /* 9. Every tool call is in the audit log. */
+  /* The collector starts a moment after the socket opens (deliberately — see
+     index.js), so wait for a real sample before asserting on live readings. */
+  for (let i=0;i<60;i++){
+    const m=(await A('/system/metrics')).body;
+    if (m.updatedAt && m.mem?.total) break;
+    await sleep(500);
+  }
+
+  /* 9. Skills: the library seeds itself, memory vs on-demand behave differently. */
+  const sk0 = (await A('/agent/skills')).body;
+  ok('the starter library is seeded on first boot', sk0.list.length >= 8, sk0.list.length + ' skills');
+  ok('some skills are memory and some are on demand',
+     sk0.list.some(k => k.mode === 'always') && sk0.list.some(k => k.mode === 'ondemand'));
+  ok('the memory budget is reported', sk0.budget.limit > 0 && sk0.budget.used > 0 && !sk0.budget.over,
+     JSON.stringify(sk0.budget));
+
+  await A('/agent/config',{method:'PUT',body:JSON.stringify({approval:'auto',maxSteps:12})});
+  seen=[];
+  script=[{content:'noted'}];
+  run=(await A('/agent/run',{method:'POST'})).body;
+  await A(`/agent/run/${run.id}/send`,{method:'POST',body:JSON.stringify({text:'hi'})});
+  const sys = seen[0].messages.find(m => m.role === 'system').content;
+  ok('always-on skills are in the system prompt', sys.includes('Who you are') && sys.includes('Nexus itself'));
+  ok('on-demand skill bodies are NOT in the system prompt', !sys.includes('Prowlarr holds the indexers'));
+  ok('on-demand skills are advertised by name', sys.includes('media-stack'));
+  ok('load_skill is offered as a tool', (seen[0].tools||[]).some(t => t.function.name === 'load_skill'));
+
+  /* The live briefing: the agent should know where it is without a tool call. */
+  ok('the briefing names the host', /Host: /.test(sys));
+  ok('the briefing carries live CPU and memory',
+     /CPU: \d/.test(sys) && /Memory: [\d.]+ (MB|GB) of /.test(sys), sys.split('\n').filter(l=>/^(CPU|Memory):/.test(l)).join(' | '));
+  ok('the briefing lists the filesystems', /Filesystems:/.test(sys));
+  ok('an unmeasurable reading says so rather than going quiet',
+     /(Disk I\/O)/.test(sys), 'no disk I/O line at all');
+  ok('the briefing lists the shared folder', sys.includes(share));
+  ok('the briefing is stamped as a snapshot', /Right now \(measured/.test(sys));
+
+  /* Pulling one on demand returns its body. */
+  seen=[];
+  script=[{tool:'load_skill',args:{name:'media-stack'}},{content:'Read it.'}];
+  run=(await A('/agent/run',{method:'POST'})).body;
+  t=(await A(`/agent/run/${run.id}/send`,{method:'POST',body:JSON.stringify({text:'how does sonarr import work'})})).body;
+  ok('load_skill returns the skill body', JSON.stringify(seen).includes('Prowlarr holds the indexers'));
+
+  /* Adding, switching off, and deleting. */
+  let skr=(await A('/agent/skills',{method:'POST',body:JSON.stringify({
+    name:'my notes', content:'---\nname: My Notes\ndescription: personal\nmode: always\n---\n\nThe NAS password hint is on the fridge.'})})).body;
+  ok('a dropped markdown file becomes a skill', skr.list.some(k=>k.id==='my-notes' && k.mode==='always'));
+
+  seen=[]; script=[{content:'ok'}];
+  run=(await A('/agent/run',{method:'POST'})).body;
+  await A(`/agent/run/${run.id}/send`,{method:'POST',body:JSON.stringify({text:'hi'})});
+  ok('a new memory skill reaches the prompt immediately',
+     seen[0].messages.find(m=>m.role==='system').content.includes('on the fridge'));
+
+  await A('/agent/skills/my-notes',{method:'PUT',body:JSON.stringify({enabled:false})});
+  seen=[]; script=[{content:'ok'}];
+  run=(await A('/agent/run',{method:'POST'})).body;
+  await A(`/agent/run/${run.id}/send`,{method:'POST',body:JSON.stringify({text:'hi'})});
+  ok('switching a skill off removes it from the prompt',
+     !seen[0].messages.find(m=>m.role==='system').content.includes('on the fridge'));
+
+  /* A filename cannot address anything outside the skills folder. */
+  const esc0=(await A('/agent/skills',{method:'POST',body:JSON.stringify({
+    name:'../../../../etc/cron.d/pwned', content:'x'})})).body;
+  ok('a traversing filename is flattened, not honoured',
+     !esc0.id.includes('/') && !esc0.id.includes('..') && !fs.existsSync('/etc/cron.d/pwned'), esc0.id);
+  await A('/agent/skills/'+encodeURIComponent(esc0.id),{method:'DELETE'});
+
+  const del=(await A('/agent/skills/media-stack',{method:'DELETE'})).body;
+  ok('a skill can be deleted permanently', !del.list.some(k=>k.id==='media-stack'));
+  const rest=(await A('/agent/skills/restore',{method:'POST'})).body;
+  ok('restore defaults brings a stock skill back', rest.added===1 && rest.list.some(k=>k.id==='media-stack'));
+
+  /* 10. The key test reports a real failure rather than pretending. */
+  const test=(await A('/agent/test',{method:'POST'})).body;
+  ok('the key test round-trips against the provider', test.ok===true && typeof test.ms==='number', JSON.stringify(test));
+
+  /* 11. Every tool call is in the audit log. */
   const audit=(await A('/audit?limit=200')).body;
   ok('every tool call is audited', audit.filter(e=>e.action==='agent.tool').length>=5);
 
