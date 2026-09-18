@@ -118,6 +118,131 @@ Anything that reads colour from JavaScript must read it from the CSS tokens
 that: the terminal painted its own near-black frame inside a green panel, and
 the widget charts stopped following the palette.
 
+## Charts, and the crosshair that reads them
+
+`drawChart` (one series) and `drawMirror` (two, mirrored around a centre line)
+draw at the element's real pixel size — the viewBox matches the measured box
+1:1, so nothing is scaled and the line stays crisp on a wide widget.
+
+Both also record a **probe descriptor** on the SVG element, `svg.__probe`, and
+that is what the hover crosshair reads:
+
+```js
+svg.__probe = {
+  w, h, n,                      // viewBox size and number of samples
+  at,                           // when the NEWEST sample was taken (LIVE.t)
+  step,                         // ms between samples — 1000, the collector's tick
+  fmt,                          // value -> string, e.g. rate() or v => v + "%"
+  series: [{ label, vals, color, y }]   // y(v) -> viewBox y for that value
+};
+```
+
+Three things about it are load-bearing:
+
+- **It lives on the element, not in a closure.** Every widget rewrites its
+  chart's `innerHTML` once a second, so a crosshair drawn *inside* the SVG would
+  be erased between one pointer move and the next. `#probe` is a single floating
+  overlay — the same arrangement as `#tip` — that re-reads `svg.__probe` after
+  every redraw, which is also why `renderWidgets()` ends with `refreshProbe()`.
+- **A chart with nothing to draw must call `emptyChart(svg)`,** not
+  `svg.innerHTML = ""`. Clearing the pixels without clearing the descriptor
+  leaves the crosshair quoting samples that are no longer on screen. Disk
+  Activity on a platform that cannot report throughput is the live case.
+- **Series are read right-aligned** (`sampleAt`): the newest sample is the last
+  one, so a series that is one sample short is missing it from the *start*.
+
+The line snaps to a sample rather than tracking the cursor. Between two samples
+there is no reading, and a crosshair that stops where a measurement exists is
+the difference between an exact value and a plausible-looking guess. Time comes
+from `LIVE.t` — the frame's own timestamp — worked backwards a `step` per
+sample, not from the browser clock.
+
+Mouse and pen only, deliberately. A finger has no hover, and a chart sits inside
+a widget body that a long press picks up to drag; scrubbing would have to fight
+both that gesture and the page scroll and would win neither cleanly. The
+crosshair also hides itself while a drag is running: a widget being moved is not
+a widget being read.
+
+Adding a chart to a new widget needs nothing beyond passing `label` and `fmt`:
+
+```js
+drawChart(r.svg, LIVE.history.cpu, 100, colorCss(cfg.color),
+  { label: "LOAD", fmt: v => v.toFixed(1) + "%" });
+```
+
+Structure and the classic look are in `style.css` under `#probe`; the rounded,
+soft-edged reading of the same geometry is in `workstation.css`. The line colour
+is derived from `--text` with `color-mix`, with a `--text-3` fallback, so it
+follows all three palettes without either theme naming a colour for it.
+
+## The agent
+
+`server/agent.js` is self-contained: a provider catalogue, a tool table, and a
+run loop. `routes.js` only exposes it. Four things in there are load-bearing.
+
+**Capabilities gate the tool list, not just the tool.** `toolsFor(settings)`
+decides which tools are even *described* to the model. A switched-off capability
+does not produce a refusal the model can argue with — the tool does not exist as
+far as it knows. `execute()` re-checks the capability anyway, because a paused
+run can be approved after the switch was turned off.
+
+**Two jails, in series.** `agentPath()` calls the file manager's `resolveSafe`
+(or `resolveForCreate`), which answers "may Nexus touch this", and then checks
+the result against the roots ticked for the agent, which answers "may Hermes".
+`allowedRoots()` intersects the saved list with the *currently configured* roots
+every time, so editing `config.json` can only ever narrow what a stale saved path
+reaches.
+
+**`PUT /settings` must never be a way in.** That endpoint merges whatever it is
+given into `settings`, so it explicitly deletes `agent` and `agentUsage`. Without
+that, the root-shell switch could be set without any of `saveSettings()`'s
+validation. If you add another validated settings island, delete it there too.
+
+**Transcripts stay in memory.** A conversation can contain file contents and
+command output; writing it to `state.json` would quietly turn a chat into a copy
+of the machine. Only the audit entries and the token counters reach disk.
+
+### Adding a tool
+
+One entry in the `TOOLS` array:
+
+```js
+{
+  name: "read_file", cap: "readFiles", risk: "read",
+  description: "What the model reads to decide whether to call it.",
+  schema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+  preview: a => `${a.path}`,        // only for risk "write"/"exec": what ALLOW is agreeing to
+  async run(args, settings) { return "text the model gets back"; }
+}
+```
+
+`risk` decides the approval gate: `read` never asks, `write` and `exec` ask
+unless the owner has chosen full access. `cap` must be one of the keys in
+`DEFAULTS.caps`, or the tool can never be enabled. The return value is a string
+and is clipped — `clip()` exists because a 200 MB log would otherwise become a
+200 MB request.
+
+### Providers
+
+Three wire shapes behind one normalised `{text, calls, usage}`: `anthropicCall`,
+`openaiCall` (OpenAI, DeepSeek, and every local server that copies them) and
+`googleCall`. Raw `fetch` rather than the vendors' SDKs, because `npm ci` on the
+target box must never need a compiler and one adapter is less code than three
+SDKs plus the glue to make them interchangeable behind a single model picker.
+
+Prices in `PROVIDERS` carry `PRICING_AS_OF` and a `priced` flag. **Do not invent
+a rate for a model you could not verify** — set `priced: false` and the UI says
+"see pricing" and reports tokens without a dollar figure. Absent is not zero here
+either.
+
+## The version string
+
+`cfg.version` in `config.js`, read from `package.json`, is the only one. The
+banner, `/api/health`, `/api/system/info` and the Settings page all print it. It
+used to be written out in four places, three of them drifted, and "are you
+actually running the new build?" became unanswerable — which is exactly the
+question you need answered first when a UI change appears not to have worked.
+
 ## The file manager
 
 Beyond listing and uploading, it does capacity, notes, a clipboard, and drag and
@@ -244,9 +369,18 @@ allowed to *start*:
 
 | Gesture | Starts on |
 |---|---|
-| Move a widget | the widget |
+| Move a widget | its title bar, or anywhere on a widget already selected (`dragHandle`). Touch keeps hold-to-drag from anywhere |
+| Read a chart | the chart, on hover — no press, so it never competes for the press |
 | Rubber-band select | bare canvas (`e.target === gridEl`) |
 | Pick up the cat | the cat sprite, which stops propagation |
+
+The body was a drag handle once, and giving it up was the right trade. A widget
+that is entirely a grab handle wears the grab cursor everywhere, and that cursor
+says the only thing here is a thing to move — so the readable parts inside it,
+the charts above all, read as decoration you are not meant to touch. Each cursor
+in the `WHERE A WIDGET IS PICKED UP` block of `style.css` now names exactly one
+thing the spot under it will do, and the crosshair on a chart is the only notice
+anyone gets that it can be read.
 
 Because the starting element decides, none of them ever has to arbitrate
 mid-gesture. Keep that property: a gesture that has to guess will guess wrong.

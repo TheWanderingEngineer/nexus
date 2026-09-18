@@ -221,6 +221,10 @@ on("#logout", "click", async () => {
 /* ============================ live state ============================ */
 const LIVE = {
   cpu: 0, mem: 0, net: { rx: 0, tx: 0 }, uptimeSec: 0,
+  // When the newest sample in `history` was taken. The charts need it to put a
+  // clock time against the point under the pointer; without it the best they
+  // could say is "somewhere in the last few minutes".
+  t: 0,
   sensors: [], history: { cpu: [], mem: [], rx: [], tx: [], dr: [], dw: [] },
   memUsed: 0, memTotal: 0, bootAt: 0,
   cores: [], disk: null, procs: { byCpu: [], byMem: [], total: 0, running: 0 },
@@ -243,6 +247,7 @@ function connectWS() {
     let msg; try { msg = JSON.parse(ev.data); } catch { return; }
     if (msg.type !== "metrics") return;
     Object.assign(LIVE, {
+      t: msg.data.t || Date.now(),
       cpu: msg.data.cpu, mem: msg.data.mem, net: msg.data.net,
       memUsed: msg.data.memUsed, memTotal: msg.data.memTotal, bootAt: msg.data.bootAt,
       uptimeSec: msg.data.uptimeSec, sensors: msg.data.sensors || [], history: msg.data.history || LIVE.history,
@@ -317,13 +322,31 @@ function drawChart(svg, vals, maxV, color, opts = {}) {
   const h = Math.round(r.height);
   const pad = 3;
   const max = maxV || 1;
+  const usable = h - pad * 2;
 
   svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
   svg.setAttribute("preserveAspectRatio", "none");
   // geometricPrecision, not crispEdges: we want the line anti-aliased and smooth.
   svg.setAttribute("shape-rendering", "geometricPrecision");
 
-  if (!vals.length) { svg.innerHTML = ""; return; }
+  if (!vals.length) { emptyChart(svg); return; }
+
+  // What the crosshair reads back. Stored on the element rather than closed
+  // over, because the widget throws this SVG's contents away and redraws once a
+  // second: the hover has to find the *current* samples, not the ones that were
+  // on screen when the pointer arrived.
+  svg.__probe = {
+    w, h, n: vals.length,
+    at: opts.at || LIVE.t || Date.now(),
+    step: opts.step || 1000,
+    fmt: opts.fmt || String,
+    series: [{
+      label: opts.label || "",
+      vals,
+      color,
+      y: v => pad + usable - (clamp(v, 0, max) / max) * usable
+    }]
+  };
 
   const line = linePath(vals, w, h, max, pad);
 
@@ -360,7 +383,7 @@ const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n)
  * the box gives each direction its own half and makes the shape of the activity
  * legible at a glance: reads up, writes down, symmetry means both at once.
  */
-function drawMirror(svg, up, down, maxV, colorUp, colorDown) {
+function drawMirror(svg, up, down, maxV, colorUp, colorDown, opts = {}) {
   const r = svg.getBoundingClientRect();
   if (r.width < 8 || r.height < 8) return;
 
@@ -368,6 +391,7 @@ function drawMirror(svg, up, down, maxV, colorUp, colorDown) {
   const mid = h / 2;
   const max = maxV || 1;
   const pad = 2;
+  const usable = mid - pad;
 
   svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
   svg.setAttribute("preserveAspectRatio", "none");
@@ -377,7 +401,6 @@ function drawMirror(svg, up, down, maxV, colorUp, colorDown) {
     if (!vals || !vals.length) return "";
     const n = vals.length;
     const sw = w / Math.max(1, n - 1);
-    const usable = mid - pad;
     let d = "";
     for (let i = 0; i < n; i++) {
       const frac = clamp(vals[i], 0, max) / max;
@@ -391,6 +414,24 @@ function drawMirror(svg, up, down, maxV, colorUp, colorDown) {
   const downPath = half(down, 1);
   const mline = Math.round(mid) + 0.5;
 
+  // Both halves share one x axis, so the crosshair reads both at once — which
+  // is the whole point of mirroring them: "what was the disk doing at 14:31:08"
+  // is one question, not two.
+  const track = (vals, dir) => ({
+    label: dir < 0 ? (opts.upLabel || "") : (opts.downLabel || ""),
+    vals: vals || [],
+    color: dir < 0 ? colorUp : colorDown,
+    y: v => mid + dir * (clamp(v, 0, max) / max) * usable
+  });
+  const n = Math.max(up?.length || 0, down?.length || 0);
+  svg.__probe = n ? {
+    w, h, n,
+    at: opts.at || LIVE.t || Date.now(),
+    step: opts.step || 1000,
+    fmt: opts.fmt || String,
+    series: [track(up, -1), track(down, 1)].filter(s => s.vals.length)
+  } : null;
+
   svg.innerHTML =
     (upPath ? `<path d="${upPath} L${w},${mid} L0,${mid} Z" fill="${colorUp}" fill-opacity="0.16"/>` : "") +
     (downPath ? `<path d="${downPath} L${w},${mid} L0,${mid} Z" fill="${colorDown}" fill-opacity="0.16"/>` : "") +
@@ -398,6 +439,194 @@ function drawMirror(svg, up, down, maxV, colorUp, colorDown) {
     (upPath ? `<path d="${upPath}" fill="none" stroke="${colorUp}" stroke-width="1.6" stroke-linejoin="round"/>` : "") +
     (downPath ? `<path d="${downPath}" fill="none" stroke="${colorDown}" stroke-width="1.6" stroke-linejoin="round"/>` : "");
 }
+
+/** A chart with nothing to draw. Clears the readout too, or the crosshair would
+ *  keep answering with samples that are no longer on screen. */
+function emptyChart(svg) { svg.innerHTML = ""; svg.__probe = null; }
+
+/* ========================= chart crosshair ========================= */
+/**
+ * Hover any chart and read the sample under the pointer: what it was, and when
+ * it was taken.
+ *
+ * One floating element for the whole page, the same arrangement as `#tip`, and
+ * for a stronger reason here: every chart rewrites its own `innerHTML` once a
+ * second, so a crosshair drawn *inside* the `<svg>` would be wiped out between
+ * one pointer move and the next. Living outside it, the overlay simply re-reads
+ * `svg.__probe` — which the redraw has just refreshed — and stays correct.
+ *
+ * The line snaps to a sample rather than tracking the cursor freely. Between
+ * two samples there is no reading to give, and a crosshair that stops where a
+ * measurement actually exists is the difference between an exact value and a
+ * plausible-looking guess.
+ *
+ * Mouse and pen only. A finger has no hover, and a chart sits inside a widget
+ * body that a long press picks up to drag — scrubbing would have to fight both
+ * that gesture and the page scroll, and would win neither cleanly.
+ */
+const probeEl = document.createElement("div");
+probeEl.id = "probe";
+// Decoration over data that is already in the DOM as text: announcing it again
+// would only make the widget read twice.
+probeEl.setAttribute("aria-hidden", "true");
+probeEl.innerHTML =
+  '<i class="pb-line"></i>' +
+  '<div class="pb-card"><span class="pb-when"></span><span class="pb-rows"></span></div>';
+document.body.appendChild(probeEl);
+
+const probeCard = $(".pb-card", probeEl);
+const probeWhen = $(".pb-when", probeEl);
+const probeRows = $(".pb-rows", probeEl);
+const probeLine = $(".pb-line", probeEl);
+
+let probeSvg = null;      // the chart being read, or null when nothing is
+let probeAtX = 0;         // the pointer's last client x, so a redraw can re-read
+let probeRaf = 0, probeWant = null;
+
+function hideProbe() {
+  if (!probeSvg) return;
+  probeSvg = null;
+  probeEl.classList.remove("on");
+}
+
+/** One dot and one card row per series, created once and then reused, so the
+ *  CSS transition that makes the crosshair glide is never restarted. */
+function probeSlots(n) {
+  let dots = $$(".pb-dot", probeEl), rows = $$(".pb-row", probeRows);
+  while (dots.length < n) {
+    const dot = document.createElement("i");
+    dot.className = "pb-dot";
+    probeEl.insertBefore(dot, probeCard);
+
+    const row = document.createElement("span");
+    row.className = "pb-row";
+    row.innerHTML = '<i class="pb-key"></i><span class="pb-lbl"></span><span class="pb-val"></span>';
+    probeRows.appendChild(row);
+
+    dots = $$(".pb-dot", probeEl);
+    rows = $$(".pb-row", probeRows);
+  }
+  dots.forEach((d, i) => { d.hidden = i >= n; });
+  rows.forEach((r, i) => { r.hidden = i >= n; });
+  return { dots, rows };
+}
+
+/** Right-aligned: the newest sample is the last one in every series, so a
+ *  series that is one sample short is missing it from the *start*, not the end. */
+function sampleAt(vals, i, n) { return vals[vals.length - (n - i)]; }
+
+function drawProbe(svg, clientX) {
+  const p = svg && svg.isConnected ? svg.__probe : null;
+  if (!p || !p.n || !p.series.length) { hideProbe(); return; }
+
+  const rect = svg.getBoundingClientRect();
+  if (rect.width < 8 || rect.height < 8) { hideProbe(); return; }
+
+  // The viewBox is built from the measured box, so this is 1:1 in practice. It
+  // is written out anyway so the readout stays honest mid-resize, when the box
+  // has changed but the last draw's viewBox has not.
+  const kx = rect.width / p.w, ky = rect.height / p.h;
+  const step = p.w / Math.max(1, p.n - 1);
+  const i = clamp(Math.round((clientX - rect.left) / kx / step), 0, p.n - 1);
+  const x = i * step * kx;
+
+  // The ring around each dot is painted in the widget's own background so the
+  // dot separates from the line and the fill underneath it. Widget tints are a
+  // class mixed against the panel colour, so the computed value is the only
+  // place the real colour exists — read once per chart, not once per frame.
+  if (probeSvg !== svg) {
+    const host = svg.closest(".w");
+    probeEl.style.setProperty("--pbg", host ? getComputedStyle(host).backgroundColor : cssv("--panel"));
+  }
+  probeSvg = svg;
+  probeAtX = clientX;
+
+  const at = p.at - (p.n - 1 - i) * p.step;
+  const age = Math.max(0, Math.round((Date.now() - at) / 1000));
+  probeWhen.textContent = `${fmtTime(new Date(at), false, true)} · ${age ? age + "s ago" : "now"}`;
+
+  const { dots, rows } = probeSlots(p.series.length);
+  let anchorY = rect.height / 2;
+
+  p.series.forEach((s, k) => {
+    const v = sampleAt(s.vals, i, p.n);
+    const known = Number.isFinite(v);
+    const y = known ? s.y(v) * ky : 0;
+    if (k === 0 && known) anchorY = y;
+
+    const dot = dots[k];
+    dot.hidden = !known;
+    dot.style.setProperty("--pc", s.color);
+    dot.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+
+    const row = rows[k];
+    $(".pb-key", row).style.background = s.color;
+    $(".pb-lbl", row).textContent = s.label;
+    // Absent is not zero: a series with no sample at this instant says so.
+    $(".pb-val", row).textContent = known ? p.fmt(v) : "—";
+  });
+
+  probeEl.classList.add("on");
+  probeEl.style.left = rect.left + "px";
+  probeEl.style.top = rect.top + "px";
+  probeEl.style.width = rect.width + "px";
+  probeEl.style.height = rect.height + "px";
+  probeLine.style.transform = `translateX(${x.toFixed(1)}px)`;
+
+  // The card sits beside the line and flips to its other side near the right
+  // edge of the window, so it never hangs off the screen or covers the point it
+  // is describing.
+  const card = probeCard.getBoundingClientRect();
+  const GAP = 12;
+  const flip = rect.left + x + GAP + card.width > innerWidth - 8;
+  const cx = flip ? x - GAP - card.width : x + GAP;
+  const cy = clamp(anchorY - card.height / 2, 8 - rect.top, innerHeight - 8 - card.height - rect.top);
+  probeCard.style.transform = `translate(${Math.round(cx)}px, ${Math.round(cy)}px)`;
+}
+
+/** Re-read after a redraw, so the value under a resting pointer keeps up with
+ *  the machine instead of freezing at whatever it said when the pointer landed. */
+function refreshProbe() {
+  if (probeSvg) drawProbe(probeSvg, probeAtX);
+}
+
+function probeFromEvent(e) {
+  if (e.pointerType === "touch") return;
+  // A widget being dragged is not a widget being read.
+  const svg = activeDrag ? null : e.target?.closest?.("svg.chart");
+  if (!svg) { hideProbe(); probeWant = null; return; }
+  probeWant = { svg, x: e.clientX };
+  if (probeRaf) return;
+  // Coalesced to one draw per frame: a mouse can outpace the display, and the
+  // card is measured on every draw.
+  probeRaf = requestAnimationFrame(() => {
+    probeRaf = 0;
+    // One bad frame must not take hovering down for the rest of the session —
+    // this runs on every mouse move, so an uncaught throw here is permanent.
+    try { if (probeWant) drawProbe(probeWant.svg, probeWant.x); }
+    catch (err) { console.error("[nexus] chart readout:", err); hideProbe(); }
+  });
+}
+addEventListener("pointermove", probeFromEvent, { passive: true });
+// pointerover fires the moment the pointer crosses onto the chart. Without it
+// the readout waits for the next move, which on a slow, deliberate approach is
+// long enough to look like nothing happened.
+addEventListener("pointerover", probeFromEvent, { passive: true });
+
+addEventListener("pointerdown", e => {
+  // A press on the chart you are already reading starts nothing — the body is
+  // not a drag handle any more — so the readout has no reason to blink out and
+  // come straight back. Every other press is a gesture beginning somewhere else.
+  if (probeSvg && e.target?.closest?.("svg.chart") === probeSvg) return;
+  hideProbe();
+}, true);
+addEventListener("pointercancel", hideProbe, true);
+// Leaving the window fires no further pointermove, so the crosshair would be
+// left standing on the last chart the pointer crossed.
+document.addEventListener("pointerleave", hideProbe);
+addEventListener("scroll", hideProbe, true);
+addEventListener("blur", hideProbe);
+addEventListener("keydown", e => { if (e.key === "Escape") hideProbe(); });
 
 function meterHTML(pct, warnAt, critAt, segs) {
   segs = segs || 14;
@@ -773,7 +1002,8 @@ const REG = {
     mount(b) { b.innerHTML = '<div class="big"><span class="n">--</span><span class="u">%</span></div><svg class="chart"></svg><span class="sub"></span>';
       return { n: $(".n", b), svg: $("svg", b), sub: $(".sub", b) }; },
     update(r, cfg) { r.n.textContent = Math.round(LIVE.cpu);
-      drawChart(r.svg, LIVE.history.cpu, 100, colorCss(cfg.color));
+      drawChart(r.svg, LIVE.history.cpu, 100, colorCss(cfg.color),
+        { label: "LOAD", fmt: v => v.toFixed(1) + "%" });
       const t = LIVE.sensors.find(s => s.kind === "temperature");
       r.sub.textContent = `${LIVE.info?.cpu?.cores || "?"} cores${t ? " · " + Math.round(t.value) + "°C" : ""}`; } },
 
@@ -841,7 +1071,8 @@ const REG = {
       // The scale lives outside the drawing now, so the line can never run
       // through its own axis label.
       r.peak.textContent = `peak ${rate(max)} · ${cfg.trace === "tx" ? "up" : "down"}`;
-      drawChart(r.svg, series, max, colorCss(cfg.color));
+      drawChart(r.svg, series, max, colorCss(cfg.color),
+        { label: cfg.trace === "tx" ? "UP" : "DOWN", fmt: rate });
     } },
 
   sensors: { name: "Sensors", icon: ICON("temp"), desc: "Temperatures and fans", w: 4, h: 4,
@@ -1241,7 +1472,7 @@ const REG = {
       if (!LIVE.disk) {
         r.rd.textContent = r.wr.textContent = "n/a";
         r.peak.textContent = "not reported on this platform";
-        r.svg.innerHTML = "";
+        emptyChart(r.svg);
         return;
       }
       const n = cfg.window || 60;
@@ -1253,7 +1484,8 @@ const REG = {
       // One shared scale, or the two halves would lie about their relative size.
       const max = Math.max(65536, ...dr, ...dw);
       r.peak.textContent = `peak ${rate(max)}`;
-      drawMirror(r.svg, dr, dw, max, colorCss(cfg.color), cssv("--text-2"));
+      drawMirror(r.svg, dr, dw, max, colorCss(cfg.color), cssv("--text-2"),
+        { upLabel: "READ", downLabel: "WRITE", fmt: rate });
     } },
 
   /* ------------------------------------------------------ security watch */
@@ -2120,6 +2352,9 @@ function renderWidgets() {
     const m = mounted[id];
     try { m.def.update(m.ref, cfgOf(m.it)); } catch {}
   }
+  // Every chart has just been redrawn underneath the pointer. Read it again, or
+  // a resting crosshair would go on displaying the sample it first landed on.
+  refreshProbe();
 }
 
 /**
@@ -2147,6 +2382,26 @@ async function pollSecurity() {
 
 /** Things inside a widget that own their own click and must not start a drag. */
 const NO_DRAG = "button, a, input, select, textarea, .w-rs, [contenteditable]";
+
+/**
+ * Where a mouse or pen may begin a drag: the title bar, or anywhere on a widget
+ * that is already selected.
+ *
+ * The body used to be a drag handle too, and it cost more than it gave. A
+ * widget that is entirely a grab handle wears the grab cursor everywhere, which
+ * says "the only thing here is a thing to move" — so the readable parts inside
+ * it, the charts above all, read as decoration you are not meant to touch. The
+ * title bar is the handle every other windowed interface uses, and a selected
+ * widget stays draggable from anywhere so that picking up several at once still
+ * works from whichever one is under the pointer.
+ *
+ * Touch keeps hold-to-drag from anywhere. There is no cursor to mislead anyone
+ * and no hover to protect, and a press that travels is already a scroll.
+ */
+function dragHandle(it, target) {
+  if (target.closest(NO_DRAG)) return false;
+  return !!target.closest(".w-head") || selection.has(it.id);
+}
 
 /** The drag in progress, so Escape can reach it from anywhere. */
 let activeDrag = null;
@@ -2311,7 +2566,7 @@ function dragify(el, it) {
   el.addEventListener("pointerdown", e => {
     if (e.pointerType === "touch") return;   // handled by the touch path below
     if (e.button !== 0) return;
-    if (e.target.closest(NO_DRAG)) return;
+    if (!dragHandle(it, e.target)) return;
     if (e.ctrlKey || e.metaKey) return;      // that gesture is "select", not "move"
 
     const sx = e.clientX, sy = e.clientY;
@@ -3757,6 +4012,7 @@ addEventListener("resize", () => { if (term && $("#page-term").classList.contain
 
 async function loadSettings() {
   paintAppearance();
+  renderAgentSettings();
   const crtBtn = $("#crt-toggle");
   if (crtBtn && !crtBtn.dataset.wired) {
     crtBtn.dataset.wired = "1";
@@ -3774,7 +4030,8 @@ async function loadSettings() {
   $("#s-system").innerHTML = [
     ["HOSTNAME", i.host?.hostname], ["OS", i.host?.distro], ["KERNEL", i.host?.kernel],
     ["ARCH", i.host?.arch], ["CPU", i.cpu?.model], ["CORES", i.cpu?.cores],
-    ["DATA DIR", i.config?.dataDir], ["CONFIG", i.config?.loadedFrom || "defaults"]
+    ["DATA DIR", i.config?.dataDir], ["CONFIG", i.config?.loadedFrom || "defaults"],
+    ["NEXUS", i.version ? "v" + i.version : null]
   ].filter(x => x[1] != null).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
 
   $("#s-services").innerHTML = [
@@ -4933,7 +5190,451 @@ async function start() {
   connectWS();
   connectEvents();
   refreshInstalled();
+  mountHermes();
   setInterval(renderWidgets, 1000);
+}
+
+
+/* ==================== Nexus Expert — Hermes ====================
+ * A floating panel on every page, an agent behind it, and a settings section
+ * that decides what that agent is allowed to touch.
+ *
+ * The robot is drawn here rather than in the HTML because it appears twice (the
+ * dock button and the panel header) and must stay one drawing. It is SVG rather
+ * than a sprite so it takes its colours from the palette tokens — a PNG would
+ * need three versions and would still be wrong on a custom widget tint.
+ */
+const HBOT = `
+<svg class="hbot" viewBox="0 0 16 16" role="img" aria-hidden="true">
+  <g class="hb-body">
+    <rect class="hb-bulb" x="7" y="0" width="2" height="2"/>
+    <rect class="hb-stalk" x="7.5" y="1.6" width="1" height="2.2"/>
+    <rect class="hb-ear" x="0.4" y="6.2" width="1.6" height="3.2"/>
+    <rect class="hb-ear" x="14" y="6.2" width="1.6" height="3.2"/>
+    <rect class="hb-head" x="2" y="3.6" width="12" height="9" rx="1.6"/>
+    <rect class="hb-visor" x="3.4" y="5.4" width="9.2" height="4.2" rx="1.1"/>
+    <g class="hb-eyes">
+      <rect class="hb-eye" x="4.9" y="6.9" width="2.1" height="1.6" rx="0.5"/>
+      <rect class="hb-eye" x="9" y="6.9" width="2.1" height="1.6" rx="0.5"/>
+    </g>
+    <rect class="hb-scan" x="3.4" y="5.4" width="9.2" height="1.1"/>
+    <rect class="hb-tooth" x="5.2" y="10.5" width="1.3" height="1.2"/>
+    <rect class="hb-tooth" x="7.3" y="10.5" width="1.3" height="1.2"/>
+    <rect class="hb-tooth" x="9.4" y="10.5" width="1.3" height="1.2"/>
+  </g>
+</svg>`;
+
+const HX = {
+  run: null,          // current conversation id
+  busy: false,
+  cfg: null,          // last /agent/config payload
+  steps: [],
+  pending: null,
+  usage: { in: 0, out: 0, cost: 0 }
+};
+
+const tok = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n || 0);
+/* `priced === false` means we have no rate for that model, which is not the
+   same as it being free — a local model really is free, and saying "$0" for
+   both would make one of them a lie. */
+const money = (n, priced = true) =>
+  priced === false ? "no rate" : n >= 1 ? "$" + n.toFixed(2) : n > 0 ? "$" + n.toFixed(4) : "$0.00";
+
+function hxEl(id) { return $("#" + id); }
+
+/* ---------------- the dock ---------------- */
+
+function mountHermes() {
+  $$(".hbot-art").forEach(el => { el.innerHTML = HBOT; });
+
+  on("#hermes-open", "click", () => toggleHermes());
+  on("#hx-close", "click", () => toggleHermes(false));
+  on("#hx-new", "click", () => { HX.run = null; HX.steps = []; HX.pending = null; HX.usage = { in: 0, out: 0, cost: 0 }; paintHermes(); });
+  on("#hx-config", "click", () => { toggleHermes(false); go("settings"); });
+
+  const input = $("#hx-input");
+  on("#hx-compose", "submit", e => { e.preventDefault(); hermesSend(); });
+  if (input) {
+    // Enter sends, Shift+Enter is a newline. A chat box that needs a mouse to
+    // send is a chat box nobody uses twice.
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); hermesSend(); }
+    });
+    // Grow with the message, up to a point, then scroll.
+    input.addEventListener("input", () => {
+      input.style.height = "auto";
+      input.style.height = Math.min(120, input.scrollHeight) + "px";
+    });
+  }
+
+  // Remembered per browser, like every other display preference here.
+  try { if (localStorage.getItem("nexus.hermes.open") === "1") toggleHermes(true); } catch {}
+  refreshAgentConfig();
+}
+
+function toggleHermes(want) {
+  const panel = $("#hermes"), btn = $("#hermes-open");
+  if (!panel) return;
+  const open = want === undefined ? panel.hasAttribute("hidden") : want;
+  panel.toggleAttribute("hidden", !open);
+  btn?.setAttribute("aria-expanded", String(open));
+  btn?.classList.toggle("tucked", open);
+  try { localStorage.setItem("nexus.hermes.open", open ? "1" : "0"); } catch {}
+  if (open) {
+    paintHermes();
+    requestAnimationFrame(() => $("#hx-input")?.focus());
+  }
+}
+
+async function refreshAgentConfig() {
+  try {
+    HX.cfg = await api("/agent/config");
+    const s = HX.cfg.settings;
+    const label = (HX.cfg.providers.find(p => p.id === s.provider)?.models || [])
+      .find(m => m.id === s.model)?.label || s.customModel || s.model || "no model";
+    const el = $("#hx-model");
+    if (el) el.textContent = HX.cfg.ready ? label : "needs an API key";
+    $("#hermes-open")?.classList.toggle("unconfigured", !HX.cfg.ready);
+    paintUsage();
+  } catch { /* not fatal: the panel says so when you try to send */ }
+}
+
+/* ---------------- the conversation ---------------- */
+
+async function hermesSend() {
+  const input = $("#hx-input");
+  const text = (input?.value || "").trim();
+  if (!text || HX.busy) return;
+
+  input.value = "";
+  input.style.height = "auto";
+
+  HX.busy = true;
+  HX.steps.push({ kind: "user", text });
+  paintHermes();
+
+  try {
+    if (!HX.run) HX.run = (await api("/agent/run", { method: "POST" })).id;
+    const out = await api(`/agent/run/${HX.run}/send`, { method: "POST", body: { text } });
+    applyTurn(out);
+  } catch (e) {
+    // A run that expired server-side is recoverable: drop the id so the next
+    // message starts a fresh conversation rather than failing forever.
+    if (e.status === 404) HX.run = null;
+    HX.steps.push({ kind: "error", text: e.message || "that did not work" });
+  } finally {
+    HX.busy = false;
+    paintHermes();
+    refreshAgentConfig();
+  }
+}
+
+function applyTurn(out) {
+  if (!out) return;
+  HX.steps = out.steps || HX.steps;
+  HX.pending = out.pending || null;
+  HX.usage = out.usage || HX.usage;
+}
+
+async function hermesDecide(decision) {
+  if (!HX.run || HX.busy) return;
+  HX.busy = true;
+  HX.pending = null;
+  paintHermes();
+  try {
+    applyTurn(await api(`/agent/run/${HX.run}/approve`, { method: "POST", body: { decision } }));
+  } catch (e) {
+    HX.steps.push({ kind: "error", text: e.message || "that did not work" });
+  } finally {
+    HX.busy = false;
+    paintHermes();
+    refreshAgentConfig();
+  }
+}
+
+/* Two tenses, because the same tool is described at two different moments: the
+   log says what happened, the approval asks about what has not happened yet.
+   One map produced "Hermes wants to ran a command". */
+const TOOL_WORDS = {
+  system_metrics: ["read the machine's readings", "read the machine's readings"],
+  list_dir:       ["listed a folder",             "list a folder"],
+  read_file:      ["read a file",                 "read a file"],
+  write_file:     ["wrote a file",                "write a file"],
+  make_dir:       ["created a folder",            "create a folder"],
+  delete_path:    ["deleted a path",              "delete a path"],
+  run_command:    ["ran a command",               "run a command"],
+  docker_list:    ["listed containers",           "list the containers"],
+  docker_action:  ["controlled a container",      "start, stop or restart a container"]
+};
+const toolPast = n => TOOL_WORDS[n]?.[0] || n;
+const toolNow  = n => TOOL_WORDS[n]?.[1] || n;
+
+function paintHermes() {
+  const body = $("#hx-body");
+  if (!body) return;
+  const stick = body.scrollTop + body.clientHeight >= body.scrollHeight - 40;
+
+  if (!HX.steps.length) {
+    const ready = HX.cfg?.ready;
+    const tools = HX.cfg?.capabilities?.tools?.length || 0;
+    body.innerHTML =
+      `<div class="hx-hello">
+         <span class="hbot-art lg">${HBOT}</span>
+         <p class="hx-hi">I'm Hermes.</p>
+         <p class="hx-sub">${ready
+            ? (tools ? `I can use ${tools} tool${tools === 1 ? "" : "s"} on this machine. Ask me something.`
+                     : "No capabilities are switched on yet, so I can only talk. Open Settings to hand me some.")
+            : "Add an API key in Settings &rarr; Nexus Expert and I'll wake up."}</p>
+       </div>`;
+  } else {
+    body.innerHTML = HX.steps.map(stepHTML).join("") +
+      (HX.busy ? `<div class="hx-row bot"><div class="hx-think"><i></i><i></i><i></i></div></div>` : "");
+  }
+
+  const ask = $("#hx-ask");
+  if (ask) {
+    ask.toggleAttribute("hidden", !HX.pending);
+    if (HX.pending) {
+      const p = HX.pending;
+      ask.innerHTML =
+        `<div class="hx-askhead"><span class="hx-risk ${esc(p.risk)}">${p.risk === "exec" ? "RUN" : "CHANGE"}</span>
+           <span>Hermes wants to ${esc(toolNow(p.name))}</span></div>
+         <pre class="hx-preview">${esc(p.preview || "")}</pre>
+         <div class="hx-askrow">
+           <button class="btn sm" id="hx-deny" type="button">DENY</button>
+           <button class="btn primary sm" id="hx-allow" type="button">ALLOW</button>
+         </div>`;
+      on("#hx-allow", "click", () => hermesDecide("allow"));
+      on("#hx-deny", "click", () => hermesDecide("deny"));
+    }
+  }
+
+  const send = $("#hx-send");
+  if (send) send.disabled = HX.busy;
+  if (stick) body.scrollTop = body.scrollHeight;
+  paintUsage();
+}
+
+function stepHTML(s) {
+  if (s.kind === "user") return `<div class="hx-row me"><div class="hx-bub">${esc(s.text)}</div></div>`;
+  if (s.kind === "assistant") return `<div class="hx-row bot"><div class="hx-bub">${mdish(s.text)}</div></div>`;
+  if (s.kind === "error") return `<div class="hx-row"><div class="hx-err">${esc(s.text)}</div></div>`;
+
+  // A tool call is a fact about what happened to the machine, so it is shown
+  // as one — name, outcome, and the detail one click away.
+  const label = toolPast(s.name);
+  const state = s.denied ? "denied" : s.error ? "failed" : "done";
+  const detail = s.denied ? "You denied this." : (s.result || "");
+  return `<details class="hx-tool ${state}">
+    <summary><i class="hx-tick"></i><span>${esc(label)}</span><em>${state}</em></summary>
+    <pre>${esc(argLine(s.args))}${detail ? "\n\n" + esc(detail) : ""}</pre>
+  </details>`;
+}
+
+function argLine(args) {
+  if (!args || typeof args !== "object") return "";
+  return Object.entries(args)
+    .map(([k, v]) => `${k}: ${typeof v === "string" && v.length > 400 ? v.slice(0, 400) + "…" : JSON.stringify(v)}`)
+    .join("\n");
+}
+
+/**
+ * The smallest markdown that earns its place in a side panel: fenced code,
+ * inline code, bold, and paragraph breaks. Everything is escaped first, so this
+ * can only ever add formatting to text that is already inert.
+ */
+function mdish(text) {
+  let h = esc(String(text || ""));
+  h = h.replace(/```([\s\S]*?)```/g, (_, code) => `<pre class="hx-code">${code.replace(/^\n/, "")}</pre>`);
+  h = h.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  h = h.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
+  h = h.replace(/\n{2,}/g, "</p><p>").replace(/\n/g, "<br>");
+  return "<p>" + h + "</p>";
+}
+
+function paintUsage() {
+  const el = $("#hx-usage");
+  if (!el) return;
+  const t = HX.cfg?.usage;
+  const here = HX.usage || { in: 0, out: 0, cost: 0 };
+  // One line, because the footer is one line wide. The running total goes in
+  // the tooltip and in full on the settings page, where there is room for it.
+  el.textContent = `${tok(here.in)} in · ${tok(here.out)} out · ${money(here.cost, here.priced)}`;
+  el.setAttribute("data-tip", t
+    ? `This conversation: ${here.in.toLocaleString()} in, ${here.out.toLocaleString()} out.\n` +
+      `Since the last reset: ${t.inTokens.toLocaleString()} in, ${t.outTokens.toLocaleString()} out, ${money(t.cost, true)}.`
+    : "Tokens used by this conversation.");
+}
+
+/* ==================== Settings → Nexus Expert ==================== */
+
+async function renderAgentSettings() {
+  const host = $("#agent-panel");
+  if (!host) return;
+  let c;
+  try { c = HX.cfg = await api("/agent/config"); }
+  catch { host.innerHTML = `<p class="hint">Could not load the agent settings.</p>`; return; }
+
+  const s = c.settings;
+  const prov = c.providers.find(p => p.id === s.provider) || c.providers[0];
+  const key = c.keys[s.provider] || { set: false };
+
+  const priceBit = m => m.priced
+    ? `<span class="ag-price">$${m.in}<small>/M in</small> · $${m.out}<small>/M out</small></span>`
+    : `<span class="ag-price none">see pricing</span>`;
+
+  host.innerHTML = `
+    <div class="ag-block">
+      <h3>Provider</h3>
+      <div class="ag-provs">${c.providers.map(p => `
+        <button type="button" class="ag-prov${p.id === s.provider ? " on" : ""}" data-prov="${esc(p.id)}">
+          <b>${esc(p.label)}</b>
+          <span>${c.keys[p.id]?.set ? "key saved " + esc(c.keys[p.id].hint) : "no key"}</span>
+        </button>`).join("")}</div>
+    </div>
+
+    <div class="ag-block">
+      <h3>Model <small>strongest first · prices checked ${esc(c.pricingAsOf)}, per million tokens</small></h3>
+      <div class="ag-models">${prov.models.map(m => `
+        <button type="button" class="ag-model${m.id === s.model ? " on" : ""}" data-model="${esc(m.id)}">
+          <span class="ag-tier">${esc(m.tier)}</span>
+          <b>${esc(m.label)}</b>
+          ${priceBit(m)}
+          <span class="ag-note">${esc(m.note || "")}</span>
+        </button>`).join("")}</div>
+      ${prov.pricingUrl ? `<p class="hint"><a href="${esc(prov.pricingUrl)}" target="_blank" rel="noopener">${esc(prov.label)}'s current pricing &rarr;</a> These figures are a guide, not a quote.</p>` : ""}
+      <div class="ag-row">
+        <label for="ag-custom">Or a model id of your own</label>
+        <input id="ag-custom" type="text" value="${esc(s.customModel || "")}" placeholder="exactly as your provider spells it" spellcheck="false">
+      </div>
+      ${prov.needsBaseUrl ? `<div class="ag-row">
+        <label for="ag-base">Base URL</label>
+        <input id="ag-base" type="text" value="${esc(s.baseUrl || "")}" placeholder="http://127.0.0.1:11434/v1" spellcheck="false">
+      </div>` : ""}
+    </div>
+
+    <div class="ag-block">
+      <h3>API key</h3>
+      <div class="ag-row">
+        <label for="ag-key">${esc(prov.label)} key</label>
+        <input id="ag-key" type="password" autocomplete="off" spellcheck="false"
+               placeholder="${key.set ? "saved — " + esc(key.hint) + ", type to replace" : esc(prov.keyHint || "paste your key")}">
+        <button class="btn sm" id="ag-key-save" type="button">SAVE KEY</button>
+        ${key.set ? `<button class="btn sm danger" id="ag-key-clear" type="button">REMOVE</button>` : ""}
+      </div>
+      <p class="hint">Stored on this server only, in a file only root can read, and never sent back to a
+        browser. ${prov.keyUrl ? `<a href="${esc(prov.keyUrl)}" target="_blank" rel="noopener">Get a key &rarr;</a>` : ""}</p>
+    </div>
+
+    <div class="ag-block">
+      <h3>What Hermes may do</h3>
+      <p class="hint">Everything is off until you turn it on. Nexus runs as root, so anything you grant
+        here, it grants at root.</p>
+      <div class="ag-caps">
+        ${capRow("metrics", "Read the machine's readings", "CPU, memory, disks, sensors, uptime, top processes.", s.caps.metrics)}
+        ${capRow("readFiles", "Read files", "Only inside the folders ticked below.", s.caps.readFiles)}
+        ${capRow("writeFiles", "Create, change and delete files", "Same folders. Deletions are recursive and permanent.", s.caps.writeFiles)}
+        ${capRow("docker", "List and control containers", c.dockerAvailable ? "Start, stop and restart." : "Docker is not available on this host.", s.caps.docker, !c.dockerAvailable)}
+        ${capRow("shell", "Run shell commands as root", "Install packages, edit services, change anything. This is the whole machine.", s.caps.shell, false, true)}
+      </div>
+    </div>
+
+    <div class="ag-block">
+      <h3>Folders it can reach</h3>
+      ${c.roots.length ? `<div class="ag-roots">${c.roots.map(r => `
+        <label class="ag-check"><input type="checkbox" data-root="${esc(r.path)}"${s.roots.includes(r.path) ? " checked" : ""}>
+          <span><b>${esc(r.name)}</b><small>${esc(r.path)}</small></span></label>`).join("")}</div>`
+        : `<p class="hint">No file roots are configured, so there is nothing to share.</p>`}
+      <p class="hint">Only the roots your file manager already uses can be offered. Anything outside a
+        ticked folder is refused by the same path jail the file manager uses.</p>
+    </div>
+
+    <div class="ag-block">
+      <h3>Before it acts</h3>
+      <div class="ag-modes">
+        <button type="button" class="ag-mode${s.approval === "ask" ? " on" : ""}" data-approval="ask">
+          <b>Ask me first</b><span>Every change and every command waits for you.</span></button>
+        <button type="button" class="ag-mode${s.approval === "auto" ? " on" : ""}" data-approval="auto">
+          <b>Full access</b><span>Hermes acts without asking.</span></button>
+      </div>
+      <p class="hint warnline">Full access plus the shell means anything Hermes reads &mdash; a file, a log,
+        a command's output &mdash; can carry text that reads like an instruction. Ask-me-first is what
+        stops that becoming an action.</p>
+      <div class="ag-row">
+        <label for="ag-steps">Tool calls per message</label>
+        <input id="ag-steps" type="number" min="1" max="40" value="${Number(s.maxSteps)}">
+        <span class="hint">It stops here and waits for you to say "carry on".</span>
+      </div>
+    </div>
+
+    <div class="ag-block">
+      <h3>Usage</h3>
+      <dl class="kv ag-usage">
+        <dt>INPUT</dt><dd>${tok(c.usage.inTokens)} tokens</dd>
+        <dt>OUTPUT</dt><dd>${tok(c.usage.outTokens)} tokens</dd>
+        <dt>MESSAGES</dt><dd>${c.usage.runs || 0}</dd>
+        <dt>ESTIMATED COST</dt><dd>${money(c.usage.cost, !allUnpriced(c.usage))}${anyUnpriced(c.usage) ? " <small>(excludes models with no published rate here)</small>" : ""}</dd>
+      </dl>
+      <button class="btn sm" id="ag-usage-reset" type="button">RESET COUNTERS</button>
+    </div>`;
+
+  /* ---- wiring ---- */
+  const patch = body => api("/agent/config", { method: "PUT", body })
+    .then(() => { renderAgentSettings(); refreshAgentConfig(); })
+    .catch(e => toast(e.message || "could not save", "err"));
+
+  $$("[data-prov]", host).forEach(b => b.addEventListener("click", () => {
+    const p = c.providers.find(x => x.id === b.dataset.prov);
+    // Moving provider without moving model would leave a model id the new
+    // provider has never heard of, so take its strongest by default.
+    patch({ provider: b.dataset.prov, model: p?.models?.[0]?.id || "" });
+  }));
+  $$("[data-model]", host).forEach(b => b.addEventListener("click", () => patch({ model: b.dataset.model })));
+  $$("[data-approval]", host).forEach(b => b.addEventListener("click", () => patch({ approval: b.dataset.approval })));
+  $$("[data-cap]", host).forEach(b => b.addEventListener("change", () => {
+    patch({ caps: { ...s.caps, [b.dataset.cap]: b.checked } });
+  }));
+  $$("[data-root]", host).forEach(b => b.addEventListener("change", () => {
+    const roots = $$("[data-root]", host).filter(x => x.checked).map(x => x.dataset.root);
+    patch({ roots });
+  }));
+  on($("#ag-custom", host), "change", e => patch({ customModel: e.target.value.trim() }));
+  const base = $("#ag-base", host);
+  if (base) base.addEventListener("change", e => patch({ baseUrl: e.target.value.trim() }));
+  on($("#ag-steps", host), "change", e => patch({ maxSteps: Number(e.target.value) }));
+
+  on($("#ag-key-save", host), "click", async () => {
+    const v = $("#ag-key", host).value;
+    if (!v) return toast("paste a key first");
+    try {
+      await api("/agent/key", { method: "PUT", body: { provider: s.provider, key: v } });
+      toast("key saved");
+      renderAgentSettings(); refreshAgentConfig();
+    } catch (e) { toast(e.message || "could not save the key", "err"); }
+  });
+  const clear = $("#ag-key-clear", host);
+  if (clear) clear.addEventListener("click", async () => {
+    if (!confirm(`Remove the ${prov.label} key?\n\nHermes will stop working until you add another.`)) return;
+    await api("/agent/key", { method: "PUT", body: { provider: s.provider, key: null } }).catch(() => {});
+    renderAgentSettings(); refreshAgentConfig();
+  });
+  on($("#ag-usage-reset", host), "click", async () => {
+    await api("/agent/usage", { method: "DELETE" }).catch(() => {});
+    renderAgentSettings(); refreshAgentConfig();
+  });
+}
+
+const anyUnpriced = u => Object.values(u.byModel || {}).some(m => !m.priced);
+const allUnpriced = u => {
+  const rows = Object.values(u.byModel || {});
+  return rows.length > 0 && rows.every(m => !m.priced);
+};
+
+function capRow(key, title, sub, on_, disabled, danger) {
+  return `<label class="ag-cap${danger ? " danger" : ""}${disabled ? " off" : ""}">
+    <input type="checkbox" data-cap="${esc(key)}"${on_ ? " checked" : ""}${disabled ? " disabled" : ""}>
+    <span class="ag-capbody"><b>${esc(title)}</b><small>${esc(sub)}</small></span>
+  </label>`;
 }
 
 boot();

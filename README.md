@@ -90,8 +90,9 @@ What is in place:
 | CSRF | Double-submit token on every state-changing request |
 | Login throttling | Exponential backoff per IP after 5 failures, capped at 15 min |
 | Path jail | Every file path is `realpath`-resolved and must land inside a configured root; traversal is rejected, never sanitised |
-| Command safety | No shell interpolation anywhere. SMART device names come from the kernel's own enumeration, never from the client |
-| Audit log | Shell sessions, container actions, file deletions, logins |
+| Command safety | No shell interpolation anywhere. SMART device names come from the kernel's own enumeration, never from the client. The one place a command is run verbatim is the agent's shell tool, where the command *is* the request — off by default, and gated on your approval |
+| Audit log | Shell sessions, container actions, file deletions, logins, and every tool the agent runs |
+| Agent capabilities | All off by default, each one a separate switch; its API key lives in a 0600 file and is never returned to a browser |
 | Terminal kill switch | `terminal.enabled: false`, no redeploy needed |
 
 **Do not expose this to the internet as-is.** Keep it on your LAN, or reach it
@@ -161,16 +162,66 @@ sudo apt-get install -y build-essential python3
 Every session open and close is written to the audit log, and the whole feature
 can be switched off with `terminal.enabled: false`.
 
+## Nexus Expert
+
+A robot sits in the corner of every page. Click it and you get Hermes: a language
+model with tools pointed at this machine, in a panel that stays out of the way.
+
+**It starts with nothing.** On a fresh install Hermes can read the metrics you
+can already see on the dashboard, and that is all. Every other capability is a
+switch in **Settings → Nexus Expert**, off until you turn it on:
+
+| Capability | What it hands over |
+|---|---|
+| Read the machine's readings | CPU, memory, disks, sensors, uptime, top processes |
+| Read files | Only inside the folders you tick, inside the file manager's existing path jail |
+| Create, change and delete files | The same folders. Deletions are recursive and permanent |
+| List and control containers | Start, stop, restart |
+| Run shell commands as root | Install packages, edit services, change anything |
+
+The last one is the whole machine, and the page says so where the switch is. It
+is what makes "install Jellyfin and point it at /DATA/media" a sentence you can
+type, and it is the reason the other rails exist.
+
+**Before it acts**, Hermes is on *ask me first*: every write and every command
+stops and shows you exactly what it is about to do, with ALLOW and DENY. Switch
+to **full access** and it stops asking. That is offered because it is your
+machine — with one thing worth knowing first: everything Hermes reads, including
+file contents and command output, comes back into its context, and text in a file
+can be written to look like an instruction. Ask-me-first is what stands between
+that and an action.
+
+Every tool call it makes lands in the audit log on the Settings page, whichever
+mode you are in.
+
+### Provider, model and what it costs
+
+Anthropic, DeepSeek, Google Gemini, OpenAI, or anything that speaks the
+OpenAI chat-completions shape — which includes Ollama, llama.cpp, vLLM and
+LM Studio, so the model can run on this box and never send your files anywhere.
+
+Each provider offers three models, strongest to cheapest, with a per-million-token
+price and the date that price was checked. They are a guide, not a quote, and each
+one links to the provider's own pricing page. There is a free-text box for a model
+id of your own, because this list will age.
+
+Your API key is stored on the server in a file only root can read, is never
+returned to a browser, and never appears in the audit log. Token usage — in, out,
+and an estimated cost — is on the panel footer for the conversation and on the
+settings page for everything since you last reset it. A model with no published
+rate here reports its tokens and says **no rate** rather than claiming $0.00.
+
 ## The dashboard
 
 Widgets float where you drop them — gravity only applies when you press RESET.
 
 | Gesture | Effect |
 |---|---|
+| Drag a widget's title bar | Moves it. The body is not a handle — so the things inside it stay usable |
 | Right-click a widget | Its own settings: size, colour, background tint, plus per-type options |
 | Ctrl/⌘ + click | Add or remove a widget from the selection |
 | Ctrl/⌘ + A | Select every widget, including any below the fold |
-| Drag a selected widget | Moves the whole selection, keeping its internal spacing |
+| Drag a selected widget | Moves the whole selection, keeping its internal spacing. A selected widget moves from anywhere on it, not just its title bar |
 | Right-click a selection | Only the settings they all share; per-type options appear when the types match |
 | Delete / Backspace | Remove the selection |
 | Escape | Clear it |
@@ -191,6 +242,20 @@ Host, Server Cat — plus four that answer more specific questions:
 | **Top Processes** | What is actually using the machine. Sort by CPU or by memory — two separate lists, not one re-sorted. |
 | **Disk Activity** | Read and write throughput, mirrored around a centre line. Linux only; `fsStats` reads `/proc/diskstats`. |
 | **Security Watch** | Failed logins, what is listening on all interfaces, pending security updates, who is logged in. |
+
+### Reading a chart
+
+Hover any chart — CPU, Network, Disk Activity — and a crosshair reads the sample
+under the pointer: the exact value and the clock time it was taken, down to the
+second. The line snaps to a sample rather than following the cursor, because
+between two samples there is no reading to give; the dot sits on the point being
+quoted, so there is never a question of which one the number belongs to. Disk
+Activity reads both halves at once, since "what was the disk doing at 14:31:08"
+is one question and not two. Leave the pointer where it is and the readout keeps
+up with the machine instead of freezing at whatever it said when you arrived.
+
+Mouse and pen only. A finger has no hover, and the chart sits inside a widget
+body that a long press picks up to drag.
 
 **Server Cat** is a mood ring for the machine. Four moods — sleepy, content,
 alert, grumpy — each driven by real readings (CPU, temperature, memory, disk,
@@ -229,9 +294,11 @@ The gear in each widget's header opens the same settings menu, because touch has
 no right-click. On phones it opens as a bottom sheet rather than a menu pinned to
 a fingertip.
 
-**Hold a widget to pick it up.** A press that moves is a scroll; a press that
-stays still for a moment becomes a drag, with a short buzz to say so. Below
-640px the canvas becomes a single column and dragging reorders the list.
+**Hold a widget to pick it up** — anywhere on it, not just the title bar, since
+a finger has no hover to protect and no cursor to mislead. A press that moves is
+a scroll; a press that stays still for a moment becomes a drag, with a short buzz
+to say so. Below 640px the canvas becomes a single column and dragging reorders
+the list.
 
 That phone order is stored separately from the desktop x/y, so rearranging on
 your phone does not flatten the layout you built on a real screen. The two are

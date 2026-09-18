@@ -892,14 +892,77 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
 #tip.on{opacity:1;visibility:visible}
 
 /* ============================================================
-   DRAG THE WHOLE WIDGET
-   The body is a drag handle now, so it must not look like selectable text —
-   but everything inside it that owns a click keeps its own cursor.
+   CHART CROSSHAIR
+   One floating overlay, moved over whichever chart is being hovered. It cannot
+   live inside the <svg>: every widget rewrites its chart once a second and
+   would erase it mid-hover.
+
+   Everything here is structure and the classic look. The workstation theme
+   rounds the dot and the card in workstation.css; the geometry is shared.
    ============================================================ */
-.w{cursor:grab;user-select:none}
-.w.dragging{cursor:grabbing}
+#probe{
+  position:fixed;z-index:1150;pointer-events:none;
+  opacity:0;visibility:hidden;
+  transition:opacity .1s steps(2,end);
+  /* Derived from the palette's own ink, so the line is legible on parchment and
+     on a dark panel without either theme having to name a colour for it. */
+  --probe-line:var(--text-3);
+  --probe-ring:var(--pbg,var(--panel));
+}
+@supports (color:color-mix(in srgb,red,blue)){
+  #probe{--probe-line:color-mix(in srgb,var(--text) 55%,transparent)}
+}
+#probe.on{opacity:1;visibility:visible}
+
+/* Snapped to a sample, so the short glide is between two real readings rather
+   than a line chasing the cursor through the gaps. */
+.pb-line{
+  position:absolute;top:0;bottom:0;left:0;width:1px;
+  background:var(--probe-line);
+  transition:transform .07s linear;
+}
+.pb-dot{
+  position:absolute;top:0;left:0;width:7px;height:7px;margin:-4px 0 0 -4px;
+  background:var(--pc,var(--accent));
+  box-shadow:0 0 0 2px var(--probe-ring);
+  transition:transform .07s linear;
+}
+.pb-dot[hidden],.pb-row[hidden]{display:none}
+
+.pb-card{
+  position:absolute;top:0;left:0;
+  display:flex;flex-direction:column;gap:var(--u);
+  padding:calc(var(--u)*1.5) calc(var(--u)*2.5);
+  background:var(--panel-hi);color:var(--text);white-space:nowrap;
+  border-top:2px solid var(--bevel-lt);border-left:2px solid var(--bevel-lt);
+  border-right:2px solid var(--bevel-dk);border-bottom:2px solid var(--bevel-dk);
+  transition:transform .07s linear;
+}
+.pb-when{font-family:var(--mono);font-size:10px;letter-spacing:.03em;color:var(--text-3)}
+.pb-rows{display:flex;flex-direction:column;gap:var(--u)}
+.pb-row{display:flex;align-items:center;gap:calc(var(--u)*3)}
+.pb-key{width:7px;height:7px;flex:none}
+.pb-lbl{font-family:var(--screen);font-size:9px;letter-spacing:.1em;color:var(--text-2);flex:1}
+.pb-val{font-family:var(--mono);font-size:12px;font-weight:600;font-variant-numeric:tabular-nums}
+
+/* ============================================================
+   WHERE A WIDGET IS PICKED UP
+   The title bar, or anywhere on a widget that is already selected. The body
+   used to be a handle everywhere, which put the grab cursor over the whole
+   widget — and a widget that is entirely something to move reads as having
+   nothing in it worth touching. Each cursor here names exactly one thing the
+   spot under it will do.
+   ============================================================ */
+.w{cursor:default;user-select:none}
 .w button,.w a,.w input,.w select,.w textarea{cursor:pointer}
 .w .w-rs{cursor:nwse-resize}
+/* Selected widgets move from anywhere, so they wear the handle cursor. */
+.w.selected{cursor:grab}
+/* A chart is read, not dragged, and the cursor is the only place that can say
+   so before you try it. Last, so it holds on a selected widget too. */
+.w .chart,.w.selected .chart{cursor:crosshair}
+/* Mid-drag nothing under the pointer is anything but the drag. */
+.w.dragging,.w.dragging .chart,.w.dragging .w-head{cursor:grabbing}
 #grid.stack .w{cursor:default}
 
 /* ============================================================
@@ -1578,3 +1641,220 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
   45%{transform:translateY(0) scaleY(.9) scaleX(1.08)}
   100%{transform:translateY(0) scaleY(1) scaleX(1)}
 }
+
+/* ============================================================
+   NEXUS EXPERT — the dock, the panel, the robot
+   Structure and the classic look. The workstation theme rounds and softens the
+   same geometry in workstation.css; nothing here is theme-specific except the
+   square corners, which belong to the pixel theme.
+   ============================================================ */
+
+/* ---- the robot ---- */
+.hbot-art{display:inline-block;line-height:0;flex:none;width:34px}
+.hbot-art.sm{width:22px}
+.hbot-art.lg{width:64px}
+.hbot{width:100%;height:auto;display:block;overflow:visible}
+.hb-head{fill:var(--panel-hi);stroke:var(--rule);stroke-width:.5}
+.hb-ear,.hb-stalk{fill:var(--rule)}
+.hb-visor{fill:var(--void)}
+.hb-eye{fill:var(--accent)}
+.hb-bulb{fill:var(--crit)}
+.hb-tooth{fill:var(--rule)}
+.hb-scan{fill:var(--accent);opacity:0}
+
+/* Three things move and nothing else: the bulb blinks, the eyes look around,
+   and on hover a scan line sweeps the visor. Everything is a transform or an
+   opacity, so none of it costs a layout. */
+@keyframes hb-blink{0%,92%,100%{opacity:1}95%{opacity:.25}}
+@keyframes hb-look{0%,38%{transform:translateX(0)}46%,60%{transform:translateX(.7px)}68%,86%{transform:translateX(-.7px)}94%,100%{transform:translateX(0)}}
+@keyframes hb-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-.5px)}}
+@keyframes hb-sweep{0%{opacity:0;transform:translateY(0)}20%{opacity:.5}100%{opacity:0;transform:translateY(3.1px)}}
+.hb-bulb{animation:hb-blink 3.2s ease-in-out infinite}
+.hb-eyes{animation:hb-look 7s ease-in-out infinite}
+.hb-body{animation:hb-bob 4.4s ease-in-out infinite}
+#hermes-open:hover .hb-scan{animation:hb-sweep 1.15s linear infinite}
+#hermes-open:hover .hb-bulb{animation-duration:1s}
+#hermes-open:hover .hb-eyes{animation-duration:2.2s}
+
+/* ---- the dock button ---- */
+#hermes-open{
+  position:fixed;right:calc(var(--u)*5);bottom:calc(var(--u)*5);z-index:1100;
+  display:flex;align-items:center;gap:calc(var(--u)*2);
+  padding:calc(var(--u)*2) calc(var(--u)*3);
+  background:var(--panel);color:var(--text);cursor:pointer;
+  border-top:2px solid var(--bevel-lt);border-left:2px solid var(--bevel-lt);
+  border-right:2px solid var(--bevel-dk);border-bottom:2px solid var(--bevel-dk);
+  font-family:var(--screen);font-size:10px;letter-spacing:.1em;font-weight:600;
+  transition:transform .14s ease-out,background-color .14s ease-out;
+}
+#hermes-open:hover{background:var(--panel-hi);transform:translateY(-2px)}
+#hermes-open:active{transform:translateY(0)}
+#hermes-open.tucked{transform:translateY(140%);pointer-events:none;opacity:0}
+/* No key yet: the bulb goes amber rather than the button shouting. */
+#hermes-open.unconfigured .hb-bulb{fill:var(--warn)}
+.hbot-label{white-space:nowrap}
+
+/* ---- the panel ---- */
+#hermes{
+  position:fixed;right:calc(var(--u)*5);bottom:calc(var(--u)*5);z-index:1100;
+  width:min(410px,calc(100vw - var(--u)*10));
+  height:min(620px,calc(100vh - var(--u)*24));
+  display:flex;flex-direction:column;overflow:hidden;
+  background:var(--panel);
+  border-top:2px solid var(--bevel-lt);border-left:2px solid var(--bevel-lt);
+  border-right:2px solid var(--bevel-dk);border-bottom:2px solid var(--bevel-dk);
+}
+#hermes[hidden]{display:none}
+.hx-head{display:flex;align-items:center;gap:calc(var(--u)*2);flex:none;
+         padding:calc(var(--u)*2) calc(var(--u)*3);background:var(--sunk);
+         border-bottom:2px solid var(--bevel-dk)}
+.hx-who{display:flex;flex-direction:column;min-width:0;line-height:1.25}
+.hx-who b{font-family:var(--screen);font-size:11px;letter-spacing:.12em}
+.hx-model{font-family:var(--mono);font-size:10px;color:var(--text-3);
+          overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hx-ico{width:24px;height:24px;flex:none;display:grid;place-items:center;
+        background:none;color:var(--text-3);font-size:14px;cursor:pointer}
+.hx-ico:hover{background:var(--panel);color:var(--text)}
+
+.hx-body{flex:1;min-height:0;overflow:auto;padding:calc(var(--u)*3);
+         display:flex;flex-direction:column;gap:calc(var(--u)*2.5)}
+.hx-hello{margin:auto;text-align:center;display:flex;flex-direction:column;
+          align-items:center;gap:calc(var(--u)*2);padding:calc(var(--u)*4)}
+.hx-hi{margin:0;font-family:var(--screen);font-size:15px;letter-spacing:.04em}
+.hx-sub{margin:0;font-size:12px;color:var(--text-3);line-height:1.5;max-width:30ch}
+
+.hx-row{display:flex}
+.hx-row.me{justify-content:flex-end}
+.hx-bub{max-width:88%;padding:calc(var(--u)*2) calc(var(--u)*2.5);
+        font-size:13px;line-height:1.5;background:var(--sunk);word-break:break-word}
+.hx-row.me .hx-bub{background:var(--selection,var(--panel-hi))}
+.hx-bub p{margin:0 0 .6em}
+.hx-bub p:last-child{margin:0}
+.hx-bub code{font-family:var(--mono);font-size:12px;background:var(--void);padding:0 3px}
+.hx-code{font-family:var(--mono);font-size:11.5px;background:var(--void);
+         padding:calc(var(--u)*1.5);overflow:auto;margin:.5em 0;white-space:pre-wrap;word-break:break-word}
+.hx-err{font-size:12px;color:var(--crit);background:var(--sunk);
+        padding:calc(var(--u)*1.5) calc(var(--u)*2);width:100%}
+
+/* A tool call is a fact about the machine, so it reads as a record: what it
+   did, whether it worked, detail one click away. */
+.hx-tool{font-size:12px;background:var(--sunk);border-left:3px solid var(--rule)}
+.hx-tool summary{display:flex;align-items:center;gap:calc(var(--u)*2);
+                 padding:calc(var(--u)*1.5) calc(var(--u)*2);cursor:pointer;list-style:none}
+.hx-tool summary::-webkit-details-marker{display:none}
+.hx-tool summary em{margin-left:auto;font-style:normal;font-family:var(--screen);
+                    font-size:9px;letter-spacing:.1em;color:var(--text-3)}
+.hx-tick{width:6px;height:6px;flex:none;background:var(--ok)}
+.hx-tool.failed{border-left-color:var(--crit)} .hx-tool.failed .hx-tick{background:var(--crit)}
+.hx-tool.denied{border-left-color:var(--warn)} .hx-tool.denied .hx-tick{background:var(--warn)}
+.hx-tool pre{margin:0;padding:0 calc(var(--u)*2) calc(var(--u)*2);font-family:var(--mono);
+             font-size:11px;white-space:pre-wrap;word-break:break-word;color:var(--text-2);
+             max-height:260px;overflow:auto}
+
+@keyframes hx-pip{0%,80%,100%{opacity:.25}40%{opacity:1}}
+.hx-think{display:flex;gap:4px;padding:calc(var(--u)*2)}
+.hx-think i{width:5px;height:5px;background:var(--text-3);animation:hx-pip 1.1s infinite}
+.hx-think i:nth-child(2){animation-delay:.15s}
+.hx-think i:nth-child(3){animation-delay:.3s}
+
+/* ---- the approval gate ---- */
+.hx-ask{flex:none;padding:calc(var(--u)*3);background:var(--sunk);
+        border-top:2px solid var(--warn)}
+.hx-ask[hidden]{display:none}
+.hx-askhead{display:flex;align-items:center;gap:calc(var(--u)*2);font-size:12px;margin-bottom:calc(var(--u)*2)}
+.hx-risk{font-family:var(--screen);font-size:9px;letter-spacing:.1em;padding:2px 5px;
+         background:var(--warn);color:var(--void);flex:none}
+.hx-risk.exec{background:var(--crit);color:var(--panel-hi)}
+.hx-preview{margin:0 0 calc(var(--u)*2);font-family:var(--mono);font-size:11px;
+            background:var(--void);padding:calc(var(--u)*2);max-height:160px;overflow:auto;
+            white-space:pre-wrap;word-break:break-word}
+.hx-askrow{display:flex;gap:calc(var(--u)*2);justify-content:flex-end}
+
+/* ---- composer + footer ---- */
+.hx-compose{flex:none;display:flex;gap:calc(var(--u)*2);align-items:flex-end;
+            padding:calc(var(--u)*2.5);border-top:2px solid var(--rule)}
+.hx-compose textarea{flex:1;min-height:36px;max-height:120px;resize:none;
+                     font-family:var(--pixel);font-size:13px;line-height:1.45}
+.hx-foot{flex:none;display:flex;align-items:center;gap:calc(var(--u)*2);
+         padding:calc(var(--u)*1.5) calc(var(--u)*3);background:var(--sunk);
+         font-family:var(--mono);font-size:10px;color:var(--text-3);
+         border-top:1px solid var(--rule)}
+.hx-link{background:none;color:var(--text-3);cursor:pointer;font-family:var(--screen);
+         font-size:9px;letter-spacing:.1em}
+.hx-link:hover{color:var(--accent)}
+
+/* On a phone the panel is the page. A 410px card floating over a 390px screen
+   is a card with no screen left around it. */
+@media(max-width:560px){
+  #hermes{right:0;bottom:0;width:100vw;height:min(88vh,100vh - 40px);max-height:none}
+  #hermes-open{right:calc(var(--u)*3);bottom:calc(var(--u)*3)}
+  .hbot-label{display:none}
+}
+@media(max-width:640px){
+  /* The rail is a bottom bar below 640px — sit above it, not on it. */
+  #hermes-open{bottom:calc(var(--u)*3 + 68px)}
+}
+
+/* ============================================================
+   SETTINGS → NEXUS EXPERT
+   ============================================================ */
+.ag-block{padding:calc(var(--u)*4) 0;border-top:1px solid var(--rule)}
+.ag-block:first-child{border-top:0;padding-top:calc(var(--u)*2)}
+.ag-block h3{margin:0 0 calc(var(--u)*3);font-family:var(--screen);font-size:11px;
+             letter-spacing:.1em;color:var(--text-2)}
+.ag-block h3 small{display:block;margin-top:4px;font-family:var(--mono);font-size:10px;
+                   letter-spacing:0;color:var(--text-3);font-weight:400}
+
+.ag-provs{display:flex;flex-wrap:wrap;gap:calc(var(--u)*2)}
+.ag-prov{display:flex;flex-direction:column;align-items:flex-start;gap:3px;
+         padding:calc(var(--u)*2) calc(var(--u)*3);background:var(--panel);cursor:pointer;
+         border:2px solid var(--rule);text-align:left}
+.ag-prov b{font-size:13px}
+.ag-prov span{font-family:var(--mono);font-size:10px;color:var(--text-3)}
+.ag-prov.on{border-color:var(--accent);background:var(--panel-hi)}
+
+.ag-models{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:calc(var(--u)*2)}
+.ag-model{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;
+          padding:calc(var(--u)*3);background:var(--panel);border:2px solid var(--rule);cursor:pointer}
+.ag-model.on{border-color:var(--accent);background:var(--panel-hi)}
+.ag-tier{font-family:var(--screen);font-size:9px;letter-spacing:.1em;color:var(--accent)}
+.ag-model b{font-size:14px}
+.ag-price{font-family:var(--mono);font-size:11px;color:var(--text-2)}
+.ag-price small{color:var(--text-3)}
+.ag-price.none{color:var(--text-3);font-style:italic}
+.ag-note{font-size:11.5px;color:var(--text-3);line-height:1.4}
+
+.ag-row{display:flex;align-items:center;gap:calc(var(--u)*2);flex-wrap:wrap;margin-top:calc(var(--u)*3)}
+.ag-row label{margin:0;flex:none;min-width:120px}
+.ag-row input[type=text],.ag-row input[type=password]{flex:1;min-width:180px}
+.ag-row input[type=number]{width:80px}
+
+.ag-caps{display:flex;flex-direction:column;gap:calc(var(--u)*2)}
+.ag-cap{display:flex;gap:calc(var(--u)*3);align-items:flex-start;padding:calc(var(--u)*2.5);
+        background:var(--panel);border:2px solid var(--rule);cursor:pointer}
+.ag-cap input{margin-top:3px;flex:none}
+/* Tick boxes in the palette's own accent, not the browser's blue — the only
+   place in this section that was still wearing somebody else's colour. */
+#agent-panel input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px}
+.ag-capbody{display:flex;flex-direction:column;gap:3px}
+.ag-capbody b{font-size:13px;font-weight:600}
+.ag-capbody small{font-size:11.5px;color:var(--text-3);line-height:1.45}
+.ag-cap.danger{border-color:var(--crit)}
+.ag-cap.danger .ag-capbody b{color:var(--crit)}
+.ag-cap.off{opacity:.55;cursor:not-allowed}
+
+.ag-roots{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:calc(var(--u)*2)}
+.ag-check{display:flex;gap:calc(var(--u)*2);align-items:flex-start;padding:calc(var(--u)*2);
+          background:var(--panel);border:2px solid var(--rule);cursor:pointer}
+.ag-check span{display:flex;flex-direction:column;min-width:0}
+.ag-check small{font-family:var(--mono);font-size:10px;color:var(--text-3);
+                overflow:hidden;text-overflow:ellipsis}
+
+.ag-modes{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:calc(var(--u)*2)}
+.ag-mode{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;
+         padding:calc(var(--u)*3);background:var(--panel);border:2px solid var(--rule);cursor:pointer}
+.ag-mode.on{border-color:var(--accent);background:var(--panel-hi)}
+.ag-mode span{font-size:11.5px;color:var(--text-3);line-height:1.4}
+.warnline{border-left:3px solid var(--warn);padding-left:calc(var(--u)*2);margin-top:calc(var(--u)*3)}
+.ag-usage dd{font-family:var(--mono)}
+.ag-usage small{color:var(--text-3)}
