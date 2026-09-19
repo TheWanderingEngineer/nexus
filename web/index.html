@@ -92,6 +92,8 @@
         <span class="spacer"></span>
         <div id="tools-dash">
           <button class="btn" id="add" data-tip="Open the widget library.">+ ADD WIDGET</button>
+          <button class="btn" id="presets" data-tip="Saved arrangements. Switch between them, or save this one.">PRESETS</button>
+          <button class="btn" id="tidy" data-tip="Pack the widgets top-left with no gaps, keeping their order.">TIDY</button>
           <button class="btn" id="reset" data-tip="Restore the default layout and close any gaps. Your widget styling is discarded.">RESET</button>
         </div>
         <div id="tools-containers" hidden>
@@ -137,10 +139,15 @@
       <!-- containers -->
       <section class="page" id="page-containers">
         <div id="c-status"></div>
-        <div class="tw"><table id="c-table">
-          <thead><tr><th>Name</th><th>Image</th><th>State</th><th>Ports</th><th>Managed</th><th></th></tr></thead>
-          <tbody></tbody>
-        </table></div>
+        <div class="cbar" id="c-bar" hidden>
+          <input id="c-q" type="search" placeholder="Find a container…" aria-label="Find a container">
+          <div class="cfilters" role="group" aria-label="Filter by state">
+            <button class="cfilter on" data-cstate="all" type="button">ALL <i>0</i></button>
+            <button class="cfilter" data-cstate="running" type="button">RUNNING <i>0</i></button>
+            <button class="cfilter" data-cstate="stopped" type="button">STOPPED <i>0</i></button>
+          </div>
+        </div>
+        <div class="cgrid" id="c-grid"></div>
       </section>
 
       <!-- files -->

@@ -52,8 +52,24 @@ function parse(raw) {
   return { meta, body: body.trim() };
 }
 
-function serialise({ name, description, mode, body }) {
-  return `---\nname: ${name}\ndescription: ${description}\nmode: ${mode}\n---\n\n${body.trim()}\n`;
+function serialise({ name, description, mode, tags, body }) {
+  const t = (tags || []).join(", ");
+  return `---\nname: ${name}\ndescription: ${description}\nmode: ${mode}\n` +
+         (t ? `tags: ${t}\n` : "") + `---\n\n${body.trim()}\n`;
+}
+
+/** Tags are a comma-separated line in the front matter, so a skill file stays
+ *  something a person can write in any editor. Normalised hard on the way in:
+ *  lowercase, no commas, deduped — "Docker", "docker " and "docker" are one tag
+ *  or the filter chips are useless. */
+export function normTags(v) {
+  const raw = Array.isArray(v) ? v : String(v || "").split(",");
+  const out = [];
+  for (const t of raw) {
+    const tag = String(t).trim().toLowerCase().replace(/[,\n]/g, " ").replace(/\s+/g, " ").slice(0, 24);
+    if (tag && !out.includes(tag)) out.push(tag);
+  }
+  return out.slice(0, 12);
 }
 
 /**
@@ -128,6 +144,7 @@ export function list() {
       name: meta.name || id.replace(/[-_]/g, " "),
       description: meta.description || "",
       mode: meta.mode === "always" ? "always" : "ondemand",
+      tags: normTags(meta.tags),
       enabled: !off.has(id),
       seeded: seeds.has(id),
       bytes: Buffer.byteLength(body, "utf8")
@@ -145,13 +162,22 @@ export function read(id) {
     name: meta.name || id,
     description: meta.description || "",
     mode: meta.mode === "always" ? "always" : "ondemand",
+    tags: normTags(meta.tags),
     body
   };
 }
 
+/** Every tag in use, with how many skills carry it — the filter bar needs both. */
+export function tagCloud() {
+  const counts = new Map();
+  for (const sk of list()) for (const t of sk.tags) counts.set(t, (counts.get(t) || 0) + 1);
+  return [...counts.entries()].map(([tag, n]) => ({ tag, n }))
+    .sort((a, b) => b.n - a.n || a.tag.localeCompare(b.tag));
+}
+
 /** Write a skill. Used by the upload drop zone and by the editor; both land
  *  here so validation cannot drift between them. */
-export function write({ id, name, content, description, mode }) {
+export function write({ id, name, content, description, mode, tags }) {
   fs.mkdirSync(SKILLS_DIR, { recursive: true });
   if (typeof content !== "string") throw Object.assign(new Error("content must be text"), { status: 400 });
   if (Buffer.byteLength(content, "utf8") > MAX_SKILL_BYTES) {
@@ -165,9 +191,11 @@ export function write({ id, name, content, description, mode }) {
   const finalName = parsed.meta.name || name || finalId.replace(/[-_]/g, " ");
   const finalDesc = (description ?? parsed.meta.description ?? "").slice(0, 300);
   const finalMode = (mode || parsed.meta.mode) === "always" ? "always" : "ondemand";
+  const finalTags = normTags(tags !== undefined ? tags : parsed.meta.tags);
 
   fs.writeFileSync(fileFor(finalId),
-    serialise({ name: finalName.slice(0, 120), description: finalDesc, mode: finalMode, body: parsed.body }),
+    serialise({ name: finalName.slice(0, 120), description: finalDesc, mode: finalMode,
+                tags: finalTags, body: parsed.body }),
     { mode: 0o600 });
 
   // A rewritten skill is one you just chose to have, so it comes back on.
@@ -190,7 +218,12 @@ export function setEnabled(id, enabled) {
 
 export function setMode(id, mode) {
   const cur = read(id);
-  write({ id: cur.id, name: cur.name, description: cur.description, content: cur.body, mode });
+  write({ id: cur.id, name: cur.name, description: cur.description, content: cur.body, mode, tags: cur.tags });
+}
+
+export function setTags(id, tags) {
+  const cur = read(id);
+  write({ id: cur.id, name: cur.name, description: cur.description, content: cur.body, mode: cur.mode, tags });
 }
 
 /* ---------------- what the agent sees ---------------- */
@@ -217,7 +250,7 @@ export function memory() {
 /** The on-demand menu: enough for the model to know what exists and to ask. */
 export function menu() {
   return list().filter(s => s.enabled && s.mode === "ondemand")
-    .map(s => ({ id: s.id, name: s.name, description: s.description }));
+    .map(s => ({ id: s.id, name: s.name, description: s.description, tags: s.tags }));
 }
 
 export function budget() {

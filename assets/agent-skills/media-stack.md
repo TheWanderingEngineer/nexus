@@ -2,6 +2,7 @@
 name: The media stack
 description: Jellyfin, Jellyseerr, Radarr, Sonarr, Prowlarr, qBittorrent and Kaizoku — how they fit together and how to fix them
 mode: ondemand
+tags: media, docker, jellyfin, arr
 ---
 
 The usual self-hosted media chain, and the order things flow in:

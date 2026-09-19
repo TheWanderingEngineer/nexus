@@ -175,6 +175,39 @@ soft-edged reading of the same geometry is in `workstation.css`. The line colour
 is derived from `--text` with `color-mix`, with a `--text-3` fallback, so it
 follows all three palettes without either theme naming a colour for it.
 
+## The canvas has to be measurable
+
+`layout()` returns immediately when `gridEl.clientWidth < 1`, and that one line
+is a whole class of bug. A hidden page measures zero, so `cellW()` returns a
+**negative** cell width and every widget is written to the same broken position
+— and the window `resize` listener fires while you are on another page, because
+opening a long folder listing adds a scrollbar. Geometry that cannot be measured
+is not zero, it is unknown, and the response is to do nothing.
+
+Recovery is a **ResizeObserver on the grid element**, not a hook in `go()`.
+The canvas resizes without the window doing anything: returning to the
+Dashboard, collapsing the rail, an iPad rotating, the browser's own font size.
+The observer catches all of them, including the 0 → real transition the guard is
+waiting for.
+
+Two notes for anyone testing this. A negative `width` is **invalid CSS and is
+silently rejected**, so the first widget (`x: 0`) looks untouched even when the
+layout is destroyed — `left` accepts negatives happily and is what actually
+piles them up, so assert over every widget, not the first. And the observer
+repairs the damage before a round-trip test can see it, so
+`scripts/dashboard-check.js` fires a `resize` on the hidden page and checks that
+nothing was written, which is the invariant rather than a symptom. Run it with
+the guard deleted before trusting a change to it: it should fail.
+
+`tidy()` packs top-left with no gaps in reading order. `compact()` still exists
+and is different — it only pulls a widget straight up its own column, so it
+keeps a hole to the left of something. That is right for RESET and wrong for a
+tidy-up button.
+
+Presets are `settings.presets`, and `POST /layout/presets` runs its widgets
+through the **same** `sanitizeCfg`/clamp path as `PUT /layout`. A preset must
+not be a way to put into the state file what the layout endpoint would refuse.
+
 ## The agent
 
 `server/agent.js` is self-contained: a provider catalogue, a tool table, and a
@@ -227,6 +260,17 @@ body arrives through the `load_skill` tool when the model asks for it.
 Seeds live in `assets/agent-skills/` and are copied on first boot and by RESTORE
 DEFAULTS, which is a restore rather than a reset: an edited skill keeps your
 version, a deleted one comes back.
+
+### Scheduled tasks
+
+`saveCron` / `tickCrons` in `agent.js`, deliberately the same shape as the
+Control Panel's schedules — time, days, and a `lastMinute` stamp that stops a
+job firing twice inside one minute. A cron obeys the approval mode like
+everything else, so on "ask me first" a task that wants to write or run stops
+and waits with nobody there to answer. It records `waiting: <tool>` rather than
+reporting success, and the settings page says so next to the switch. A run's
+transcript is deleted once the answer is extracted: it holds file contents and
+command output and has no business sitting in memory for hours.
 
 ### The briefing
 

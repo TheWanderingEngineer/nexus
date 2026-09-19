@@ -356,6 +356,60 @@ export default function routes() {
 
   r.delete("/layout", (req, res) => { db().widgets = null; save(); audit("layout.reset", null, req); res.json({ ok: true }); });
 
+  /* ---------------- dashboard presets ----------------
+     A named arrangement you can switch to. Stored widgets go through exactly
+     the same sanitiser as PUT /layout — a preset must not be a way to put into
+     the state file what the layout endpoint would have refused. */
+  const MAX_PRESETS = 24;
+
+  const sanitizeWidgets = w => (Array.isArray(w) ? w : []).slice(0, 100).map(x => ({
+    id: Number(x.id) || 0, t: String(x.t || "").slice(0, 40),
+    x: clampInt(x.x, 0, 11), y: clampInt(x.y, 0, 500),
+    w: clampInt(x.w, 1, 12), h: clampInt(x.h, 1, 40),
+    order: x.order == null ? null : clampInt(x.order, 0, 500),
+    cfg: sanitizeCfg(x.cfg)
+  }));
+
+  const presets = () => {
+    const s0 = db().settings = db().settings || {};
+    if (!Array.isArray(s0.presets)) s0.presets = [];
+    return s0.presets;
+  };
+
+  r.get("/layout/presets", (_req, res) => res.json({ presets: presets() }));
+
+  r.post("/layout/presets", (req, res) => {
+    const list = presets();
+    const name = String(req.body?.name || "").trim().slice(0, 40);
+    if (!name) throw Object.assign(new Error("give the preset a name"), { status: 400 });
+    const widgets = sanitizeWidgets(req.body?.widgets);
+    if (!widgets.length) throw Object.assign(new Error("there are no widgets to save"), { status: 400 });
+
+    // Saving over a name you already used is the expected thing, not an error.
+    const existing = list.find(p => p.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      existing.widgets = widgets;
+      existing.savedAt = Date.now();
+    } else {
+      if (list.length >= MAX_PRESETS) throw Object.assign(new Error(`that is the ${MAX_PRESETS}th preset — delete one first`), { status: 400 });
+      list.push({ id: "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+                  name, widgets, savedAt: Date.now() });
+    }
+    save();
+    audit("layout.preset.save", { name, widgets: widgets.length }, req);
+    res.json({ presets: list });
+  });
+
+  r.delete("/layout/presets/:id", (req, res) => {
+    const list = presets();
+    const i = list.findIndex(p => p.id === req.params.id);
+    if (i < 0) throw Object.assign(new Error("no such preset"), { status: 404 });
+    const [gone] = list.splice(i, 1);
+    save();
+    audit("layout.preset.delete", { name: gone.name }, req);
+    res.json({ presets: list });
+  });
+
   /* ---------------- app store ---------------- */
   r.get("/store/status", (_req, res) => {
     res.json({
@@ -600,31 +654,35 @@ export default function routes() {
      Skills are Markdown on disk under <dataDir>/agent-skills. The id is
      slugified in skills.js so a dropped filename cannot address anything
      outside that folder. */
-  r.get("/agent/skills", (_req, res) => res.json({ list: agentSkills.list(), budget: agentSkills.budget(), seeds: agentSkills.seedNames() }));
+  const skillPayload = () => ({ list: agentSkills.list(), budget: agentSkills.budget(),
+                                seeds: agentSkills.seedNames(), tags: agentSkills.tagCloud() });
+
+  r.get("/agent/skills", (_req, res) => res.json(skillPayload()));
 
   r.get("/agent/skills/:id", (req, res) => res.json(agentSkills.read(req.params.id)));
 
   r.post("/agent/skills", (req, res) => {
-    const { id, name, content, description, mode } = req.body || {};
+    const { id, name, content, description, mode, tags } = req.body || {};
     if (typeof content !== "string" || !content.trim()) {
       throw Object.assign(new Error("a skill needs some text in it"), { status: 400 });
     }
-    const savedId = agentSkills.write({ id, name, content, description, mode });
+    const savedId = agentSkills.write({ id, name, content, description, mode, tags });
     audit("agent.skill.save", { id: savedId, bytes: content.length }, req);
-    res.json({ id: savedId, list: agentSkills.list(), budget: agentSkills.budget() });
+    res.json({ id: savedId, ...skillPayload() });
   });
 
   r.put("/agent/skills/:id", (req, res) => {
     if (typeof req.body?.enabled === "boolean") agentSkills.setEnabled(req.params.id, req.body.enabled);
     if (req.body?.mode) agentSkills.setMode(req.params.id, req.body.mode);
+    if (req.body?.tags !== undefined) agentSkills.setTags(req.params.id, req.body.tags);
     audit("agent.skill.update", { id: req.params.id, enabled: req.body?.enabled, mode: req.body?.mode }, req);
-    res.json({ list: agentSkills.list(), budget: agentSkills.budget() });
+    res.json(skillPayload());
   });
 
   r.delete("/agent/skills/:id", (req, res) => {
     agentSkills.remove(req.params.id);
     audit("agent.skill.delete", { id: req.params.id }, req);
-    res.json({ list: agentSkills.list(), budget: agentSkills.budget() });
+    res.json(skillPayload());
   });
 
   /* Restore, not reset: a skill you edited keeps your version, a skill you
@@ -632,8 +690,25 @@ export default function routes() {
   r.post("/agent/skills/restore", (req, res) => {
     const added = agentSkills.seed();
     audit("agent.skill.restore", { added }, req);
-    res.json({ added, list: agentSkills.list(), budget: agentSkills.budget() });
+    res.json({ added, ...skillPayload() });
   });
+
+  /* ---- scheduled tasks ---- */
+  r.put("/agent/crons", (req, res) => {
+    const row = agent.saveCron(req.body || {});
+    audit("agent.cron.save", { id: row.id, name: row.name, time: row.time, enabled: row.enabled }, req);
+    res.json({ crons: agent.crons() });
+  });
+
+  r.delete("/agent/crons/:id", (req, res) => {
+    agent.deleteCron(req.params.id);
+    audit("agent.cron.delete", { id: req.params.id }, req);
+    res.json({ crons: agent.crons() });
+  });
+
+  r.post("/agent/crons/:id/run", wrap(async (req, res) => {
+    res.json({ cron: await agent.runCron(req.params.id, req), crons: agent.crons() });
+  }));
 
   r.delete("/agent/usage", (req, res) => {
     agent.resetUsage();

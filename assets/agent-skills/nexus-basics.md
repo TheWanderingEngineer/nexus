@@ -2,6 +2,7 @@
 name: Nexus itself
 description: What the dashboard around you is, where its files live, and how the owner uses it
 mode: always
+tags: core, nexus
 ---
 
 **Nexus** is the dashboard you are inside. Node.js, no build step, runs as a

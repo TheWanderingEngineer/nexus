@@ -2,6 +2,7 @@
 name: Homelab practice
 description: Storage layout, backups, hardware transcoding, resource limits and the habits that keep a mini server alive
 mode: ondemand
+tags: homelab, storage, backups
 ---
 
 ## Storage

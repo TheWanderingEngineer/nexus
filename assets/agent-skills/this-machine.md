@@ -2,6 +2,7 @@
 name: This machine
 description: The box you are running on and how to find out its real state
 mode: always
+tags: core, system, ubuntu
 ---
 
 A single Linux mini PC, used as a home server on a private network. Expect

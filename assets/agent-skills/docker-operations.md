@@ -2,6 +2,7 @@
 name: Docker on this box
 description: Listing containers and their real status, reading logs, and changing things safely with compose
 mode: ondemand
+tags: docker, containers, troubleshooting
 ---
 
 ## Seeing what is actually running

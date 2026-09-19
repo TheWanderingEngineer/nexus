@@ -969,6 +969,125 @@ export async function testKey() {
   }
 }
 
+/* ============================ scheduled tasks ============================
+ * "Every night at 02:00, check for failed services and tell me."
+ *
+ * Deliberately the same shape as the Control Panel's schedules — time plus
+ * days plus a lastMinute stamp — because two schedulers that look different
+ * for no reason is two things to learn. The tick runs once a minute and the
+ * stamp is what stops a job firing twice inside the same minute.
+ *
+ * A cron obeys the approval mode like everything else. On "ask me first" a task
+ * that wants to write or run a command will stop and wait, with nobody there to
+ * answer, so it records exactly that rather than silently doing nothing — and
+ * the settings page says so next to the switch.
+ */
+const DAY_ALL = [0, 1, 2, 3, 4, 5, 6];
+
+function cronList() {
+  const a = db().settings?.agent;
+  if (!a) return [];
+  if (!Array.isArray(a.crons)) a.crons = [];
+  return a.crons;
+}
+
+export function crons() { return cronList(); }
+
+export function saveCron(input) {
+  const s0 = db().settings = db().settings || {};
+  s0.agent = s0.agent || {};
+  if (!Array.isArray(s0.agent.crons)) s0.agent.crons = [];
+  const list = s0.agent.crons;
+
+  const existing = list.find(c => c.id === input?.id) || {};
+  const days = Array.isArray(input?.days)
+    ? [...new Set(input.days.map(Number).filter(n => n >= 0 && n <= 6))].sort()
+    : (existing.days || DAY_ALL);
+
+  const row = {
+    id: existing.id || "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    enabled: input?.enabled !== false,
+    name: String(input?.name || "").slice(0, 60) || "Scheduled task",
+    prompt: String(input?.prompt || "").slice(0, 2000),
+    time: /^\d{2}:\d{2}$/.test(String(input?.time || "")) ? input.time : (existing.time || "04:00"),
+    days: days.length ? days : DAY_ALL,
+    lastMinute: existing.lastMinute || null,
+    lastRun: existing.lastRun || null
+  };
+  if (!row.prompt) throw httpError(400, "a scheduled task needs something to ask");
+
+  const i = list.findIndex(c => c.id === row.id);
+  if (i >= 0) list[i] = row;
+  else {
+    if (list.length >= 20) throw httpError(400, "that is the twentieth scheduled task — remove one first");
+    list.push(row);
+  }
+  save();
+  return row;
+}
+
+export function deleteCron(id) {
+  const s0 = db().settings?.agent;
+  if (!s0 || !Array.isArray(s0.crons)) return;
+  s0.crons = s0.crons.filter(c => c.id !== id);
+  save();
+}
+
+/** Run one now, from the settings page's RUN NOW button or from the tick. */
+export async function runCron(id, req) {
+  const c = cronList().find(x => x.id === id);
+  if (!c) throw httpError(404, "no such task");
+  const started = Date.now();
+  audit("agent.cron.run", { name: c.name }, req);
+  try {
+    const runId = newRun();
+    const out = await send(runId, c.prompt, req);
+    const said = [...(out.steps || [])].reverse().find(x => x.kind === "assistant")?.text
+              || [...(out.steps || [])].reverse().find(x => x.kind === "error")?.text
+              || "(no answer)";
+    c.lastRun = {
+      at: started, ok: !out.pending, ms: Date.now() - started,
+      // A paused run is not a failure and not a success; it is a question
+      // nobody was there to answer, and saying so is the whole point.
+      waiting: out.pending ? out.pending.name : null,
+      summary: String(said).slice(0, 600),
+      tokens: out.usage ? { in: out.usage.in, out: out.usage.out } : null
+    };
+    // The transcript holds file contents and command output; only the answer is
+    // kept, and the run itself is dropped so it cannot sit in memory for hours.
+    runs.delete(runId);
+  } catch (e) {
+    c.lastRun = { at: started, ok: false, ms: Date.now() - started, waiting: null,
+                  summary: String(e.message || e).slice(0, 600), tokens: null };
+  }
+  save();
+  return c;
+}
+
+let cronTimer = null;
+
+export function startCrons() {
+  if (cronTimer) return;
+  cronTimer = setInterval(() => { tickCrons().catch(() => {}); }, 60000);
+  cronTimer.unref?.();
+}
+
+async function tickCrons() {
+  const now = new Date();
+  const hhmm = String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0");
+  const day = now.getDay();
+  const stamp = now.toISOString().slice(0, 16);
+
+  for (const c of cronList()) {
+    if (!c.enabled || c.time !== hhmm) continue;
+    if (Array.isArray(c.days) && c.days.length && !c.days.includes(day)) continue;
+    if (c.lastMinute === stamp) continue;       // one firing per minute, per task
+    c.lastMinute = stamp;
+    save();
+    try { await runCron(c.id, null); } catch {}
+  }
+}
+
 /** What the settings page needs, with nothing secret in it. */
 export function publicConfig() {
   const s = settings();
@@ -984,7 +1103,8 @@ export function publicConfig() {
     usage: usage(),
     capabilities: capabilitySummary(),
     dockerAvailable: dockerx.status().available,
-    skills: { list: skills.list(), budget: skills.budget(), seeds: skills.seedNames() },
+    crons: cronList(),
+    skills: { list: skills.list(), budget: skills.budget(), seeds: skills.seedNames(), tags: skills.tagCloud() },
     ready: !!(getKey(s.provider) || s.provider === "custom")
   };
 }

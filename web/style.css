@@ -1151,10 +1151,18 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
   #toolbar h1{font-size:12px}
 
   /* Toolbar actions scroll sideways rather than wrapping into three ragged
-     rows and pushing the content off the bottom of the screen. */
-  #toolbar > div{display:flex;gap:var(--u);overflow-x:auto;max-width:100%;
-                 padding-bottom:2px;scrollbar-width:none}
-  #toolbar > div::-webkit-scrollbar{display:none}
+     rows and pushing the content off the bottom of the screen.
+
+     `> div` also caught `.page-heading`, which is a div too — that turned the
+     title and its subtitle into a flex ROW, so every page read
+     "Files Everything in its place." on one line. Name the tool groups. */
+  #toolbar > div[id^="tools-"]{display:flex;gap:var(--u);overflow-x:auto;max-width:100%;
+                 padding-bottom:2px;scrollbar-width:none;
+                 /* iOS momentum, and a hint that there is more to the right. */
+                 -webkit-overflow-scrolling:touch;scroll-snap-type:x proximity}
+  #toolbar > div[id^="tools-"] > *{scroll-snap-align:start;flex:none}
+  #toolbar > div[id^="tools-"]::-webkit-scrollbar{display:none}
+  .page-heading{flex:1 1 100%;min-width:0}
 
   .section{padding:calc(var(--u)*3)}
   .kv{grid-template-columns:1fr;gap:calc(var(--u))}
@@ -1833,9 +1841,7 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
 .ag-cap{display:flex;gap:calc(var(--u)*3);align-items:flex-start;padding:calc(var(--u)*2.5);
         background:var(--panel);border:2px solid var(--rule);cursor:pointer}
 .ag-cap input{margin-top:3px;flex:none}
-/* Tick boxes in the palette's own accent, not the browser's blue — the only
-   place in this section that was still wearing somebody else's colour. */
-#agent-panel input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px}
+
 .ag-capbody{display:flex;flex-direction:column;gap:3px}
 .ag-capbody b{font-size:13px;font-weight:600}
 .ag-capbody small{font-size:11.5px;color:var(--text-3);line-height:1.45}
@@ -1891,7 +1897,7 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
          background:var(--panel);border:2px solid var(--rule)}
 .sk-item.off{opacity:.5}
 .sk-on{flex:none;margin:2px 0 0}
-.sk-on input{width:16px;height:16px;accent-color:var(--accent)}
+
 .sk-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
 .sk-name{display:flex;align-items:center;gap:calc(var(--u)*2);flex-wrap:wrap;font-size:14px;font-weight:600}
 .sk-mode{font-family:var(--screen);font-size:9px;letter-spacing:.1em;padding:2px 5px;flex:none;
@@ -1947,3 +1953,270 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
 .wsb-x{flex:none;width:22px;height:22px;display:grid;place-items:center;background:none;
        color:var(--text-3);font-size:15px;cursor:pointer}
 .wsb-x:hover{color:var(--text);background:var(--sunk)}
+
+
+/* ============================================================
+   THE TICK
+   One checkmark for the whole app. It used to be three different things: the
+   browser's native checkbox (a platform blue square that belongs to nobody's
+   design system), an accent-coloured version of the same, and a U+2713 glyph in
+   the widget pickers that renders differently on every OS.
+
+   This is drawn in CSS from the palette tokens, so it is the same mark in every
+   theme, and it animates in rather than appearing — a tick that draws itself is
+   the difference between a control that feels responsive and one that feels
+   like a form from 2004.
+   ============================================================ */
+input[type=checkbox]{
+  appearance:none;-webkit-appearance:none;
+  position:relative;flex:none;margin:0;cursor:pointer;
+  width:18px;height:18px;
+  background:var(--sunk);border:2px solid var(--rule);
+  transition:background-color .15s ease-out,border-color .15s ease-out;
+}
+input[type=checkbox]::after{
+  content:"";position:absolute;left:50%;top:47%;
+  width:5px;height:9px;
+  border:solid var(--on-accent);border-width:0 2px 2px 0;
+  transform:translate(-50%,-58%) rotate(45deg) scale(.35);
+  opacity:0;
+  transition:opacity .1s ease-out,transform .18s cubic-bezier(.2,1.5,.4,1);
+}
+input[type=checkbox]:checked{background:var(--accent);border-color:var(--accent)}
+input[type=checkbox]:checked::after{opacity:1;transform:translate(-50%,-58%) rotate(45deg) scale(1)}
+input[type=checkbox]:hover:not(:disabled){border-color:var(--accent)}
+input[type=checkbox]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+input[type=checkbox]:disabled{opacity:.45;cursor:not-allowed}
+
+/* The widget pickers are buttons with role="switch", not inputs, so they get
+   the same mark built the same way rather than a lookalike. */
+.ctxcheck .tick{
+  position:relative;flex:none;width:16px;height:16px;
+  background:var(--sunk);border:2px solid var(--rule);
+  transition:background-color .15s ease-out,border-color .15s ease-out;
+}
+.ctxcheck .tick::after{
+  content:"";position:absolute;left:50%;top:47%;
+  width:4px;height:8px;
+  border:solid var(--on-accent);border-width:0 2px 2px 0;
+  transform:translate(-50%,-58%) rotate(45deg) scale(.35);
+  opacity:0;
+  transition:opacity .1s ease-out,transform .18s cubic-bezier(.2,1.5,.4,1);
+}
+.ctxcheck.on .tick{background:var(--accent);border-color:var(--accent)}
+.ctxcheck.on .tick::after{opacity:1;transform:translate(-50%,-58%) rotate(45deg) scale(1)}
+.ctxcheck:hover .tick{border-color:var(--accent)}
+
+/* Reduced motion means no draw-in, not a slower one. */
+[data-motion="reduced"] :is(input[type=checkbox],.ctxcheck .tick)::after{transition:none}
+
+/* ---- skill library: search, tags, grouping ---- */
+.sk-filter{display:flex;flex-wrap:wrap;gap:calc(var(--u)*2);align-items:center;margin-bottom:calc(var(--u)*3)}
+.sk-filter input[type=search]{flex:1 1 200px;min-width:160px}
+.sk-tags{display:flex;flex-wrap:wrap;gap:calc(var(--u)*1.5);flex:2 1 260px}
+.sk-tag{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;cursor:pointer;
+        background:var(--sunk);border:2px solid transparent;color:var(--text-2);
+        font-family:var(--mono);font-size:11px;
+        transition:background-color .12s ease-out,border-color .12s ease-out,color .12s ease-out}
+.sk-tag i{font-style:normal;font-size:9.5px;color:var(--text-3)}
+.sk-tag:hover{border-color:var(--accent);color:var(--text)}
+.sk-tag.on{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.sk-tag.on i{color:var(--on-accent);opacity:.75}
+.sk-tag.clear,.sk-tag.more{background:none;border-color:var(--rule);color:var(--text-3)}
+.sk-tag.more:hover{color:var(--accent)}
+.sk-tag.sug{font-size:10.5px;padding:3px 7px}
+.sk-tagsug{display:flex;flex-wrap:wrap;gap:calc(var(--u)*1.5);margin:-4px 0 4px}
+
+.sk-group{margin-bottom:calc(var(--u)*4)}
+.sk-ghead{display:flex;align-items:baseline;gap:calc(var(--u)*2);
+          padding-bottom:calc(var(--u)*1.5);margin-bottom:calc(var(--u)*2);
+          border-bottom:2px solid var(--rule)}
+.sk-ghead b{font-family:var(--screen);font-size:11px;letter-spacing:.1em;color:var(--text)}
+.sk-ghead span{font-size:11.5px;color:var(--text-3)}
+.sk-ghead em{margin-left:auto;font-style:normal;font-family:var(--mono);font-size:11px;color:var(--text-3)}
+.sk-group .sk-item{margin-bottom:calc(var(--u)*2)}
+
+.sk-meta{display:flex;flex-wrap:wrap;align-items:center;gap:calc(var(--u)*1.5);
+         font-family:var(--mono);font-size:10px;color:var(--text-3)}
+.sk-minitag{padding:2px 6px;background:var(--sunk);color:var(--text-3);cursor:pointer;
+            font-family:var(--mono);font-size:10px;border:1px solid transparent}
+.sk-minitag:hover{border-color:var(--accent);color:var(--text-2)}
+.sk-minitag.on{background:var(--accent);color:var(--on-accent)}
+.sk-size{margin-left:auto}
+.sk-none{padding:calc(var(--u)*6) 0;text-align:center}
+
+/* ============================================================
+   CONTAINERS
+   Cards, not a table. Six columns of a wide table are fine on a desktop and
+   unusable on a phone, and the image column — a sha256 digest on a pinned
+   image — pushed the controls off the screen entirely.
+   ============================================================ */
+.cbar{display:flex;flex-wrap:wrap;gap:calc(var(--u)*2);align-items:center;margin-bottom:calc(var(--u)*4)}
+.cbar input[type=search]{flex:1 1 220px;min-width:180px;max-width:420px}
+.cfilters{display:flex;gap:calc(var(--u)*1.5);flex-wrap:wrap}
+.cfilter{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;cursor:pointer;
+         background:var(--panel);border:2px solid var(--rule);color:var(--text-2);
+         font-family:var(--screen);font-size:10px;letter-spacing:.08em;
+         transition:border-color .12s ease-out,background-color .12s ease-out,color .12s ease-out}
+.cfilter i{font-style:normal;font-family:var(--mono);font-size:10px;color:var(--text-3)}
+.cfilter:hover{border-color:var(--accent);color:var(--text)}
+.cfilter.on{border-color:var(--accent);background:var(--panel-hi);color:var(--text)}
+.cfilter.on i{color:var(--accent)}
+
+.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:calc(var(--u)*3)}
+.ccard{display:flex;flex-direction:column;gap:calc(var(--u)*2);min-width:0;
+       padding:calc(var(--u)*3);background:var(--panel);border:2px solid var(--rule)}
+.ccard.down{opacity:.72}
+.ch{display:flex;align-items:center;gap:calc(var(--u)*2);min-width:0}
+.cstate{width:9px;height:9px;flex:none;background:var(--crit)}
+.cstate.up{background:var(--ok)}
+.cname{flex:1;min-width:0;font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cmanaged{flex:none;font-family:var(--screen);font-size:9px;letter-spacing:.09em;padding:2px 6px;
+          background:var(--sunk);color:var(--text-3)}
+.cmanaged.nexus{color:var(--accent)}
+.cimg{font-size:11.5px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cstatus{font-size:12px;color:var(--text-2)}
+.cportrow{display:flex;flex-wrap:wrap;gap:calc(var(--u)*1.5);min-height:24px;align-items:center}
+.cacts{display:flex;flex-wrap:wrap;gap:calc(var(--u)*1.5);margin-top:auto;padding-top:calc(var(--u)*1.5)}
+.cacts .btn{flex:1 1 auto}
+
+/* ---- the manage sheet ---- */
+.cdetail{display:flex;flex-direction:column;gap:calc(var(--u)*4)}
+.cd-kv dd.cd-img{overflow-wrap:anywhere;white-space:normal}
+.cd-ports{display:flex;flex-wrap:wrap;gap:calc(var(--u)*1.5)}
+.cd-live{display:flex;flex-wrap:wrap;gap:calc(var(--u)*5);padding:calc(var(--u)*3);background:var(--sunk)}
+.cd-stat{display:flex;flex-direction:column;gap:2px}
+.cd-stat b{font-family:var(--mono);font-size:19px;font-variant-numeric:tabular-nums}
+.cd-stat span{font-size:11px;color:var(--text-3)}
+.cd-loghead{display:flex;align-items:baseline;gap:calc(var(--u)*2);margin-bottom:calc(var(--u)*1.5)}
+.cd-loghead b{font-family:var(--screen);font-size:10px;letter-spacing:.1em}
+.cd-log{margin:0;padding:calc(var(--u)*3);background:var(--terminal-bg,var(--void));color:var(--terminal-text,var(--text-2));
+        font-family:var(--mono);font-size:11.5px;line-height:1.5;height:260px;overflow:auto;
+        white-space:pre-wrap;word-break:break-word}
+
+/* ---- agent: advanced + scheduled tasks ---- */
+.ag-adv{padding:calc(var(--u)*4) 0}
+.ag-adv summary{display:flex;align-items:baseline;gap:calc(var(--u)*3);cursor:pointer;list-style:none;
+                padding:calc(var(--u)*1.5) 0}
+.ag-adv summary::-webkit-details-marker{display:none}
+.ag-adv summary h3{margin:0}
+.ag-adv summary span{font-size:12px;color:var(--text-3)}
+.ag-adv summary::after{content:"+";margin-left:auto;font-family:var(--mono);font-size:15px;color:var(--text-3)}
+.ag-adv[open] summary::after{content:"\2212"}
+.ag-sub{padding:calc(var(--u)*3) 0 0}
+.ag-sub h4{margin:0 0 calc(var(--u)*2);font-family:var(--screen);font-size:10px;letter-spacing:.1em;color:var(--text-2)}
+
+.cr-list{display:flex;flex-direction:column;gap:calc(var(--u)*2);margin-bottom:calc(var(--u)*3)}
+.cr-item{display:flex;gap:calc(var(--u)*3);align-items:flex-start;padding:calc(var(--u)*3);
+         background:var(--panel);border:2px solid var(--rule)}
+.cr-item.off{opacity:.55}
+.cr-on{flex:none;margin-top:2px}
+.cr-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.cr-name{display:flex;flex-wrap:wrap;align-items:baseline;gap:calc(var(--u)*2);font-size:14px;font-weight:600}
+.cr-when{font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:400}
+.cr-prompt{font-size:12.5px;color:var(--text-2);line-height:1.45;
+           display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.cr-last{font-family:var(--mono);font-size:10.5px;color:var(--text-3)}
+.cr-last.ok{color:var(--ok)} .cr-last.bad{color:var(--crit)} .cr-last.waiting{color:var(--warn)}
+.cr-acts{display:flex;flex-wrap:wrap;gap:calc(var(--u)*1.5);flex:none}
+
+.cr-days{display:flex;flex-wrap:wrap;gap:calc(var(--u)*1.5)}
+.cr-day{width:34px;height:34px;display:grid;place-items:center;cursor:pointer;
+        background:var(--panel);border:2px solid var(--rule);color:var(--text-2);
+        font-family:var(--screen);font-size:11px;
+        transition:border-color .12s ease-out,background-color .12s ease-out,color .12s ease-out}
+.cr-day:hover{border-color:var(--accent)}
+.cr-day.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.cr-body{min-height:150px}
+.cr-presetrow{margin-top:calc(var(--u)*2)}
+
+/* ---- dashboard presets ---- */
+.pz-save{display:flex;flex-wrap:wrap;gap:calc(var(--u)*2);align-items:center;
+         padding:calc(var(--u)*3);background:var(--sunk);margin-bottom:calc(var(--u)*3)}
+.pz-save label{margin:0;flex:none}
+.pz-save input{flex:1 1 200px;min-width:160px}
+.pz-list{display:flex;flex-direction:column;gap:calc(var(--u)*2)}
+.pz-item{display:flex;gap:calc(var(--u)*3);align-items:center;flex-wrap:wrap;
+         padding:calc(var(--u)*3);background:var(--panel);border:2px solid var(--rule)}
+.pz-main{flex:1;min-width:140px;display:flex;flex-direction:column;gap:3px}
+.pz-main b{font-size:14px}
+.pz-main span{font-family:var(--mono);font-size:10.5px;color:var(--text-3)}
+.pz-acts{display:flex;flex-wrap:wrap;gap:calc(var(--u)*1.5)}
+
+/* ============================================================
+   RESPONSIVE PASS
+   Three axes, kept separate, as docs/HACKING.md sets out: viewport width for
+   layout, (pointer:coarse) for hit targets, and reading distance for type.
+   What follows is the width axis, measured on real device sizes rather than
+   guessed at — every rule here fixes something that was visibly wrong at that
+   size, not something that looked untidy in a simulator.
+   ============================================================ */
+
+/* The floating expert button sits over the page. Content has to be able to
+   scroll clear of it, or the last row of any list is permanently behind it. */
+#main{padding-bottom:calc(var(--u)*24)}
+
+@media(max-width:900px){
+  /* Two-up cards become one-up before they get too narrow to read. */
+  .cgrid{grid-template-columns:1fr}
+  .ag-models,.ag-modes,.ag-roots{grid-template-columns:1fr}
+  .sk-item{flex-wrap:wrap}
+  .sk-acts,.cr-acts{width:100%}
+  .sk-acts .btn,.cr-acts .btn{flex:1 1 auto}
+}
+
+@media(max-width:640px){
+  /* The heading is the page's identity; give it its own line and let the
+     subtitle sit under it where it belongs. */
+  #toolbar{flex-direction:column;align-items:stretch}
+  .page-heading{flex:none;width:100%}
+  #toolbar h1{font-size:22px!important}
+  .page-subtitle{font-size:12px}
+
+  /* A wide table on a 375px screen is a scroll bar with some data attached.
+     Drop the columns that are context rather than content. */
+  #f-table th:nth-child(4),#f-table td:nth-child(4){display:none}
+  .tw{padding:calc(var(--u)*1.5)}
+
+  /* One column everywhere it matters. */
+  .sk-filter{flex-direction:column;align-items:stretch}
+  .sk-filter input[type=search]{max-width:none}
+  .cbar input[type=search]{max-width:none}
+  .cfilters{width:100%}
+  .cfilter{flex:1 1 auto;justify-content:center}
+  .pz-item,.cr-item{flex-wrap:wrap}
+  .pz-acts,.cr-acts{width:100%}
+  .pz-acts .btn,.cr-acts .btn{flex:1 1 auto}
+  .cd-live{gap:calc(var(--u)*3)}
+  .cd-log{height:200px}
+  .sk-sum{gap:calc(var(--u)*3)}
+  .ag-row{align-items:stretch;flex-direction:column}
+  .ag-row label{min-width:0}
+  .ag-row input[type=text],.ag-row input[type=password],.ag-row input[type=number]{width:100%;min-width:0}
+  .ag-row .btn{width:100%}
+  .wsbanner{flex-direction:row;padding:calc(var(--u)*2.5)}
+  .wsb-body pre{font-size:10.5px}
+}
+
+@media(max-width:420px){
+  /* At iPhone-SE width the day pills and tag chips need to stop being square. */
+  .cr-day{width:30px;height:30px;font-size:10px}
+  .sk-drop{padding:calc(var(--u)*4) calc(var(--u)*2)}
+  .cd-stat b{font-size:16px}
+}
+
+/* Tablets: the rail is still a sidebar, so the content column is narrower than
+   the viewport. Card grids have to be told, because they measure the column. */
+@media(min-width:641px) and (max-width:1100px){
+  .cgrid{grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+  .ag-models{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+}
+
+/* A finger needs a bigger target than a mouse, whatever the screen size — an
+   iPad in landscape is a large screen driven by a thumb. */
+@media(pointer:coarse){
+  .cfilter,.sk-tag,.cr-day,.hx-ico,.wsb-x{min-height:36px}
+  .sk-minitag{min-height:28px;display:inline-flex;align-items:center}
+  input[type=checkbox]{width:22px;height:22px}
+  .cacts .btn,.sk-acts .btn,.cr-acts .btn,.pz-acts .btn{min-height:40px}
+}

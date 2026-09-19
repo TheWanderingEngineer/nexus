@@ -13,6 +13,7 @@ import * as dockerx from "./dockerx.js";
 import * as terminal from "./terminal.js";
 import * as apps from "./apps.js";
 import * as automation from "./automation.js";
+import * as agent from "./agent.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = path.join(__dirname, "..", "web");
@@ -266,6 +267,9 @@ async function main() {
     // Last: the rule evaluator reads the metrics snapshot and the Docker list,
     // so starting it before those exist just burns ticks on empty readings.
     try { automation.init(); } catch (e) { console.error("[boot] automation:", e.message); }
+    // The agent's own scheduler. Last, like automation, because a task that
+    // fires immediately would read an empty metrics snapshot.
+    try { agent.startCrons(); } catch (e) { console.error("[boot] agent crons:", e.message); }
   })();
 
   server.listen(cfg.port, cfg.host, async () => {

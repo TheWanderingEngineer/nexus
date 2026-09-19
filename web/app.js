@@ -1061,7 +1061,7 @@ function ctxChecklist(p, cfg) {
     b.setAttribute("role", "switch");
     b.setAttribute("aria-checked", String(shown));
     b.innerHTML =
-      `<span class="tick" aria-hidden="true">${shown ? "&#10003;" : ""}</span>` +
+      `<span class="tick" aria-hidden="true"></span>` +
       `<span class="ct"><span class="cl">${esc(item.label)}</span>` +
       (item.sub ? `<span class="cs">${esc(item.sub)}</span>` : "") + `</span>`;
     b.addEventListener("click", () => setCfg({ [p.key]: toggleHidden(cfgOf(ctxItems[0]), item.value) }));
@@ -2173,6 +2173,32 @@ function resolve(anchors) {
     }
   }
 }
+/**
+ * Pack every widget top-left with no gaps, keeping the reading order you
+ * already have — the widget that was first stays first.
+ *
+ * `compact()` only ever pulls a widget straight up its own column, so a layout
+ * with a hole to the left of something keeps the hole. This walks the grid row
+ * by row and drops each widget into the first slot it actually fits, which is
+ * what "tidy up" means to a person looking at it.
+ */
+function tidy() {
+  const order = items.slice().sort((a, b) => a.y - b.y || a.x - b.x);
+  const placed = [];
+  for (const it of order) {
+    // A widget wider than the canvas can never be placed; clamp it first.
+    it.w = Math.min(it.w, COLS);
+    let done = false;
+    for (let y = 0; !done && y < 400; y++) {
+      for (let x = 0; x + it.w <= COLS; x++) {
+        const cand = { x, y, w: it.w, h: it.h };
+        if (!placed.some(p => overlap(cand, p))) { it.x = x; it.y = y; done = true; break; }
+      }
+    }
+    placed.push(it);
+  }
+}
+
 /** Kept for the RESET action only — normal edits leave widgets where you put them. */
 function compact() {
   items.slice().sort((p, q) => p.y - q.y || p.x - q.x).forEach(it => {
@@ -2192,7 +2218,20 @@ function place(el, it) {
 const NARROW_AT = 640;
 const isNarrow = () => gridEl.clientWidth > 0 && gridEl.clientWidth < NARROW_AT;
 
+/**
+ * Lay the canvas out.
+ *
+ * The first line is the whole bug report "I opened a folder and came back to
+ * the dashboard and the widgets were on top of each other". A hidden page has
+ * `clientWidth === 0`, so `cellW()` returns a NEGATIVE cell width and every
+ * widget is written to the DOM at the same broken position — and the window
+ * `resize` listener fires while you are on another page, because opening a long
+ * folder listing adds a scrollbar. Geometry that cannot be measured is not zero;
+ * it is unknown, and the honest response is to do nothing and try again when
+ * the element has a size. The ResizeObserver below is what notices that.
+ */
 function layout(persist = true) {
+  if (gridEl.clientWidth < 1) return;
   const narrow = isNarrow();
   gridEl.classList.toggle("stack", narrow);
 
@@ -2839,40 +2878,219 @@ function resizify(el, it) {
 }
 
 /* ============================ pages ============================ */
+/* ============================ containers ============================
+ * A grid of cards rather than a wide table. A table of six columns is fine on a
+ * desktop and unusable on a phone, and the image column — a sha256 digest on a
+ * pinned image — pushed the controls off the screen entirely. A card puts the
+ * name and state first, the ports where you can press them, and everything else
+ * behind one MANAGE button.
+ */
+let CT = { list: [], q: "", state: "all", available: true };
+
 async function loadContainers() {
-  const box = $("#c-status"), tb = $("#c-table tbody");
+  const box = $("#c-status");
   try {
     const out = await api("/docker/containers");
+    CT.available = out.available;
     if (!out.available) {
       box.innerHTML = `<div class="empty">DOCKER UNAVAILABLE — ${esc(out.reason || "")}</div>`;
-      $("#c-table").hidden = true;
+      $("#c-bar").hidden = true;
+      $("#c-grid").innerHTML = "";
       LIVE.containers = [];
       return;
     }
-    box.innerHTML = ""; $("#c-table").hidden = false;
+    box.innerHTML = "";
+    CT.list = out.containers;
     LIVE.containers = out.containers;
-    tb.innerHTML = out.containers.map(c => {
-      const up = c.state === "running";
-      const links = portLinks(c.ports, "cport");
-      return `<tr>
-        <td class="name">${esc(c.title || c.name)}</td>
-        <td class="mono">${esc(c.image)}</td>
-        <td><span class="pill ${up ? "ok" : "crit"}"><i class="dot"></i>${esc(c.state.toUpperCase())}</span></td>
-        <td><span class="cports">${links || '<span class="dim">—</span>'}</span></td>
-        <td><span class="pill idle" data-tip="${esc(managedTip(c.managedBy))}">${esc((c.managedBy || "manual").toUpperCase())}</span></td>
-        <td><div class="rowbtns">
-          <button class="btn sm" data-act="${up ? "stop" : "start"}" data-id="${esc(c.id)}"
-                  data-tip="${up ? "Stop this container" : "Start this container"}">${up ? "STOP" : "START"}</button>
-          <button class="btn sm" data-act="restart" data-id="${esc(c.id)}"
-                  data-tip="Stop and start it again">RESTART</button>
-          <button class="btn sm danger" data-rm="${esc(c.id)}" data-nm="${esc(c.name)}"
-                  data-tip="Delete the container. Images and volumes are kept.">REMOVE</button>
-        </div></td></tr>`;
-    }).join("") || `<tr><td colspan="6" class="empty">NO CONTAINERS</td></tr>`;
+    paintContainers();
   } catch (e) {
     box.innerHTML = `<div class="empty">${esc(e.message).toUpperCase()}</div>`;
   }
 }
+
+const cRunning = c => c.state === "running";
+
+function paintContainers() {
+  const grid = $("#c-grid"), bar = $("#c-bar");
+  if (!grid) return;
+  bar.hidden = !CT.list.length;
+
+  const q = CT.q.trim().toLowerCase();
+  const shown = CT.list.filter(c => {
+    if (CT.state === "running" && !cRunning(c)) return false;
+    if (CT.state === "stopped" && cRunning(c)) return false;
+    if (!q) return true;
+    return (c.name + " " + (c.title || "") + " " + c.image).toLowerCase().includes(q);
+  });
+
+  // Counts describe the whole list, not the filtered view — the point of the
+  // filter chips is to tell you what is there before you press one.
+  const counts = { all: CT.list.length,
+                   running: CT.list.filter(cRunning).length,
+                   stopped: CT.list.filter(c => !cRunning(c)).length };
+  $$(".cfilter", bar).forEach(b => {
+    b.classList.toggle("on", b.dataset.cstate === CT.state);
+    $("i", b).textContent = counts[b.dataset.cstate] ?? 0;
+  });
+
+  grid.innerHTML = shown.map(c => {
+    const up = cRunning(c);
+    const ports = portLinks(c.ports, "cport");
+    // A pinned digest is 70 characters of noise. Show the readable half, and
+    // keep the whole thing one hover away.
+    const img = String(c.image || "");
+    const short = img.length > 46 ? img.slice(0, 44) + "…" : img;
+    return `<article class="ccard${up ? "" : " down"}" data-id="${esc(c.id)}">
+      <header class="ch">
+        <span class="cstate ${up ? "up" : "down"}" data-tip="${esc(c.status || c.state)}"></span>
+        <b class="cname">${esc(c.title || c.name)}</b>
+        <span class="cmanaged ${esc(c.managedBy || "manual")}"
+              data-tip="${esc(managedTip(c.managedBy))}">${esc((c.managedBy || "manual").toUpperCase())}</span>
+      </header>
+      <div class="cimg mono" data-tip="${esc(img)}">${esc(short)}</div>
+      <div class="cstatus">${esc(c.status || (up ? "running" : c.state))}</div>
+      <div class="cportrow">${ports || '<span class="dim">no published ports</span>'}</div>
+      <footer class="cacts">
+        <button class="btn sm" data-act="${up ? "stop" : "start"}" data-id="${esc(c.id)}"
+                data-tip="${up ? "Stop this container" : "Start this container"}">${up ? "STOP" : "START"}</button>
+        <button class="btn sm" data-act="restart" data-id="${esc(c.id)}" data-tip="Stop and start it again">RESTART</button>
+        <button class="btn sm" data-manage="${esc(c.id)}" data-tip="Logs, live stats and the rest">MANAGE</button>
+      </footer>
+    </article>`;
+  }).join("") || `<div class="empty">${CT.list.length ? "NOTHING MATCHES THAT FILTER" : "NO CONTAINERS"}</div>`;
+}
+
+on("#c-q", "input", e => { CT.q = e.target.value; paintContainers(); });
+on("#c-bar", "click", e => {
+  const b = e.target.closest(".cfilter");
+  if (!b) return;
+  CT.state = b.dataset.cstate;
+  paintContainers();
+});
+
+/* ---------------- one container, in detail ----------------
+ * The stats and logs endpoints have existed since the beginning and nothing
+ * ever called them. This is where "manage this container" actually lives:
+ * what it is doing right now, what it is saying, and the destructive action
+ * kept away from the buttons you press every day.
+ */
+let logWS = null;
+
+function closeLogs() { if (logWS) { try { logWS.close(); } catch {} logWS = null; } }
+
+async function manageContainer(id) {
+  const c = CT.list.find(x => x.id === id);
+  if (!c) return;
+  const up = cRunning(c);
+
+  const body = document.createElement("div");
+  body.className = "cdetail";
+  body.innerHTML = `
+    <dl class="kv cd-kv">
+      <dt>STATE</dt><dd>${esc(c.status || c.state)}</dd>
+      <dt>IMAGE</dt><dd class="mono cd-img">${esc(c.image)}</dd>
+      <dt>ID</dt><dd class="mono">${esc(c.id)}</dd>
+      <dt>CREATED</dt><dd>${c.created ? esc(fmtDate(new Date(c.created * 1000))) : "—"}</dd>
+      <dt>SOURCE</dt><dd>${esc(managedTip(c.managedBy))}</dd>
+      <dt>PORTS</dt><dd class="cd-ports">${portLinks(c.ports, "cport") || '<span class="dim">none published</span>'}</dd>
+    </dl>
+    <div class="cd-live" id="cd-live">${up ? '<span class="dim">reading stats…</span>' : '<span class="dim">not running</span>'}</div>
+    <div class="cd-logs">
+      <div class="cd-loghead"><b>LOGS</b><span class="dim">live tail</span></div>
+      <pre id="cd-log" class="cd-log">${up ? "" : "(container is not running)"}</pre>
+    </div>`;
+
+  openModal({
+    title: (c.title || c.name).toUpperCase(),
+    icon: ICON("containers"),
+    body,
+    foot: `<button class="btn sm danger" id="cd-rm" type="button">REMOVE CONTAINER</button>
+           <span class="spacer"></span>
+           <button class="btn sm" id="cd-restart" type="button">RESTART</button>
+           <button class="btn sm" id="cd-toggle" type="button">${up ? "STOP" : "START"}</button>
+           <button class="btn primary sm" id="cd-done" type="button">DONE</button>`
+  });
+
+  const shut = () => { closeLogs(); closeModal(); };
+  on("#cd-done", "click", shut);
+  // The modal can also be dismissed by Escape or a backdrop click, and a log
+  // socket left open behind it would keep streaming into a detached node.
+  modal.addEventListener("click", closeLogs, { once: true });
+  addEventListener("keydown", function esc0(e) {
+    if (e.key === "Escape") { closeLogs(); removeEventListener("keydown", esc0); }
+  });
+
+  const act = async a => {
+    try {
+      await api(`/docker/containers/${encodeURIComponent(id)}/${a}`, { method: "POST" });
+      toast(a.toUpperCase() + " OK", "ok");
+      shut();
+      setTimeout(loadContainers, 700);
+    } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+  };
+  on("#cd-toggle", "click", () => act(up ? "stop" : "start"));
+  on("#cd-restart", "click", () => act("restart"));
+  on("#cd-rm", "click", async () => {
+    if (!confirm(`Delete the container "${c.name}"?\n\nIts image and any named volumes stay on disk. This does not uninstall an app that Nexus manages — use the app store for that.`)) return;
+    try {
+      await api(`/docker/containers/${encodeURIComponent(id)}`, { method: "DELETE" });
+      toast("CONTAINER REMOVED", "ok");
+      shut();
+      setTimeout(loadContainers, 500);
+    } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+  });
+
+  if (!up) return;
+
+  // Stats: one reading, then every few seconds while the panel is open.
+  const paintStats = async () => {
+    const el = $("#cd-live");
+    if (!el || !el.isConnected) return false;
+    try {
+      const st = await api(`/docker/containers/${encodeURIComponent(id)}/stats`);
+      // Field names as containerStats() actually returns them: cpu, memory,
+      // memoryLimit. A limit of 0 means "unbounded", not "no memory".
+      const pct = st.memoryLimit ? (st.memory / st.memoryLimit) * 100 : null;
+      el.innerHTML =
+        `<div class="cd-stat"><b>${(st.cpu ?? 0).toFixed(1)}%</b><span>CPU</span></div>` +
+        `<div class="cd-stat"><b>${bytes(st.memory || 0)}</b><span>${
+          st.memoryLimit ? `of ${bytes(st.memoryLimit)} · ${pct.toFixed(1)}%` : "memory (no limit set)"}</span></div>`;
+    } catch {
+      // Absent is not zero: a stat that could not be read says so.
+      el.innerHTML = '<span class="dim">stats are not available for this container</span>';
+      return false;
+    }
+    return true;
+  };
+  if (await paintStats()) {
+    const t = setInterval(async () => { if (!await paintStats()) clearInterval(t); }, 4000);
+  }
+
+  // Logs over the socket that has been sitting there unused. If the WebSocket
+  // cannot open — the reverse-proxy case — say so rather than showing nothing.
+  const pre = $("#cd-log");
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  closeLogs();
+  try {
+    logWS = new WebSocket(`${proto}//${location.host}/ws/logs/${encodeURIComponent(id)}`);
+    logWS.onmessage = ev => {
+      if (!pre.isConnected) return closeLogs();
+      pre.textContent += (typeof ev.data === "string" ? ev.data : "");
+      // Keep the tail bounded: a chatty container would grow this forever.
+      if (pre.textContent.length > 60000) pre.textContent = pre.textContent.slice(-40000);
+      pre.scrollTop = pre.scrollHeight;
+    };
+    logWS.onerror = () => { if (pre.isConnected && !pre.textContent) pre.textContent = "(could not open the log stream)"; };
+    logWS.onclose = () => {
+      if (pre.isConnected && !pre.textContent) {
+        pre.textContent = linkState === "polling"
+          ? "(logs need a WebSocket, and this connection does not have one — see the banner on the dashboard)"
+          : "(the log stream closed)";
+      }
+    };
+  } catch { pre.textContent = "(could not open the log stream)"; }
+}
+
 /**
  * Published ports, as links you can actually click.
  *
@@ -2900,21 +3118,9 @@ function managedTip(kind) {
   return "Started by hand or by another tool. Nexus will not touch it unless you ask.";
 }
 
-on("#c-table", "click", async e => {
-  const rm = e.target.closest("button[data-rm]");
-  if (rm) {
-    // The list also shows containers Nexus did not create — including debris
-    // from an install that failed partway — so removal has to be available here
-    // rather than only through the app store's uninstall.
-    if (!confirm(`Delete the container "${rm.dataset.nm}"?\n\nIts image and any named volumes stay on disk. This does not uninstall an app that Nexus manages — use the app store for that.`)) return;
-    rm.disabled = true;
-    try {
-      await api(`/docker/containers/${encodeURIComponent(rm.dataset.rm)}`, { method: "DELETE" });
-      toast("CONTAINER REMOVED", "ok");
-      setTimeout(loadContainers, 500);
-    } catch (ex) { toast(ex.message.toUpperCase(), "err"); rm.disabled = false; }
-    return;
-  }
+on("#c-grid", "click", async e => {
+  const mg = e.target.closest("button[data-manage]");
+  if (mg) return manageContainer(mg.dataset.manage);
 
   const b = e.target.closest("button[data-act]");
   if (!b) return;
@@ -5197,6 +5403,9 @@ function go(page) {
   if (page !== "dash") clearSelection();
   if (page !== "files") clearFileSelection();
 
+  // Re-measure on arrival: the canvas had no width while it was hidden, so
+  // anything that tried to lay it out in the meantime was correctly ignored.
+  if (page === "dash") requestAnimationFrame(() => { layout(false); renderWidgets(); });
   if (page === "containers") loadContainers();
   if (page === "files") { wireFileDnD(); loadRoots(); loadFiles(curDir, { history: false }); }
   if (page === "control") loadControl();
@@ -5308,6 +5517,92 @@ function toggleCRT() {
 on("#add", "click", () => { renderDrawer(); $("#drawer").classList.add("open"); });
 on("#dclose", "click", () => $("#drawer").classList.remove("open"));
 on("#drawer", "click", e => { if (e.target.id === "drawer") e.currentTarget.classList.remove("open"); });
+on("#tidy", "click", () => {
+  tidy();
+  layout();
+  toast("TIDIED", "ok");
+});
+
+/* ---------------- dashboard presets ----------------
+ * A named arrangement. The point is switching: one layout for watching the
+ * media stack, another for a disk problem, without rebuilding either.
+ */
+async function openPresets() {
+  let list = [];
+  try { list = (await api("/layout/presets")).presets || []; } catch {}
+
+  const row = p => `
+    <div class="pz-item" data-id="${esc(p.id)}">
+      <div class="pz-main">
+        <b>${esc(p.name)}</b>
+        <span>${p.widgets.length} widget${p.widgets.length === 1 ? "" : "s"} · saved ${esc(since(p.savedAt))}</span>
+      </div>
+      <div class="pz-acts">
+        <button class="btn sm" data-pz-use type="button">USE</button>
+        <button class="btn sm" data-pz-over type="button" data-tip="Replace this preset with what is on the dashboard now">OVERWRITE</button>
+        <button class="btn sm danger" data-pz-del type="button">DELETE</button>
+      </div>
+    </div>`;
+
+  openModal({
+    title: "DASHBOARD PRESETS",
+    icon: ICON("dashboard"),
+    body: `<div id="pz-wrap">
+      <div class="pz-save">
+        <label for="pz-name">Save what is on screen now</label>
+        <input id="pz-name" type="text" maxlength="40" placeholder="Media stack, Disk triage, Everything…">
+        <button class="btn primary sm" id="pz-add" type="button">SAVE</button>
+      </div>
+      <div class="pz-list">${list.length ? list.map(row).join("")
+        : `<p class="hint">No presets yet. Arrange the dashboard how you like it, name it above, and it will be here to come back to.</p>`}</div>
+    </div>`,
+    foot: `<span class="spacer"></span><button class="btn primary sm" id="pz-done" type="button">DONE</button>`
+  });
+  on("#pz-done", "click", closeModal);
+
+  const save = async name => {
+    if (!name) return toast("give it a name", "err");
+    try { await api("/layout/presets", { method: "POST", body: { name, widgets: items } });
+          toast("PRESET SAVED", "ok"); openPresets(); }
+    catch (e) { toast(e.message || "could not save", "err"); }
+  };
+  on("#pz-add", "click", () => save($("#pz-name").value.trim()));
+  $("#pz-name")?.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); save(e.target.value.trim()); }
+  });
+
+  $$("[data-pz-use]").forEach(b => b.addEventListener("click", () => {
+    const p = list.find(x => x.id === b.closest(".pz-item").dataset.id);
+    if (p) { applyPreset(p); closeModal(); }
+  }));
+  $$("[data-pz-over]").forEach(b => b.addEventListener("click", () => {
+    const p = list.find(x => x.id === b.closest(".pz-item").dataset.id);
+    if (p && confirm(`Replace "${p.name}" with the dashboard as it is now?`)) save(p.name);
+  }));
+  $$("[data-pz-del]").forEach(b => b.addEventListener("click", async () => {
+    const p = list.find(x => x.id === b.closest(".pz-item").dataset.id);
+    if (!p || !confirm(`Delete the preset "${p.name}"?`)) return;
+    try { await api(`/layout/presets/${encodeURIComponent(p.id)}`, { method: "DELETE" }); openPresets(); }
+    catch (e) { toast(e.message, "err"); }
+  }));
+}
+
+/** Swap the canvas to a saved arrangement. Rebuilt rather than patched: widgets
+ *  come and go between presets, so reconciling in place would be more code and
+ *  more ways to end up half-applied. */
+function applyPreset(p) {
+  gridEl.innerHTML = ""; mounted = {}; clearSelection();
+  items = p.widgets.map((w, i) => ({ ...w, id: w.id || i + 1 }));
+  uid = Math.max(0, ...items.map(i => i.id)) + 1;
+  items.forEach(it => build(it, true));
+  layout();
+  renderDrawer();
+  renderWidgets();
+  toast(`PRESET: ${p.name.toUpperCase()}`, "ok");
+}
+
+on("#presets", "click", openPresets);
+
 on("#reset", "click", async () => {
   try { await api("/layout", { method: "DELETE" }); } catch {}
   gridEl.innerHTML = ""; mounted = {}; clearSelection();
@@ -5320,6 +5615,23 @@ on("#reset", "click", async () => {
   layout();
 });
 addEventListener("resize", () => { layout(false); renderWidgets(); });
+
+/**
+ * The canvas can change size without the window doing anything: switching back
+ * to the Dashboard, collapsing the rail, an iPad rotating, the browser's own
+ * font size. A ResizeObserver on the element itself catches all of them,
+ * including the 0 -> real transition when the page becomes visible again, which
+ * is the moment the guard in `layout()` is waiting for.
+ */
+if (typeof ResizeObserver === "function") {
+  let lastW = 0;
+  new ResizeObserver(() => {
+    const w = gridEl.clientWidth;
+    if (w < 1 || w === lastW) return;
+    lastW = w;
+    layout(false);
+  }).observe(gridEl);
+}
 
 /* ============================ start ============================ */
 async function start() {
@@ -5725,11 +6037,6 @@ async function renderAgentSettings() {
       <p class="hint warnline">Full access plus the shell means anything Hermes reads &mdash; a file, a log,
         a command's output &mdash; can carry text that reads like an instruction. Ask-me-first is what
         stops that becoming an action.</p>
-      <div class="ag-row">
-        <label for="ag-steps">Tool calls per message</label>
-        <input id="ag-steps" type="number" min="1" max="40" value="${Number(s.maxSteps)}">
-        <span class="hint">It stops here and waits for you to say "carry on".</span>
-      </div>
     </div>
 
     <div class="ag-block">
@@ -5740,6 +6047,35 @@ async function renderAgentSettings() {
         <span class="hint">Markdown files. Drop one in, switch it on or off, or delete it for good.</span>
       </div>
     </div>
+
+    <details class="ag-block ag-adv"${AGadvOpen ? " open" : ""}>
+      <summary><h3>Advanced</h3><span>Scheduled tasks, context and limits</span></summary>
+
+      <div class="ag-sub">
+        <h4>Scheduled tasks</h4>
+        <p class="hint">Hermes can run a prompt on a timer — a morning check, a weekly tidy-up.
+          ${s.approval === "ask"
+            ? `You are on <b>ask me first</b>, so a task that wants to write a file or run a command
+               will stop and wait with nobody there to answer. It records that it was waiting rather
+               than pretending it finished.`
+            : `You are on <b>full access</b>, so these run unattended and can change the machine.`}</p>
+        <div class="cr-list">${(c.crons || []).map(cronRow).join("")
+          || `<p class="hint">No scheduled tasks yet.</p>`}</div>
+        <button class="btn sm" id="ag-cron-new" type="button">+ NEW TASK</button>
+      </div>
+
+      <div class="ag-sub">
+        <h4>Context</h4>
+        ${capRowPlain("sendHostFacts", "Send the live briefing",
+          "Host, uptime, CPU, memory, filesystems and containers go in every message, so Hermes does not spend a tool call finding out where it is. Turning this off makes each message cheaper and Hermes blinder.",
+          s.sendHostFacts)}
+        <div class="ag-row">
+          <label for="ag-steps">Tool calls per message</label>
+          <input id="ag-steps" type="number" min="1" max="40" value="${Number(s.maxSteps)}">
+          <span class="hint">It stops at this many and waits for you to say "carry on".</span>
+        </div>
+      </div>
+    </details>
 
     <div class="ag-block">
       <h3>Usage</h3>
@@ -5793,6 +6129,34 @@ async function renderAgentSettings() {
     renderAgentSettings(); refreshAgentConfig();
   });
   on($("#ag-skills-open", host), "click", () => openSkillLibrary());
+
+  // Keep the Advanced block open across the re-render that every change causes.
+  const adv = $(".ag-adv", host);
+  if (adv) adv.addEventListener("toggle", () => { AGadvOpen = adv.open; });
+
+  $$("[data-cap-plain]", host).forEach(b => b.addEventListener("change", () =>
+    patch({ [b.dataset.capPlain]: b.checked })));
+
+  on($("#ag-cron-new", host), "click", () => editCron(null));
+  $$("[data-cron-edit]", host).forEach(b => b.addEventListener("click", () =>
+    editCron((c.crons || []).find(x => x.id === b.dataset.cronEdit))));
+  $$("[data-cron-run]", host).forEach(b => b.addEventListener("click", async () => {
+    b.disabled = true; b.textContent = "RUNNING…";
+    try { await api(`/agent/crons/${encodeURIComponent(b.dataset.cronRun)}/run`, { method: "POST" }); }
+    catch (e) { toast(e.message || "the task failed", "err"); }
+    renderAgentSettings();
+  }));
+  $$("[data-cron-on]", host).forEach(b => b.addEventListener("change", async () => {
+    const row = (c.crons || []).find(x => x.id === b.dataset.cronOn);
+    await api("/agent/crons", { method: "PUT", body: { ...row, enabled: b.checked } }).catch(() => {});
+    renderAgentSettings();
+  }));
+  $$("[data-cron-del]", host).forEach(b => b.addEventListener("click", async () => {
+    const row = (c.crons || []).find(x => x.id === b.dataset.cronDel);
+    if (!confirm(`Delete the scheduled task "${row.name}"?`)) return;
+    await api(`/agent/crons/${encodeURIComponent(row.id)}`, { method: "DELETE" }).catch(() => {});
+    renderAgentSettings();
+  }));
 
   on($("#ag-key-test", host), "click", async e => {
     const out = $("#ag-test", host);
@@ -5849,7 +6213,16 @@ function skillSummary(sk) {
   </div>`;
 }
 
-let SK = { list: [], budget: null, seeds: [] };
+let SK = { list: [], budget: null, seeds: [], tags: [] };
+/* Which tags the library is filtered to. A set, because picking two tags
+   should mean "either of these", which is what you want when you are
+   looking for something rather than building a query. */
+let SKfilter = new Set();
+let SKsearch = "";
+/* The tag cloud grows with the library; past a dozen chips it is taller than
+   the list it is filtering. Show the most-used, and the rest on request. */
+let SKallTags = false;
+const SK_TAGS_SHOWN = 10;
 
 async function openSkillLibrary() {
   openModal({
@@ -5868,13 +6241,27 @@ async function openSkillLibrary() {
     const r = await api("/agent/skills/restore", { method: "POST" }).catch(e => { toast(e.message, "err"); });
     if (r) { toast(r.added ? `${r.added} restored` : "nothing was missing", "ok"); paintSkills(r); }
   });
-  paintSkills(await api("/agent/skills").catch(() => ({ list: [], budget: null, seeds: [] })));
+  SKfilter = new Set(); SKsearch = ""; SKallTags = false;
+  paintSkills(await api("/agent/skills").catch(() => ({ list: [], budget: null, seeds: [], tags: [] })));
 }
 
 function paintSkills(data) {
   if (data) SK = data;
   const wrap = $("#sk-wrap");
   if (!wrap) return;
+
+  // Filter first, then group, so the counts and the headings agree with what is
+  // actually on screen.
+  const q = SKsearch.trim().toLowerCase();
+  const shown = SK.list.filter(k => {
+    if (SKfilter.size && !k.tags.some(t => SKfilter.has(t))) return false;
+    if (!q) return true;
+    return (k.name + " " + k.description + " " + k.id + " " + k.tags.join(" ")).toLowerCase().includes(q);
+  });
+  const memory = shown.filter(k => k.mode === "always");
+  const demand = shown.filter(k => k.mode === "ondemand");
+
+  const tagChip = t => `<button type="button" class="sk-tag${SKfilter.has(t.tag) ? " on" : ""}" data-tag="${esc(t.tag)}">${esc(t.tag)}<i>${t.n}</i></button>`;
 
   const row = k => `
     <div class="sk-item${k.enabled ? "" : " off"}" data-id="${esc(k.id)}">
@@ -5883,13 +6270,13 @@ function paintSkills(data) {
       </label>
       <div class="sk-main">
         <div class="sk-name">${esc(k.name)}
-          <span class="sk-mode ${k.mode}" data-tip="${k.mode === "always"
-            ? "In memory: sent with every message"
-            : "On demand: Hermes loads it when a question needs it"}">${k.mode === "always" ? "MEMORY" : "ON DEMAND"}</span>
           ${k.seeded ? `<span class="sk-seed" data-tip="Shipped with Nexus — RESTORE DEFAULTS brings it back">STOCK</span>` : ""}
         </div>
         <div class="sk-desc">${esc(k.description || "no description")}</div>
-        <div class="sk-meta">${(k.bytes / 1024).toFixed(1)} kB · ${esc(k.id)}</div>
+        <div class="sk-meta">
+          ${k.tags.map(t => `<button type="button" class="sk-minitag${SKfilter.has(t) ? " on" : ""}" data-tag="${esc(t)}">${esc(t)}</button>`).join("")}
+          <span class="sk-size">${(k.bytes / 1024).toFixed(1)} kB · ${esc(k.id)}</span>
+        </div>
       </div>
       <div class="sk-acts">
         <button class="btn sm" data-sk-swap type="button">${k.mode === "always" ? "→ ON DEMAND" : "→ MEMORY"}</button>
@@ -5898,6 +6285,12 @@ function paintSkills(data) {
       </div>
     </div>`;
 
+  const group = (title, blurb, rows) => rows.length ? `
+    <div class="sk-group">
+      <div class="sk-ghead"><b>${esc(title)}</b><span>${esc(blurb)}</span><em>${rows.length}</em></div>
+      ${rows.map(row).join("")}
+    </div>` : "";
+
   wrap.innerHTML = `
     <div class="sk-drop" id="sk-drop">
       <b>Drop .md files here</b>
@@ -5905,8 +6298,27 @@ function paintSkills(data) {
       <input type="file" id="sk-file" accept=".md,.markdown,text/markdown,text/plain" multiple hidden>
     </div>
     ${SK.budget ? skillSummary(SK) : ""}
-    <div class="sk-list">${SK.list.length ? SK.list.map(row).join("")
-      : `<p class="hint">The library is empty. Drop a Markdown file in, or press RESTORE DEFAULTS.</p>`}</div>`;
+    <div class="sk-filter">
+      <input id="sk-q" type="search" placeholder="Search skills…" value="${esc(SKsearch)}" aria-label="Search skills">
+      <div class="sk-tags">
+        ${(() => {
+          const all = SK.tags || [];
+          if (!all.length) return `<span class="hint">No tags yet — open a skill to give it some.</span>`;
+          // A tag you have filtered on always stays visible, even if it is not
+          // popular enough to be in the first ten.
+          const shownTags = SKallTags ? all
+            : all.filter((t, i) => i < SK_TAGS_SHOWN || SKfilter.has(t.tag));
+          const hidden = all.length - shownTags.length;
+          return shownTags.map(tagChip).join("") +
+            (hidden > 0 ? `<button type="button" class="sk-tag more" id="sk-more">+${hidden} more</button>` : "") +
+            (SKallTags && all.length > SK_TAGS_SHOWN ? `<button type="button" class="sk-tag more" id="sk-less">fewer</button>` : "");
+        })()}
+        ${SKfilter.size ? `<button type="button" class="sk-tag clear" id="sk-clear">clear</button>` : ""}
+      </div>
+    </div>
+    ${shown.length
+      ? group("In memory", "sent with every message", memory) + group("On demand", "loaded when a question needs it", demand)
+      : `<p class="hint sk-none">Nothing matches${SKfilter.size ? " those tags" : ""}${q ? ` and "${esc(q)}"` : ""}.</p>`}`;
 
   /* ---- drop zone ---- */
   const drop = $("#sk-drop"), file = $("#sk-file");
@@ -5918,6 +6330,27 @@ function paintSkills(data) {
   ["dragleave", "drop"].forEach(ev =>
     drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
   drop.addEventListener("drop", e => addSkillFiles([...(e.dataTransfer?.files || [])]));
+
+  /* ---- search and tags ---- */
+  const qBox = $("#sk-q", wrap);
+  if (qBox) {
+    qBox.addEventListener("input", e => {
+      SKsearch = e.target.value;
+      const at = e.target.selectionStart;
+      paintSkills();
+      // Repainting the list replaces the box, so put the caret back where it was.
+      const again = $("#sk-q");
+      if (again) { again.focus(); try { again.setSelectionRange(at, at); } catch {} }
+    });
+  }
+  $$("[data-tag]", wrap).forEach(b => b.addEventListener("click", () => {
+    const t = b.dataset.tag;
+    if (SKfilter.has(t)) SKfilter.delete(t); else SKfilter.add(t);
+    paintSkills();
+  }));
+  on($("#sk-clear", wrap), "click", () => { SKfilter.clear(); paintSkills(); });
+  on($("#sk-more", wrap), "click", () => { SKallTags = true; paintSkills(); });
+  on($("#sk-less", wrap), "click", () => { SKallTags = false; paintSkills(); });
 
   /* ---- per-row ---- */
   $$("[data-sk-on]", wrap).forEach(b => b.addEventListener("change", async e => {
@@ -5960,7 +6393,7 @@ async function addSkillFiles(files) {
 /** Read or write one skill. The same form for both, because "open" almost always
  *  turns into "change one line". */
 async function editSkill(id) {
-  let k = { id: "", name: "", description: "", mode: "ondemand", body: "" };
+  let k = { id: "", name: "", description: "", mode: "ondemand", tags: [], body: "" };
   if (id) { try { k = await api(`/agent/skills/${encodeURIComponent(id)}`); } catch { return; } }
 
   const form = document.createElement("div");
@@ -5971,6 +6404,11 @@ async function editSkill(id) {
     <div class="ag-row"><label for="sk-e-desc">One line</label>
       <input id="sk-e-desc" type="text" value="${esc(k.description)}"
              placeholder="How Hermes decides whether he needs it"></div>
+    <div class="ag-row"><label for="sk-e-tags">Tags</label>
+      <input id="sk-e-tags" type="text" value="${esc((k.tags || []).join(", "))}"
+             placeholder="docker, media, troubleshooting" spellcheck="false"></div>
+    <div class="sk-tagsug">${(SK.tags || []).slice(0, 14).map(t =>
+      `<button type="button" class="sk-tag sug" data-sug="${esc(t.tag)}">+ ${esc(t.tag)}</button>`).join("")}</div>
     <div class="ag-row"><label>When</label>
       <div class="ag-modes sk-modes">
         <button type="button" class="ag-mode${k.mode === "always" ? " on" : ""}" data-m="always">
@@ -5994,6 +6432,14 @@ async function editSkill(id) {
     mode = b.dataset.m;
     $$("[data-m]", form).forEach(x => x.classList.toggle("on", x === b));
   }));
+  // Suggestions from tags already in use, so the vocabulary stays small enough
+  // for the filter chips to be worth having.
+  $$("[data-sug]", form).forEach(b => b.addEventListener("click", () => {
+    const box = $("#sk-e-tags", form);
+    const have = box.value.split(",").map(x => x.trim().toLowerCase()).filter(Boolean);
+    if (have.includes(b.dataset.sug)) return;
+    box.value = [...have, b.dataset.sug].join(", ");
+  }));
   on("#sk-e-back", "click", () => openSkillLibrary());
   on("#sk-e-save", "click", async () => {
     const name = $("#sk-e-name", form).value.trim();
@@ -6002,9 +6448,130 @@ async function editSkill(id) {
     if (!body.trim()) return toast("give it some text", "err");
     try {
       await api("/agent/skills", { method: "POST", body: {
-        id: k.id || name, name, description: $("#sk-e-desc", form).value.trim(), mode, content: body } });
+        id: k.id || name, name, description: $("#sk-e-desc", form).value.trim(), mode,
+        tags: $("#sk-e-tags", form).value, content: body } });
       toast("SKILL SAVED", "ok");
       openSkillLibrary();
+    } catch (e) { toast(e.message || "could not save", "err"); }
+  });
+}
+
+/* Whether the Advanced block is open. Module-level because every setting change
+   re-renders the whole section, and a panel that closes itself each time you
+   touch something inside it is worse than no panel. */
+let AGadvOpen = false;
+
+const DAYS_SHORT = ["S", "M", "T", "W", "T", "F", "S"];
+const DAY_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function cronWhen(cr) {
+  const d = cr.days || [];
+  if (d.length === 7) return `every day at ${cr.time}`;
+  if (d.length === 5 && [1, 2, 3, 4, 5].every(x => d.includes(x))) return `weekdays at ${cr.time}`;
+  if (d.length === 2 && d.includes(0) && d.includes(6)) return `weekends at ${cr.time}`;
+  if (!d.length) return `at ${cr.time}`;
+  return `${d.map(i => DAY_FULL[i].slice(0, 3)).join(", ")} at ${cr.time}`;
+}
+
+function cronRow(cr) {
+  const r = cr.lastRun;
+  const state = !r ? "" : r.waiting ? "waiting" : r.ok ? "ok" : "bad";
+  const last = !r ? "never run"
+    : r.waiting ? `waited for approval on ${esc(r.waiting)} — ${since(r.at)}`
+    : `${r.ok ? "ran" : "failed"} ${since(r.at)}`;
+  return `<div class="cr-item${cr.enabled ? "" : " off"}" data-id="${esc(cr.id)}">
+    <label class="cr-on"><input type="checkbox" data-cron-on="${esc(cr.id)}"${cr.enabled ? " checked" : ""}></label>
+    <div class="cr-main">
+      <div class="cr-name">${esc(cr.name)}<span class="cr-when">${esc(cronWhen(cr))}</span></div>
+      <div class="cr-prompt">${esc(cr.prompt)}</div>
+      <div class="cr-last ${state}">${last}${r?.summary ? ` · ${esc(String(r.summary).slice(0, 120))}` : ""}</div>
+    </div>
+    <div class="cr-acts">
+      <button class="btn sm" data-cron-run="${esc(cr.id)}" type="button">RUN NOW</button>
+      <button class="btn sm" data-cron-edit="${esc(cr.id)}" type="button">EDIT</button>
+      <button class="btn sm danger" data-cron-del="${esc(cr.id)}" type="button">DELETE</button>
+    </div>
+  </div>`;
+}
+
+/** A plain on/off row for settings that are not capabilities — same shape, but
+ *  it does not live under the caps object. */
+function capRowPlain(key, title, sub, on_) {
+  return `<label class="ag-cap">
+    <input type="checkbox" data-cap-plain="${esc(key)}"${on_ ? " checked" : ""}>
+    <span class="ag-capbody"><b>${esc(title)}</b><small>${esc(sub)}</small></span>
+  </label>`;
+}
+
+function editCron(cr) {
+  const row = cr || { id: "", name: "", prompt: "", time: "08:00", days: [0, 1, 2, 3, 4, 5, 6], enabled: true };
+  let days = new Set(row.days);
+
+  const form = document.createElement("div");
+  form.className = "sk-edit";
+  form.innerHTML = `
+    <div class="ag-row"><label for="cr-name">Name</label>
+      <input id="cr-name" type="text" maxlength="60" value="${esc(row.name)}" placeholder="Morning check"></div>
+    <div class="ag-row"><label for="cr-time">At</label>
+      <input id="cr-time" type="time" value="${esc(row.time)}">
+      <span class="hint">This machine's clock.</span></div>
+    <div class="ag-row"><label>On</label>
+      <div class="cr-days" role="group" aria-label="Days">
+        ${DAYS_SHORT.map((d, i) => `<button type="button" class="cr-day${days.has(i) ? " on" : ""}"
+          data-day="${i}" aria-pressed="${days.has(i)}" aria-label="${DAY_FULL[i]}">${d}</button>`).join("")}
+      </div></div>
+    <div class="ag-row cr-presetrow"><label>Quick</label>
+      <div class="cr-days">
+        <button type="button" class="btn sm" data-days="everyday">Every day</button>
+        <button type="button" class="btn sm" data-days="weekdays">Weekdays</button>
+        <button type="button" class="btn sm" data-days="weekends">Weekends</button>
+      </div></div>
+    <label for="cr-prompt">What to ask</label>
+    <textarea id="cr-prompt" class="sk-body cr-body" spellcheck="false"
+      placeholder="Check for failed services and full filesystems, and tell me only if something needs doing.">${esc(row.prompt)}</textarea>
+    <p class="hint">Write it as one instruction. Hermes has the same tools and the same
+      approval setting it has in the chat panel.</p>`;
+
+  const paintDays = () => $$("[data-day]", form).forEach(b => {
+    const on_ = days.has(Number(b.dataset.day));
+    b.classList.toggle("on", on_);
+    b.setAttribute("aria-pressed", String(on_));
+  });
+
+  openModal({
+    title: cr ? "EDIT SCHEDULED TASK" : "NEW SCHEDULED TASK",
+    icon: ICON("power"),
+    body: form,
+    foot: `<span class="spacer"></span>
+           <button class="btn sm" id="cr-cancel" type="button">CANCEL</button>
+           <button class="btn primary sm" id="cr-save" type="button">SAVE</button>`
+  });
+
+  $$("[data-day]", form).forEach(b => b.addEventListener("click", () => {
+    const i = Number(b.dataset.day);
+    if (days.has(i)) days.delete(i); else days.add(i);
+    paintDays();
+  }));
+  $$("[data-days]", form).forEach(b => b.addEventListener("click", () => {
+    days = new Set(b.dataset.days === "weekdays" ? [1, 2, 3, 4, 5]
+                 : b.dataset.days === "weekends" ? [0, 6]
+                 : [0, 1, 2, 3, 4, 5, 6]);
+    paintDays();
+  }));
+  on("#cr-cancel", "click", () => { closeModal(); renderAgentSettings(); });
+  on("#cr-save", "click", async () => {
+    const name = $("#cr-name", form).value.trim();
+    const prompt = $("#cr-prompt", form).value.trim();
+    if (!prompt) return toast("say what to ask", "err");
+    if (!days.size) return toast("pick at least one day", "err");
+    try {
+      await api("/agent/crons", { method: "PUT", body: {
+        id: row.id || undefined, name: name || "Scheduled task", prompt,
+        time: $("#cr-time", form).value || "08:00", days: [...days].sort(), enabled: row.enabled } });
+      toast("TASK SAVED", "ok");
+      closeModal();
+      AGadvOpen = true;
+      renderAgentSettings();
     } catch (e) { toast(e.message || "could not save", "err"); }
   });
 }

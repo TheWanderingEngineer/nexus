@@ -2,6 +2,7 @@
 name: Remote access and reverse proxy
 description: Nginx Proxy Manager, DuckDNS, certificates, ports and the safe ways in
 mode: ondemand
+tags: networking, proxy, tls
 ---
 
 ## Nginx Proxy Manager

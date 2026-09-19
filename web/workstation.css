@@ -420,3 +420,49 @@
 [data-gui="workstation"] .wsb-body b{font-family:var(--pixel);font-size:12px;letter-spacing:.02em;font-weight:600}
 [data-gui="workstation"] :is(.wsb-body code,.wsb-body pre){border-radius:6px}
 [data-gui="workstation"] .wsb-x{border-radius:6px}
+
+
+/* ---- the tick, rounded ---- */
+[data-gui="workstation"] :is(input[type=checkbox],.ctxcheck .tick){
+  border-width:1.5px;border-radius:5px;
+}
+[data-gui="workstation"] input[type=checkbox]{width:19px;height:19px}
+[data-gui="workstation"] input[type=checkbox]:checked,
+[data-gui="workstation"] .ctxcheck.on .tick{box-shadow:0 1px 3px rgba(0,0,0,.14)}
+[data-gui="workstation"] input[type=checkbox]:active:not(:disabled){transform:scale(.92)}
+
+/* ---- skill tags ---- */
+[data-gui="workstation"] :is(.sk-tag,.sk-minitag){border-radius:999px;font-family:var(--pixel);font-weight:600;letter-spacing:.01em}
+[data-gui="workstation"] .sk-tag{border-width:1px;border-color:var(--rule);font-size:11.5px}
+[data-gui="workstation"] .sk-tag.on{border-color:var(--accent)}
+[data-gui="workstation"] .sk-minitag{font-size:10.5px}
+[data-gui="workstation"] .sk-ghead{border-bottom-width:1px}
+[data-gui="workstation"] .sk-ghead b{font-family:var(--pixel);font-size:12px;letter-spacing:.02em}
+
+/* ---- containers, rounded ---- */
+[data-gui="workstation"] :is(.ccard,.cfilter,.cd-live,.cd-log,.cmanaged){border-radius:9px}
+[data-gui="workstation"] :is(.ccard,.cfilter){border-width:1px}
+[data-gui="workstation"] .ccard{box-shadow:0 1px 2px rgba(0,0,0,.05);
+  transition:border-color .15s ease-out,transform .15s ease-out,box-shadow .15s ease-out}
+[data-gui="workstation"] .ccard:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:var(--shadow)}
+[data-gui="workstation"] .cstate{border-radius:50%}
+[data-gui="workstation"] .cfilter{font-family:var(--pixel);font-size:11px;font-weight:600;letter-spacing:.02em;border-radius:999px}
+[data-gui="workstation"] .cmanaged{font-family:var(--pixel);font-size:9.5px;font-weight:600;letter-spacing:.04em;border-radius:4px}
+[data-gui="workstation"] .cd-loghead b{font-family:var(--pixel);font-size:11px;letter-spacing:.03em}
+
+/* ---- advanced, crons, presets ---- */
+[data-gui="workstation"] :is(.cr-item,.cr-day,.pz-item,.pz-save){border-width:1px;border-radius:8px}
+[data-gui="workstation"] .cr-day{border-radius:50%;font-family:var(--pixel);font-weight:600;font-size:12px}
+[data-gui="workstation"] .ag-sub h4{font-family:var(--pixel);font-size:11px;letter-spacing:.03em;font-weight:600}
+[data-gui="workstation"] .ag-adv summary h3{font-family:var(--pixel)}
+[data-gui="workstation"] :is(.cr-item,.pz-item){transition:border-color .15s ease-out}
+[data-gui="workstation"] :is(.cr-item,.pz-item):hover{border-color:var(--accent)}
+
+/* ---- responsive, workstation ---- */
+@media(max-width:640px){
+  [data-gui="workstation"] #toolbar h1{font-size:24px!important;letter-spacing:-.02em}
+  [data-gui="workstation"] #main{padding-bottom:96px}
+}
+@media(pointer:coarse){
+  [data-gui="workstation"] :is(.cfilter,.sk-tag){padding-left:14px;padding-right:14px}
+}

@@ -287,9 +287,24 @@ qBittorrent, Kaizoku — and the path layout that makes hardlinks work), **Remot
 access** (Nginx Proxy Manager, DuckDNS, ports, certificates) and **Homelab
 practice** on demand.
 
+Skills carry **tags** — search the library, or filter it down to `docker`,
+`media`, `networking`. Tags are a line in the file's front matter, so they travel
+with it.
+
 They are ordinary files in `/var/lib/nexus/agent-skills`, so you can edit them in
 the browser, drop your own in, or copy one to another machine. **RESTORE
 DEFAULTS** brings back anything stock you deleted without touching your edits.
+
+### Advanced
+
+**Scheduled tasks** run a prompt on a timer — a morning check, a weekly tidy-up.
+Pick the time and the days, write the instruction, and RUN NOW to try it. They
+obey the approval setting: on *ask me first* a task that wants to write a file or
+run a command will stop and wait with nobody there to answer, and it records that
+it was waiting rather than pretending it finished.
+
+Also here: whether the live briefing is sent at all, and how many tool calls one
+message may make before Hermes stops and asks you to say "carry on".
 
 ### Provider, model and what it costs
 
@@ -328,6 +343,11 @@ Widgets float where you drop them — gravity only applies when you press RESET.
 | Delete / Backspace | Remove the selection |
 | Escape | Clear it |
 
+**TIDY** packs every widget top-left with no gaps, keeping the order you already
+have. **PRESETS** saves the whole arrangement under a name — one layout for
+watching the media stack, another for chasing a disk problem — and switches
+between them.
+
 **Storage** and **Sensors** carry a tick list in their right-click menu, so you can
 drop `/boot/efi` from the disk list or hide the four hwmon channels that only ever
 report 0 V. The list stores what is *hidden*, not what is shown — a drive you plug
@@ -344,6 +364,14 @@ Host, Server Cat — plus four that answer more specific questions:
 | **Top Processes** | What is actually using the machine. Sort by CPU or by memory — two separate lists, not one re-sorted. |
 | **Disk Activity** | Read and write throughput, mirrored around a centre line. Linux only; `fsStats` reads `/proc/diskstats`. |
 | **Security Watch** | Failed logins, what is listening on all interfaces, pending security updates, who is logged in. |
+
+### Containers
+
+A card each: name, state, what it is actually saying (`Up 3 days (healthy)`,
+`Exited (137) 2 hours ago`), and its published ports as buttons you can press.
+Search and filter by running or stopped. **MANAGE** opens one container on its
+own with live CPU and memory, a tailing log, and the destructive action kept
+away from the buttons you press every day.
 
 ### Reading a chart
 

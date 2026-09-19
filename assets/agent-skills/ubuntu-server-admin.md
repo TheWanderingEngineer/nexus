@@ -2,6 +2,7 @@
 name: Ubuntu Server administration
 description: apt, systemd, journald, storage, users and firewall on Ubuntu Server 24.04
 mode: ondemand
+tags: system, ubuntu, troubleshooting
 ---
 
 Ubuntu Server 24.04 LTS (noble). Headless, systemd, no desktop packages.
