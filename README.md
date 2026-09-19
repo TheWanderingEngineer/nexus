@@ -231,6 +231,8 @@ can be switched off with `terminal.enabled: false`.
 
 A robot sits in the corner of every page. Click it and you get Hermes: a language
 model with tools pointed at this machine, in a panel that stays out of the way.
+Its replies are rendered — headings, **bold**, lists, tables and fenced code — so
+a `docker ps` table arrives as a table instead of a wall of pipes.
 
 **It starts with nothing.** On a fresh install Hermes can read the metrics you
 can already see on the dashboard, and that is all. Every other capability is a
@@ -290,6 +292,9 @@ practice** on demand.
 Skills carry **tags** — search the library, or filter it down to `docker`,
 `media`, `networking`. Tags are a line in the file's front matter, so they travel
 with it.
+
+The editor has **WRITE** and **PREVIEW** tabs: write the Markdown, then look at
+it the way Hermes will be handed it.
 
 They are ordinary files in `/var/lib/nexus/agent-skills`, so you can edit them in
 the browser, drop your own in, or copy one to another machine. **RESTORE
@@ -440,6 +445,43 @@ whether a finger is driving, and by how large the display is. That is why a
 1024px iPad gets desktop layout with touch-sized controls, and a 1080p TV gets
 desktop layout at a size you can read from a sofa.
 
+## Apps
+
+The dashboard watches the machine. **Apps** is the other half: a launcher for the
+things running *on* it — Jellyfin, Sonarr, Nginx Proxy Manager, whatever you have
+— as a grid of tiles you click to open.
+
+Each tile carries a name, an icon, a description, the ports it publishes, and two
+addresses:
+
+- **Local** — `http://192.168.1.50:8096`, the one that works on your own network.
+- **External** — your DuckDNS hostname, for when you are not on it.
+
+Both are optional and Nexus keeps them apart rather than guessing. A tile with
+both shows a small **EXT** button; clicking the tile itself always takes the
+local route, because that is the one you want nine times out of ten. Only `http`
+and `https` addresses are stored — anything else is rejected by the server, not
+just by the form.
+
+**Icons pull themselves.** Type "jellyfin" and the icon appears, from the same
+[dashboard-icons](https://github.com/homarr-labs/dashboard-icons) set Homarr
+uses, matched on the name with an alias table for the ones that do not match
+cleanly (`npm` → Nginx Proxy Manager, `qbit` → qBittorrent). You can paste an
+image URL instead. If the icon cannot be fetched — no internet, a name nothing
+matches — the tile falls back to a lettered square rather than a broken-image
+glyph, so a box with no outbound access still gets a usable launcher.
+
+**PULL ALL** reads the containers that are actually running and proposes the ones
+that are not on the page yet, with a tick box each. It is additive by
+construction: a container is skipped if its name or any of its published ports
+already appears on a tile, so running it a second time after you have renamed and
+arranged everything adds only what is new and leaves your work alone. It proposes;
+you choose; nothing is written until you press ADD.
+
+Tiles move the way widgets do — drag to reposition, **TIDY** to pack them
+top-left with no gaps — and the search box filters by name, description or port
+once there are more than a screenful.
+
 ## Files
 
 Selection works the way it does everywhere else: click, Ctrl/⌘+click to add,
@@ -513,6 +555,10 @@ npm install          # REQUIRED FIRST — see note below
 npm run dev          # auto-restarts on change
 npm run check        # end-to-end self test
 npm run store-check  # clones the real CasaOS store and validates the adapter
+npm run agent:check  # the agent: providers, capabilities, jails, skills, crons
+npm run proxy:check  # the four reverse-proxy shapes
+npm run dash:check   # the widget canvas, in a real browser
+npm run apps:check   # the Apps launcher, in a real browser
 ```
 
 > **`scripts/install.sh` does not install dependencies into your clone.** It
@@ -590,7 +636,9 @@ drawn deliberately un-smooth — is documented in
 Short version: violet-anchored dark theme (the CRT), a light theme that is a
 beige workstation rather than an inversion, Silkscreen and Pixelify Sans for
 type, a 4px base unit, no border radius anywhere, and no anti-aliasing on
-decoration. Status colours (green/amber/red) are reserved for meaning and never
+decoration. Every window closes one way — the **×** in its top-right corner —
+so there is never a second CLOSE button at the bottom competing with the buttons
+that actually do something. Status colours (green/amber/red) are reserved for meaning and never
 used decoratively — that is what keeps a red border on a widget informative.
 
 ## Licence

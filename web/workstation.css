@@ -466,3 +466,29 @@
 @media(pointer:coarse){
   [data-gui="workstation"] :is(.cfilter,.sk-tag){padding-left:14px;padding-right:14px}
 }
+
+/* ---- markdown + skill editor ---- */
+[data-gui="workstation"] .md .md-pre{border-radius:8px}
+[data-gui="workstation"] .md code{border-radius:4px}
+[data-gui="workstation"] .md .md-table th,[data-gui="workstation"] .md .md-table td{border-color:var(--rule)}
+[data-gui="workstation"] .md .md-table tr:first-child th:first-child{border-top-left-radius:7px}
+[data-gui="workstation"] .md .md-table tr:first-child th:last-child{border-top-right-radius:7px}
+[data-gui="workstation"] .md h3,[data-gui="workstation"] .md h4{font-family:var(--pixel);font-weight:600;letter-spacing:0}
+[data-gui="workstation"] .sk-tab{border-radius:6px;border-width:1px;font-family:var(--pixel);font-size:11px;font-weight:600;letter-spacing:.02em}
+[data-gui="workstation"] .sk-view{border-width:1px;border-radius:8px}
+
+/* ---- the close button ---- */
+[data-gui="workstation"] .xbtn{border-radius:8px;border-width:1px;border-color:transparent;font-size:20px}
+[data-gui="workstation"] .xbtn:hover{border-color:var(--crit)}
+[data-gui="workstation"] .xbtn:active{transform:scale(.94)}
+
+/* ---- the launcher ---- */
+[data-gui="workstation"] :is(.ltile,.lico,.lact,.lsize,.lpullrow,.lpreview,.lpullstate){border-radius:9px}
+[data-gui="workstation"] :is(.ltile,.lsize,.lpullrow){border-width:1px}
+[data-gui="workstation"] .ltile{box-shadow:0 1px 2px rgba(0,0,0,.05)}
+[data-gui="workstation"] .ltile:hover{box-shadow:var(--shadow)}
+[data-gui="workstation"] .lico{border-radius:11px}
+[data-gui="workstation"] .lact{border-width:1px;border-radius:7px}
+[data-gui="workstation"] .lsize{font-family:var(--pixel);font-size:11px;font-weight:600;letter-spacing:.02em;border-radius:999px}
+[data-gui="workstation"] .lpullstate{font-family:var(--pixel);font-size:9.5px;font-weight:600;border-radius:4px}
+[data-gui="workstation"] .navrule{height:1px;border-radius:1px}

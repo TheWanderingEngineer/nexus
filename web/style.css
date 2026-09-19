@@ -2220,3 +2220,132 @@ input[type=checkbox]:disabled{opacity:.45;cursor:not-allowed}
   input[type=checkbox]{width:22px;height:22px}
   .cacts .btn,.sk-acts .btn,.cr-acts .btn,.pz-acts .btn{min-height:40px}
 }
+
+/* ============================================================
+   RENDERED MARKDOWN
+   One set of rules for both places it appears: the agent's answers and the
+   skill preview. Sized for reading in a panel, not for a document.
+   ============================================================ */
+.md > :first-child{margin-top:0}
+.md > :last-child{margin-bottom:0}
+.md p{margin:0 0 .7em}
+.md h3,.md h4,.md h5,.md h6{margin:1.1em 0 .45em;font-family:var(--screen);letter-spacing:.04em;line-height:1.3}
+.md h3{font-size:14px} .md h4{font-size:13px} .md h5,.md h6{font-size:12px;color:var(--text-2)}
+.md ul,.md ol{margin:0 0 .7em;padding-left:1.35em}
+.md li{margin:.2em 0}
+.md code{font-family:var(--mono);font-size:.88em;background:var(--void);padding:1px 4px}
+.md .md-pre{margin:.6em 0;padding:calc(var(--u)*2);background:var(--void);overflow:auto;
+            font-family:var(--mono);font-size:11.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
+.md .md-pre code{background:none;padding:0;font-size:inherit}
+.md blockquote{margin:.6em 0;padding:.1em 0 .1em calc(var(--u)*2.5);
+               border-left:3px solid var(--rule);color:var(--text-2)}
+.md hr{border:0;border-top:2px solid var(--rule);margin:1em 0}
+.md a{color:var(--accent)}
+.md strong{font-weight:700}
+.md del{opacity:.6}
+.md .md-table{width:100%;border-collapse:collapse;margin:.7em 0;font-size:.92em;display:block;overflow-x:auto}
+.md .md-table th,.md .md-table td{padding:5px 9px;border:1px solid var(--rule);white-space:nowrap}
+.md .md-table th{background:var(--sunk);font-family:var(--screen);font-size:10px;letter-spacing:.06em}
+
+/* ---- the skill editor ---- */
+.sk-editbar{display:flex;align-items:center;gap:calc(var(--u)*2)}
+.sk-editbar label{margin:0}
+.sk-tabs{display:flex;gap:2px}
+.sk-tab{padding:5px 12px;cursor:pointer;background:var(--sunk);color:var(--text-3);
+        font-family:var(--screen);font-size:10px;letter-spacing:.08em;border:2px solid transparent}
+.sk-tab:hover{color:var(--text)}
+.sk-tab.on{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+/* The old box was six lines tall and the text was unreadable. A skill is a
+   document; give it room to be one. */
+.sk-body{min-height:min(52vh,460px)}
+.sk-view{min-height:min(52vh,460px);max-height:min(52vh,460px);overflow:auto;
+         padding:calc(var(--u)*3);background:var(--sunk);border:2px solid var(--rule);
+         font-size:13px;line-height:1.6}
+
+/* ============================================================
+   ONE WAY OUT
+   Every window closes with the X in its top-right corner. Several used to
+   carry a second CLOSE in the footer as well, which is two controls for one
+   action and leaves you wondering whether they differ.
+   ============================================================ */
+.xbtn{
+  width:32px;height:32px;flex:none;display:grid;place-items:center;cursor:pointer;
+  background:var(--sunk);color:var(--text-2);font-size:19px;line-height:1;
+  border:2px solid transparent;
+  transition:background-color .12s ease-out,color .12s ease-out,border-color .12s ease-out;
+}
+.xbtn:hover{background:var(--panel);color:var(--crit);border-color:var(--crit)}
+.xbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* A footer with nothing in it should take no room. */
+.mw-foot:empty,.mw-foot[hidden]{display:none}
+
+/* ============================================================
+   THE LAUNCHER (Apps page)
+   A board of the things you actually run. Same 12-column grid as the dashboard
+   so a tile drags like a widget, but a tile holds no live data — there is no
+   mount/update cycle here, just a link with a picture on it.
+   ============================================================ */
+.lbar{display:flex;flex-wrap:wrap;gap:calc(var(--u)*2);align-items:center;margin-bottom:calc(var(--u)*4)}
+.lbar input[type=search]{flex:1 1 220px;min-width:180px;max-width:420px}
+.lcount{font-family:var(--mono);font-size:11px;color:var(--text-3)}
+
+.lgrid{position:relative;min-height:120px}
+.ltile{
+  position:absolute;display:flex;align-items:center;gap:calc(var(--u)*3);min-width:0;
+  padding:calc(var(--u)*3);cursor:pointer;overflow:hidden;
+  background:var(--panel);border:2px solid var(--rule);
+  transition:border-color .14s ease-out,transform .14s ease-out,box-shadow .14s ease-out;
+}
+.ltile:hover{border-color:var(--accent);transform:translateY(-2px)}
+.ltile:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ltile.dragging{transition:none;z-index:50;border-color:var(--accent);filter:brightness(1.05)}
+
+.lico{width:44px;height:44px;flex:none;display:grid;place-items:center;overflow:hidden;background:var(--sunk)}
+.lico.sm{width:30px;height:30px}
+.lico-img{width:100%;height:100%;object-fit:contain;image-rendering:auto;padding:4px}
+.lico-letter{font-family:var(--screen);font-size:19px;font-weight:700;color:var(--accent)}
+.lico.sm .lico-letter{font-size:13px}
+
+.lbody{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.lname{font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ldesc{font-size:12px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lports{font-family:var(--mono);font-size:10.5px;color:var(--text-3)}
+
+/* The controls stay out of the way until you are on the tile — the tile's own
+   job is to be pressed, and two buttons competing with that is noise. */
+.lacts{display:flex;gap:4px;flex:none;opacity:0;transition:opacity .14s ease-out}
+.ltile:hover .lacts,.ltile:focus-within .lacts{opacity:1}
+.lact{width:26px;height:26px;display:grid;place-items:center;cursor:pointer;
+      background:var(--sunk);color:var(--text-2);font-size:12px;border:2px solid transparent}
+.lact:hover{border-color:var(--accent);color:var(--text)}
+@media(pointer:coarse){ .lacts{opacity:1} }
+
+/* Below this the grid is a list: a 2-column tile on a phone is a postage stamp. */
+.lgrid.lstack{display:flex;flex-direction:column;gap:calc(var(--u)*2);height:auto!important}
+.lgrid.lstack .ltile{position:static;width:auto;height:auto}
+
+/* ---- the form ---- */
+.lform{display:flex;flex-direction:column;gap:calc(var(--u)*2)}
+.lpreview{display:flex;align-items:center;gap:calc(var(--u)*3);padding:calc(var(--u)*3);background:var(--sunk)}
+.lsizes{display:flex;flex-wrap:wrap;gap:calc(var(--u)*1.5)}
+.lsize{padding:7px 13px;cursor:pointer;background:var(--panel);border:2px solid var(--rule);
+       color:var(--text-2);font-family:var(--screen);font-size:10px;letter-spacing:.07em;
+       transition:border-color .12s ease-out,background-color .12s ease-out,color .12s ease-out}
+.lsize:hover{border-color:var(--accent)}
+.lsize.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+
+/* ---- pull all ---- */
+.lpull{display:flex;flex-direction:column;gap:calc(var(--u)*1.5);max-height:52vh;overflow:auto}
+.lpullrow{display:flex;align-items:center;gap:calc(var(--u)*3);padding:calc(var(--u)*2.5);
+          background:var(--panel);border:2px solid var(--rule);cursor:pointer}
+.lpullrow:hover{border-color:var(--accent)}
+.lpullmain{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.lpullmain b{font-size:14px}
+.lpullmain span{font-family:var(--mono);font-size:10.5px;color:var(--text-3);
+                overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lpullstate{flex:none;font-family:var(--screen);font-size:9px;letter-spacing:.09em;
+            padding:2px 6px;background:var(--sunk);color:var(--text-3)}
+.lpullstate.up{color:var(--ok)}
+
+/* ---- the rail's two groups ---- */
+.navrule{height:2px;background:var(--rule);margin:calc(var(--u)*2) calc(var(--u)*1.5);flex:none;opacity:.7}

@@ -410,6 +410,91 @@ export default function routes() {
     res.json({ presets: list });
   });
 
+  /* ---------------- the launcher (Apps page) ----------------
+     A dashboard of links to the things actually running on this box. Stored
+     in settings, clamped the same way the widget layout is, because it is the
+     same kind of data: positions plus a little text. */
+  const MAX_APPS = 120;
+
+  const launcher = () => {
+    const s0 = db().settings = db().settings || {};
+    if (!Array.isArray(s0.launcher)) s0.launcher = [];
+    return s0.launcher;
+  };
+
+  const str = (v, n) => typeof v === "string" ? v.slice(0, n) : "";
+  /** Only http(s). A launcher tile becomes an <a href>, so a javascript: URL
+   *  here would be stored XSS with a nice icon on it. */
+  const safeUrl = v => {
+    const raw = str(v, 400).trim();
+    if (!raw) return "";
+    try {
+      const u = new URL(raw);
+      return (u.protocol === "http:" || u.protocol === "https:") ? u.toString() : "";
+    } catch { return ""; }
+  };
+
+  const sanitizeApp = (a, i) => ({
+    id: str(a.id, 40) || "l" + Date.now().toString(36) + i,
+    name: str(a.name, 60) || "App",
+    url: safeUrl(a.url),
+    externalUrl: safeUrl(a.externalUrl),
+    icon: safeUrl(a.icon) || str(a.icon, 80),   // a URL, or a dashboard-icons slug
+    desc: str(a.desc, 200),
+    ports: (Array.isArray(a.ports) ? a.ports : []).slice(0, 12)
+      .map(p => clampInt(p, 1, 65535)).filter(Boolean),
+    x: clampInt(a.x, 0, 11), y: clampInt(a.y, 0, 500),
+    w: clampInt(a.w, 1, 12), h: clampInt(a.h, 1, 12)
+  });
+
+  r.get("/launcher", (_req, res) => res.json({ apps: launcher() }));
+
+  r.put("/launcher", (req, res) => {
+    const incoming = req.body?.apps;
+    if (!Array.isArray(incoming)) throw Object.assign(new Error("apps must be an array"), { status: 400 });
+    if (incoming.length > MAX_APPS) throw Object.assign(new Error("too many apps"), { status: 400 });
+    const s0 = db().settings = db().settings || {};
+    s0.launcher = incoming.map(sanitizeApp);
+    save();
+    res.json({ apps: s0.launcher });
+  });
+
+  /**
+   * What is running that is not already on the launcher.
+   *
+   * Suggestions only — it returns candidates and changes nothing. The client
+   * shows them with tick boxes. "Pull All" must never overwrite a tile the
+   * owner has set up by hand, so matching is done here on both the published
+   * port and the name, and anything that matches is simply left out.
+   */
+  r.get("/launcher/discover", wrap(async (_req, res) => {
+    if (!dockerx.status().available) {
+      return res.json({ available: false, reason: dockerx.status().reason, found: [] });
+    }
+    const have = launcher();
+    const havePorts = new Set(have.flatMap(a => a.ports || []));
+    const haveNames = new Set(have.map(a => a.name.toLowerCase().replace(/[^a-z0-9]/g, "")));
+
+    const found = [];
+    for (const c of await dockerx.listContainers()) {
+      const ports = [...new Set((c.ports || []).filter(p => p.public).map(p => p.public))].sort((a, b) => a - b);
+      if (!ports.length) continue;                       // nothing to link to
+      const name = c.title || c.name;
+      const key = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (haveNames.has(key)) continue;
+      if (ports.some(p => havePorts.has(p))) continue;
+      found.push({
+        name, ports,
+        // The image name is a better icon hint than the container name:
+        // "lscr.io/linuxserver/jellyfin:latest" -> "jellyfin".
+        slug: String(c.image || name).split("/").pop().split(":")[0].toLowerCase().replace(/[^a-z0-9-]/g, ""),
+        state: c.state,
+        managedBy: c.managedBy || "manual"
+      });
+    }
+    res.json({ available: true, found });
+  }));
+
   /* ---------------- app store ---------------- */
   r.get("/store/status", (_req, res) => {
     res.json({

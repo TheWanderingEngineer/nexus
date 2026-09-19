@@ -3007,18 +3007,13 @@ async function manageContainer(id) {
     foot: `<button class="btn sm danger" id="cd-rm" type="button">REMOVE CONTAINER</button>
            <span class="spacer"></span>
            <button class="btn sm" id="cd-restart" type="button">RESTART</button>
-           <button class="btn sm" id="cd-toggle" type="button">${up ? "STOP" : "START"}</button>
-           <button class="btn primary sm" id="cd-done" type="button">DONE</button>`
+           <button class="btn primary sm" id="cd-toggle" type="button">${up ? "STOP" : "START"}</button>`,
+    // However it is dismissed, the log socket has to stop: left open it would
+    // keep streaming into a node that is no longer on the page.
+    onClose: closeLogs
   });
 
-  const shut = () => { closeLogs(); closeModal(); };
-  on("#cd-done", "click", shut);
-  // The modal can also be dismissed by Escape or a backdrop click, and a log
-  // socket left open behind it would keep streaming into a detached node.
-  modal.addEventListener("click", closeLogs, { once: true });
-  addEventListener("keydown", function esc0(e) {
-    if (e.key === "Escape") { closeLogs(); removeEventListener("keydown", esc0); }
-  });
+  const shut = () => closeModal();
 
   const act = async a => {
     try {
@@ -3132,6 +3127,404 @@ on("#c-grid", "click", async e => {
   } catch (ex) { toast(ex.message.toUpperCase(), "err"); b.disabled = false; }
 });
 on("#c-refresh", "click", loadContainers);
+
+/* ============================ the launcher ============================
+ * The Apps page: a board of the things actually running on this box, as tiles
+ * you press to open them. Same 12-column grid as the dashboard, so dragging a
+ * tile feels like dragging a widget, but a much smaller engine — an app tile
+ * has no live data in it, so there is no mount/update cycle to run.
+ */
+const LP = { apps: [], q: "", dirty: false };
+
+const L_COLS = 12, L_ROW = 92, L_GAP = 10;
+const lCellW = () => {
+  const g = $("#l-grid");
+  return g ? (g.clientWidth - (L_COLS - 1) * L_GAP) / L_COLS : 0;
+};
+const lOverlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+/**
+ * Where a tile's picture comes from.
+ *
+ * Three steps, in order of how much the owner asked for it: a URL they typed,
+ * then the community icon set Homarr uses — matched on a slug taken from the
+ * app name or the container image — and finally a letter tile drawn from the
+ * palette. The icon set is fetched by the browser, not the server, so it works
+ * on any box that can reach the internet and degrades to the letter otherwise.
+ */
+const ICON_ALIASES = {
+  "nginx-proxy-manager": "nginx-proxy-manager", npm: "nginx-proxy-manager",
+  qbittorrent: "qbittorrent", qbit: "qbittorrent",
+  "immich-server": "immich", "immich-machine-learning": "immich",
+  jellyseerr: "jellyseerr", jellyfin: "jellyfin",
+  homeassistant: "home-assistant", "home-assistant": "home-assistant",
+  pihole: "pi-hole", "pi-hole": "pi-hole",
+  adguardhome: "adguard-home", vaultwarden: "vaultwarden",
+  portainer: "portainer", uptimekuma: "uptime-kuma", "uptime-kuma": "uptime-kuma"
+};
+
+function iconSlug(app) {
+  const raw = (app.icon || app.name || "").toLowerCase().trim();
+  if (/^https?:/.test(raw)) return null;
+  const key = raw.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return ICON_ALIASES[key] || key;
+}
+
+function appIconHTML(app) {
+  const letter = esc(((app.name || "?").trim()[0] || "?").toUpperCase());
+  const src = /^https?:/.test(app.icon || "")
+    ? app.icon
+    : (iconSlug(app) ? `https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/${iconSlug(app)}.png` : null);
+  if (!src) return `<span class="lico-letter">${letter}</span>`;
+  // The fallback is wired by wireIcons() rather than an inline onerror: the
+  // CSP here is `script-src 'self'`, which refuses inline handlers outright —
+  // so an inline one would never run and a missing icon would stay broken.
+  return `<img class="lico-img" loading="lazy" alt="" data-letter="${letter}" src="${esc(src)}">`;
+}
+
+/**
+ * What an image does when it cannot load.
+ *
+ * One capturing listener for the whole document rather than a handler per
+ * image. `error` does not bubble, but it does capture, so this catches every
+ * image including ones added later — and, unlike an inline `onerror=`, it
+ * actually runs: the CSP here is `script-src 'self'`, which refuses inline
+ * handlers outright. Three of those were in the code and none of them had ever
+ * fired, which is why a missing app-store icon showed a broken-image glyph.
+ *
+ *   data-letter="J"   replace with a letter tile
+ *   data-onfail="hide"  hide it and leave the space
+ */
+addEventListener("error", e => {
+  const img = e.target;
+  if (!(img instanceof HTMLImageElement)) return;
+  if (img.dataset.letter) {
+    const span = document.createElement("span");
+    span.className = "lico-letter";
+    span.textContent = img.dataset.letter;
+    img.replaceWith(span);
+  } else if (img.dataset.onfail === "hide") {
+    img.style.visibility = "hidden";
+  }
+}, true);
+
+/** Images that failed before the listener could see them — a cached failure, or
+ *  markup painted in the same tick — report nothing, so check them directly. */
+function wireIcons(root) {
+  $$("img[data-letter],img[data-onfail]", root || document).forEach(img => {
+    if (img.complete && img.naturalWidth === 0) img.dispatchEvent(new Event("error"));
+  });
+}
+
+async function loadLauncher() {
+  try { LP.apps = (await api("/launcher")).apps || []; }
+  catch { LP.apps = []; }
+  paintLauncher();
+}
+
+function saveLauncher() {
+  clearTimeout(saveLauncher.t);
+  saveLauncher.t = setTimeout(() => {
+    api("/launcher", { method: "PUT", body: { apps: LP.apps } }).catch(e => toast(e.message, "err"));
+  }, 400);
+}
+
+function lPlace(el, a) {
+  const cw = lCellW();
+  el.style.left = Math.round(a.x * (cw + L_GAP)) + "px";
+  el.style.top = Math.round(a.y * (L_ROW + L_GAP)) + "px";
+  el.style.width = Math.round(a.w * cw + (a.w - 1) * L_GAP) + "px";
+  el.style.height = Math.round(a.h * L_ROW + (a.h - 1) * L_GAP) + "px";
+}
+
+function paintLauncher() {
+  const grid = $("#l-grid"), empty = $("#l-empty");
+  if (!grid) return;
+  const q = LP.q.trim().toLowerCase();
+  const shown = LP.apps.filter(a =>
+    !q || (a.name + " " + (a.desc || "") + " " + (a.url || "")).toLowerCase().includes(q));
+
+  empty.hidden = LP.apps.length > 0;
+  $("#l-count").textContent = LP.apps.length
+    ? `${shown.length}${shown.length === LP.apps.length ? "" : " of " + LP.apps.length} app${LP.apps.length === 1 ? "" : "s"}`
+    : "";
+
+  grid.innerHTML = shown.map(a => `
+    <article class="ltile" data-id="${esc(a.id)}" tabindex="0" role="link"
+             aria-label="${esc(a.name)}${a.desc ? " — " + esc(a.desc) : ""}">
+      <span class="lico">${appIconHTML(a)}</span>
+      <span class="lbody">
+        <b class="lname">${esc(a.name)}</b>
+        ${a.desc ? `<span class="ldesc">${esc(a.desc)}</span>` : ""}
+        ${a.ports?.length ? `<span class="lports">${a.ports.map(p => `:${p}`).join(" ")}</span>` : ""}
+      </span>
+      <span class="lacts">
+        ${a.externalUrl ? `<button class="lact" data-ext="${esc(a.id)}" data-tip="Open the outside address: ${esc(a.externalUrl)}" aria-label="Open externally">&#127758;</button>` : ""}
+        <button class="lact" data-edit="${esc(a.id)}" data-tip="Edit this app" aria-label="Edit">&#9881;</button>
+      </span>
+    </article>`).join("");
+
+  // Layout only makes sense against a measured grid — same rule as the
+  // dashboard canvas, same reason.
+  if (grid.clientWidth < 1) return;
+  const narrow = grid.clientWidth < 560;
+  grid.classList.toggle("lstack", narrow);
+  if (narrow) {
+    grid.style.height = "";
+    [...grid.children].forEach(el => { el.style.cssText = ""; });
+  } else {
+    shown.forEach(a => { const el = grid.querySelector(`[data-id="${CSS.escape(a.id)}"]`); if (el) lPlace(el, a); });
+    grid.style.height = LP.apps.reduce((m, a) => Math.max(m, a.y + a.h), 0) * (L_ROW + L_GAP) + "px";
+  }
+  wireIcons(grid);
+}
+
+/** Open a tile: the outside address when we are not on the LAN is the owner's
+ *  call, so the tile itself always opens the local one and the globe opens the
+ *  external. Guessing which network you are on is a guess. */
+function openApp(a, external) {
+  const url = external ? a.externalUrl : (a.url || a.externalUrl);
+  if (!url) return toast("no address set for that app", "err");
+  window.open(url, "_blank", "noopener");
+}
+
+on("#l-grid", "click", e => {
+  const ext = e.target.closest("[data-ext]");
+  if (ext) { e.stopPropagation(); return openApp(LP.apps.find(a => a.id === ext.dataset.ext), true); }
+  const ed = e.target.closest("[data-edit]");
+  if (ed) { e.stopPropagation(); return editApp(LP.apps.find(a => a.id === ed.dataset.edit)); }
+  const tile = e.target.closest(".ltile");
+  if (tile && !tile.dataset.dragged) openApp(LP.apps.find(a => a.id === tile.dataset.id));
+});
+on("#l-grid", "keydown", e => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const tile = e.target.closest(".ltile");
+  if (!tile) return;
+  e.preventDefault();
+  openApp(LP.apps.find(a => a.id === tile.dataset.id));
+});
+on("#l-q", "input", e => { LP.q = e.target.value; paintLauncher(); });
+
+/* ---- dragging a tile ----
+   The same rules the widget canvas follows: every frame is computed from the
+   snapshot taken at pointer-down, and a press that does not travel is a click
+   rather than a nudge. */
+on("#l-grid", "pointerdown", e => {
+  if (e.pointerType === "touch" || e.button !== 0) return;
+  if (e.target.closest("button")) return;
+  const tile = e.target.closest(".ltile");
+  if (!tile || $("#l-grid").classList.contains("lstack")) return;
+
+  const app = LP.apps.find(a => a.id === tile.dataset.id);
+  if (!app) return;
+  const snapshot = LP.apps.map(a => ({ ...a }));
+  const sx = e.clientX, sy = e.clientY;
+  const cw = lCellW();
+  let moved = false;
+
+  const mv = ev => {
+    if (!moved && Math.abs(ev.clientX - sx) < 5 && Math.abs(ev.clientY - sy) < 5) return;
+    if (!moved) { moved = true; tile.classList.add("dragging"); }
+    // Restore the snapshot first, or each frame packs the already-packed
+    // result of the last one and the board creeps.
+    LP.apps = snapshot.map(a => ({ ...a }));
+    const me = LP.apps.find(a => a.id === app.id);
+    me.x = clamp(Math.round((app.x * (cw + L_GAP) + ev.clientX - sx) / (cw + L_GAP)), 0, L_COLS - me.w);
+    me.y = Math.max(0, Math.round((app.y * (L_ROW + L_GAP) + ev.clientY - sy) / (L_ROW + L_GAP)));
+    // Push anything it lands on downwards.
+    let guard = 0, again = true;
+    while (again && guard++ < 200) {
+      again = false;
+      for (const a of LP.apps) for (const b of LP.apps) {
+        if (a === b || b.id === me.id) continue;
+        if (lOverlap(a, b) && (a.id === me.id || a.y < b.y || (a.y === b.y && a.x < b.x))) { b.y = a.y + a.h; again = true; }
+      }
+    }
+    paintLauncher();
+  };
+  const up = () => {
+    tile.removeEventListener("pointermove", mv);
+    tile.removeEventListener("pointerup", up);
+    tile.removeEventListener("pointercancel", cancel);
+    tile.classList.remove("dragging");
+    try { tile.releasePointerCapture(e.pointerId); } catch {}
+    if (moved) {
+      // Swallow the click that follows the drop, or letting go opens the app.
+      tile.dataset.dragged = "1";
+      setTimeout(() => { delete tile.dataset.dragged; }, 0);
+      saveLauncher();
+    }
+  };
+  // pointercancel is a cancel, not a drop.
+  const cancel = () => { LP.apps = snapshot; paintLauncher(); up(); };
+
+  try { tile.setPointerCapture(e.pointerId); } catch {}
+  tile.addEventListener("pointermove", mv);
+  tile.addEventListener("pointerup", up);
+  tile.addEventListener("pointercancel", cancel);
+});
+
+on("#l-tidy", "click", () => {
+  const order = LP.apps.slice().sort((a, b) => a.y - b.y || a.x - b.x);
+  const placed = [];
+  for (const a of order) {
+    let done = false;
+    for (let y = 0; !done && y < 200; y++) {
+      for (let x = 0; x + a.w <= L_COLS; x++) {
+        if (!placed.some(p => lOverlap({ x, y, w: a.w, h: a.h }, p))) { a.x = x; a.y = y; done = true; break; }
+      }
+    }
+    placed.push(a);
+  }
+  paintLauncher(); saveLauncher(); toast("TIDIED", "ok");
+});
+
+/* ---- add / edit ---- */
+function editApp(app) {
+  const a = app || { id: "", name: "", url: "", externalUrl: "", icon: "", desc: "", ports: [], x: 0, y: 0, w: 2, h: 1 };
+  const form = document.createElement("div");
+  form.className = "lform";
+  form.innerHTML = `
+    <div class="lpreview"><span class="lico" id="lf-prev">${appIconHTML(a)}</span>
+      <span class="hint">Icons come from the community set Homarr uses. Leave the box empty and
+        Nexus guesses from the name; type a slug like <code>jellyfin</code>, or paste a URL.</span></div>
+    <div class="ag-row"><label for="lf-name">Name</label>
+      <input id="lf-name" type="text" maxlength="60" value="${esc(a.name)}" placeholder="Jellyfin"></div>
+    <div class="ag-row"><label for="lf-url">Address</label>
+      <input id="lf-url" type="text" value="${esc(a.url)}" placeholder="http://192.168.1.50:8096" spellcheck="false"></div>
+    <div class="ag-row"><label for="lf-ext">Outside address</label>
+      <input id="lf-ext" type="text" value="${esc(a.externalUrl)}" placeholder="https://jellyfin.you.duckdns.org" spellcheck="false">
+      <span class="hint">Optional — used by the globe button when you are not at home.</span></div>
+    <div class="ag-row"><label for="lf-icon">Icon</label>
+      <input id="lf-icon" type="text" value="${esc(a.icon)}" placeholder="jellyfin" spellcheck="false"></div>
+    <div class="ag-row"><label for="lf-ports">Ports</label>
+      <input id="lf-ports" type="text" value="${esc((a.ports || []).join(", "))}" placeholder="8096, 8920" spellcheck="false"></div>
+    <div class="ag-row"><label for="lf-desc">Description</label>
+      <input id="lf-desc" type="text" maxlength="200" value="${esc(a.desc)}" placeholder="Films and TV"></div>
+    <div class="ag-row"><label for="lf-size">Tile size</label>
+      <div class="lsizes" role="group" aria-label="Tile size">
+        ${[[2, 1, "Small"], [3, 1, "Wide"], [2, 2, "Tall"], [4, 2, "Big"]].map(([w, h, lbl]) =>
+          `<button type="button" class="lsize${a.w === w && a.h === h ? " on" : ""}" data-w="${w}" data-h="${h}">${lbl}</button>`).join("")}
+      </div></div>`;
+
+  let size = { w: a.w || 2, h: a.h || 1 };
+  openModal({
+    title: app ? "EDIT APP" : "ADD APP",
+    icon: "/assets/brand/icons/ui-launcher.png",
+    body: form,
+    foot: `${app ? `<button class="btn sm danger" id="lf-del" type="button">REMOVE</button>` : ""}
+           <span class="spacer"></span>
+           <button class="btn primary sm" id="lf-save" type="button">SAVE</button>`
+  });
+
+  const repaint = () => {
+    $("#lf-prev", form).innerHTML = appIconHTML({
+      name: $("#lf-name", form).value || "?", icon: $("#lf-icon", form).value.trim() });
+    wireIcons(form);
+  };
+  $("#lf-icon", form).addEventListener("input", repaint);
+  $("#lf-name", form).addEventListener("input", repaint);
+  $$(".lsize", form).forEach(b => b.addEventListener("click", () => {
+    size = { w: Number(b.dataset.w), h: Number(b.dataset.h) };
+    $$(".lsize", form).forEach(x => x.classList.toggle("on", x === b));
+  }));
+
+  on("#lf-del", "click", () => {
+    if (!confirm(`Remove "${a.name}" from the Apps page?\n\nThis only removes the tile. Nothing is stopped or uninstalled.`)) return;
+    LP.apps = LP.apps.filter(x => x.id !== a.id);
+    closeModal(); paintLauncher(); saveLauncher();
+  });
+  on("#lf-save", "click", () => {
+    const name = $("#lf-name", form).value.trim();
+    if (!name) return toast("give it a name", "err");
+    const url = $("#lf-url", form).value.trim();
+    const ext = $("#lf-ext", form).value.trim();
+    if (!url && !ext) return toast("give it an address", "err");
+    const row = {
+      ...a, name, url, externalUrl: ext,
+      icon: $("#lf-icon", form).value.trim(),
+      desc: $("#lf-desc", form).value.trim(),
+      ports: $("#lf-ports", form).value.split(/[,\s]+/).map(Number).filter(n => n > 0 && n < 65536),
+      w: size.w, h: size.h
+    };
+    if (app) LP.apps = LP.apps.map(x => x.id === a.id ? row : x);
+    else {
+      row.id = "l" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+      // New tiles land on the first free row rather than on top of something.
+      row.x = 0; row.y = LP.apps.reduce((m, x) => Math.max(m, x.y + x.h), 0);
+      LP.apps.push(row);
+    }
+    closeModal(); paintLauncher(); saveLauncher();
+    toast(app ? "APP SAVED" : "APP ADDED", "ok");
+  });
+}
+
+on("#l-add", "click", () => editApp(null));
+
+/* ---- Pull All ----
+ * Reads what is running and offers anything not already on the board. It
+ * proposes; you tick. Nothing you have set up by hand is touched or
+ * overwritten — the server leaves out anything whose name or published port
+ * already appears here, so the worst case is that it finds nothing.
+ */
+async function pullApps() {
+  let out;
+  try { out = await api("/launcher/discover"); }
+  catch (e) { return toast(e.message || "could not look", "err"); }
+
+  if (!out.available) {
+    return openModal({ title: "PULL ALL", icon: "/assets/brand/icons/ui-launcher.png",
+      body: `<p class="hint">Docker is not available on this host, so there is nothing to read.<br>
+             ${esc(out.reason || "")}</p>` });
+  }
+  if (!out.found.length) {
+    return openModal({ title: "PULL ALL", icon: "/assets/brand/icons/ui-launcher.png",
+      body: `<p class="hint">Nothing new. Every container with a published port is already on the
+             board, or has no port to link to.</p>` });
+  }
+
+  const host = location.hostname;
+  const body = document.createElement("div");
+  body.innerHTML = `
+    <p class="hint">Found ${out.found.length} running container${out.found.length === 1 ? "" : "s"} not on
+      the board yet. Addresses are built from <code>${esc(host)}</code>, which is how you reached Nexus,
+      so it is a route that works. Untick anything you do not want.</p>
+    <div class="lpull">${out.found.map((f, i) => `
+      <label class="lpullrow">
+        <input type="checkbox" data-pick="${i}" checked>
+        <span class="lico sm">${appIconHTML({ name: f.name, icon: f.slug })}</span>
+        <span class="lpullmain"><b>${esc(f.name)}</b>
+          <span>http://${esc(host)}:${f.ports[0]}${f.ports.length > 1 ? ` · also ${f.ports.slice(1).map(p => ":" + p).join(" ")}` : ""}</span></span>
+        <span class="lpullstate ${f.state === "running" ? "up" : ""}">${esc(f.state)}</span>
+      </label>`).join("")}</div>`;
+  wireIcons(body);
+
+  openModal({
+    title: "PULL ALL", icon: "/assets/brand/icons/ui-launcher.png", body,
+    foot: `<span class="hint">Nothing already on the board is changed.</span><span class="spacer"></span>
+           <button class="btn primary sm" id="lp-add" type="button">ADD TICKED</button>`
+  });
+
+  on("#lp-add", "click", () => {
+    const picked = $$("[data-pick]", body).filter(b => b.checked).map(b => out.found[Number(b.dataset.pick)]);
+    if (!picked.length) { closeModal(); return; }
+    let y = LP.apps.reduce((m, a) => Math.max(m, a.y + a.h), 0);
+    let x = 0;
+    for (const f of picked) {
+      LP.apps.push({
+        id: "l" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+        name: f.name, url: `http://${host}:${f.ports[0]}`, externalUrl: "",
+        icon: f.slug, desc: "", ports: f.ports, x, y, w: 2, h: 1
+      });
+      x += 2;
+      if (x + 2 > L_COLS) { x = 0; y += 1; }
+    }
+    closeModal(); paintLauncher(); saveLauncher();
+    toast(`${picked.length} APP${picked.length === 1 ? "" : "S"} ADDED`, "ok");
+  });
+}
+
+on("#l-pull", "click", pullApps);
 
 /* ============================ file manager ============================ */
 let curDir = null, curParent = null, curEntries = [];
@@ -3821,10 +4214,7 @@ async function openEditor(path, name) {
   } catch (e) {
     const b = document.createElement("div");
     b.innerHTML = `<div class="warnbox err">${esc(e.message)}</div>`;
-    const f = document.createElement("div");
-    f.innerHTML = '<button class="btn" id="ed-close2">CLOSE</button>';
-    openModal({ title: name.toUpperCase(), icon: ICON("files"), body: b, foot: f });
-    on("#ed-close2", "click", closeModal);
+    openModal({ title: name.toUpperCase(), icon: ICON("files"), body: b });
     return;
   }
 
@@ -3843,7 +4233,7 @@ async function openEditor(path, name) {
   const foot = document.createElement("div");
   foot.innerHTML = `<span class="hint" id="ed-hint">Ctrl+S saves</span>
                     <span class="spacer"></span>
-                    <button class="btn" id="ed-cancel">CLOSE</button>
+                    <button class="btn" id="ed-cancel">CANCEL</button>
                     <button class="btn primary" id="ed-save">SAVE</button>`;
 
   openModal({ title: name.toUpperCase(), icon: ICON("files"), body, foot });
@@ -4434,16 +4824,36 @@ async function loadSettings() {
 
 /* ============================ modal ============================ */
 const modal = $("#modal");
-function openModal({ title, icon, body, foot }) {
+/**
+ * One modal, one way out: the X in its top-right corner, the backdrop, or
+ * Escape.
+ *
+ * `onClose` exists because several dialogs used to carry a second CLOSE button
+ * in the footer that did cleanup on the way out — stopping a log stream,
+ * refreshing the page behind. Deleting those buttons without somewhere to put
+ * that work would have leaked a socket every time you pressed X instead.
+ */
+let modalOnClose = null;
+
+function openModal({ title, icon, body, foot, onClose }) {
+  // A modal opened from inside another one must not fire the first one's
+  // cleanup as if it had been dismissed.
+  modalOnClose = onClose || null;
   $("#mw-title").textContent = title;
   $("#mw-icon").src = icon || "/assets/brand/icons/ui-apps.png";
   $("#mw-body").innerHTML = "";
   $("#mw-foot").innerHTML = "";
   if (typeof body === "string") $("#mw-body").innerHTML = body; else if (body) $("#mw-body").appendChild(body);
   if (typeof foot === "string") $("#mw-foot").innerHTML = foot; else if (foot) $("#mw-foot").appendChild(foot);
+  $("#mw-foot").hidden = !foot;
   modal.classList.add("open");
 }
-function closeModal() { modal.classList.remove("open"); }
+function closeModal() {
+  modal.classList.remove("open");
+  const fn = modalOnClose;
+  modalOnClose = null;
+  if (fn) { try { fn(); } catch (e) { console.error("[nexus] modal cleanup:", e); } }
+}
 on("#mw-close", "click", closeModal);
 modal.addEventListener("click", e => { if (e.target === modal) closeModal(); });
 addEventListener("keydown", e => { if (e.key === "Escape" && modal.classList.contains("open")) closeModal(); });
@@ -4503,7 +4913,7 @@ function appCard(a) {
   const installed = (LIVE.installed || []).some(i => i.slug === a.slug);
   el.innerHTML = `
     <div class="top">
-      ${a.icon ? `<img class="ico" src="${esc(a.icon)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`
+      ${a.icon ? `<img class="ico" src="${esc(a.icon)}" alt="" loading="lazy" data-onfail="hide">`
                : `<span class="ico"></span>`}
       <span style="min-width:0">
         <span class="nm">${esc(a.name)}</span>
@@ -4534,7 +4944,7 @@ async function openAppDetail(a) {
   body.style.cssText = "display:flex;flex-direction:column;gap:16px";
   body.innerHTML = `
     <div class="applead">
-      ${full.icon ? `<img src="${esc(full.icon)}" alt="" onerror="this.style.visibility='hidden'">` : `<img src="/assets/brand/icons/ui-apps.png" alt="">`}
+      ${full.icon ? `<img src="${esc(full.icon)}" alt="" data-onfail="hide">` : `<img src="/assets/brand/icons/ui-apps.png" alt="">`}
       <div style="min-width:0">
         <span class="t">${esc(full.name)}</span>
         <p>${esc(full.tagline || "")}</p>
@@ -4565,7 +4975,7 @@ async function openAppDetail(a) {
   const foot = document.createElement("div");
   foot.style.cssText = "display:flex;gap:8px;flex-wrap:wrap";
   foot.innerHTML = installed
-    ? `<button class="btn danger" id="ap-remove">UNINSTALL</button><button class="btn" id="ap-cancel">CLOSE</button>`
+    ? `<button class="btn danger" id="ap-remove">UNINSTALL</button>`
     : `<button class="btn" id="ap-cancel">CANCEL</button><button class="btn primary" id="ap-install">INSTALL</button>`;
 
   openModal({ title: full.name.toUpperCase(), icon: full.icon || undefined, body, foot });
@@ -4610,9 +5020,8 @@ function jobModal(title) {
     </div>
     <div class="joblog" id="job-log"><pre></pre></div>`;
   const foot = document.createElement("div");
-  foot.innerHTML = `<button class="btn" id="job-close">CLOSE</button>`;
+  foot.innerHTML = "";
   openModal({ title, body, foot });
-  on("#job-close", "click", closeModal);
   return $("#job-log pre");
 }
 
@@ -4779,7 +5188,7 @@ async function openLibraries() {
   });
 
   const foot = document.createElement("div");
-  foot.innerHTML = `<button class="btn" id="lib-cancel">CLOSE</button><button class="btn primary" id="lib-add">ADD LIBRARY</button>`;
+  foot.innerHTML = `<button class="btn" id="lib-cancel">CANCEL</button><button class="btn primary" id="lib-add">ADD LIBRARY</button>`;
   openModal({ title: "APP LIBRARIES", body, foot });
 
   on("#lib-cancel", "click", closeModal);
@@ -4851,9 +5260,8 @@ async function openInstalled() {
       </tr>`).join("")}</tbody></table></div>`;
   }
   const foot = document.createElement("div");
-  foot.innerHTML = `<button class="btn" id="ins-close">CLOSE</button>`;
+  foot.innerHTML = "";
   openModal({ title: "INSTALLED APPS", body, foot });
-  on("#ins-close", "click", closeModal);
   body.addEventListener("click", e => {
     const b = e.target.closest("[data-rm]");
     if (b) doUninstall(b.dataset.rm, b.dataset.nm);
@@ -5380,8 +5788,8 @@ on("#cp-clear", "click", async () => {
 });
 
 /* ============================ navigation ============================ */
-const TITLES = { dash: "Dashboard", store: "App Store", containers: "Containers", files: "Files", term: "Terminal", control: "Control Panel", settings: "Settings" };
-const SUBTITLES = { dash: "Your homelab, at a glance.", store: "Find a new home for your next project.", containers: "The services that keep your homelab running.", files: "Everything in its place.", term: "A direct line to your machine.", control: "Your routines, running quietly in the background.", settings: "A workstation that feels like yours." };
+const TITLES = { dash: "Dashboard", apps: "Apps", store: "App Store", containers: "Containers", files: "Files", term: "Terminal", control: "Control Panel", settings: "Settings" };
+const SUBTITLES = { dash: "Your homelab, at a glance.", apps: "Everything you run, one press away.", store: "Find a new home for your next project.", containers: "The services that keep your homelab running.", files: "Everything in its place.", term: "A direct line to your machine.", control: "Your routines, running quietly in the background.", settings: "A workstation that feels like yours." };
 
 function go(page) {
   $$(".nav").forEach(n => {
@@ -5394,6 +5802,7 @@ function go(page) {
   $("#page-subtitle").textContent = SUBTITLES[page] || "";
   $("#tools-dash").hidden = page !== "dash";
   $("#tools-containers").hidden = page !== "containers";
+  $("#tools-apps").hidden = page !== "apps";
   $("#tools-files").hidden = page !== "files";
   $("#tools-store").hidden = page !== "store";
   $("#tools-term").hidden = page !== "term";
@@ -5407,6 +5816,7 @@ function go(page) {
   // anything that tried to lay it out in the meantime was correctly ignored.
   if (page === "dash") requestAnimationFrame(() => { layout(false); renderWidgets(); });
   if (page === "containers") loadContainers();
+  if (page === "apps") { loadLauncher(); requestAnimationFrame(paintLauncher); }
   if (page === "files") { wireFileDnD(); loadRoots(); loadFiles(curDir, { history: false }); }
   if (page === "control") loadControl();
   if (page === "settings") loadSettings();
@@ -5556,9 +5966,8 @@ async function openPresets() {
       <div class="pz-list">${list.length ? list.map(row).join("")
         : `<p class="hint">No presets yet. Arrange the dashboard how you like it, name it above, and it will be here to come back to.</p>`}</div>
     </div>`,
-    foot: `<span class="spacer"></span><button class="btn primary sm" id="pz-done" type="button">DONE</button>`
+    foot: null
   });
-  on("#pz-done", "click", closeModal);
 
   const save = async name => {
     if (!name) return toast("give it a name", "err");
@@ -5573,7 +5982,7 @@ async function openPresets() {
 
   $$("[data-pz-use]").forEach(b => b.addEventListener("click", () => {
     const p = list.find(x => x.id === b.closest(".pz-item").dataset.id);
-    if (p) { applyPreset(p); closeModal(); }
+    if (p) { closeModal(); applyPreset(p); }
   }));
   $$("[data-pz-over]").forEach(b => b.addEventListener("click", () => {
     const p = list.find(x => x.id === b.closest(".pz-item").dataset.id);
@@ -5614,7 +6023,7 @@ on("#reset", "click", async () => {
   compact();
   layout();
 });
-addEventListener("resize", () => { layout(false); renderWidgets(); });
+addEventListener("resize", () => { layout(false); renderWidgets(); paintLauncher(); });
 
 /**
  * The canvas can change size without the window doing anything: switching back
@@ -5892,7 +6301,7 @@ function paintHermes() {
 
 function stepHTML(s) {
   if (s.kind === "user") return `<div class="hx-row me"><div class="hx-bub">${esc(s.text)}</div></div>`;
-  if (s.kind === "assistant") return `<div class="hx-row bot"><div class="hx-bub">${mdish(s.text)}</div></div>`;
+  if (s.kind === "assistant") return `<div class="hx-row bot"><div class="hx-bub md">${md(s.text)}</div></div>`;
   if (s.kind === "error") return `<div class="hx-row"><div class="hx-err">${esc(s.text)}</div></div>`;
 
   // A tool call is a fact about what happened to the machine, so it is shown
@@ -5913,18 +6322,98 @@ function argLine(args) {
     .join("\n");
 }
 
-/**
- * The smallest markdown that earns its place in a side panel: fenced code,
- * inline code, bold, and paragraph breaks. Everything is escaped first, so this
- * can only ever add formatting to text that is already inert.
+/* ============================ markdown ============================
+ * Enough markdown for what actually arrives: an answer from the model, and a
+ * skill file being previewed. Headings, bold, italic, inline and fenced code,
+ * lists, tables, blockquotes, rules and links.
+ *
+ * Written here rather than pulled in, because `web/` is served straight off
+ * disk with no build step and a CSP that forbids CDN scripts — a markdown
+ * library would have to be vendored, and this is a fifth of the size.
+ *
+ * **Everything is escaped before a single rule runs.** The input is model
+ * output and file contents; both are untrusted. The rules below can only ever
+ * add formatting to text that is already inert, so there is no path from a
+ * `<script>` in a skill file to a `<script>` on the page.
  */
-function mdish(text) {
-  let h = esc(String(text || ""));
-  h = h.replace(/```([\s\S]*?)```/g, (_, code) => `<pre class="hx-code">${code.replace(/^\n/, "")}</pre>`);
-  h = h.replace(/`([^`\n]+)`/g, '<code>$1</code>');
-  h = h.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
-  h = h.replace(/\n{2,}/g, "</p><p>").replace(/\n/g, "<br>");
-  return "<p>" + h + "</p>";
+function md(text) {
+  const src = esc(String(text ?? "")).replace(/\r\n?/g, "\n");
+
+  // Fenced code first, lifted out whole so nothing inside it is interpreted.
+  const fences = [];
+  let body = src.replace(/```([a-z0-9+-]*)\n?([\s\S]*?)```/gi, (_, lang, code) => {
+    fences.push(`<pre class="md-pre"><code>${code.replace(/\n$/, "")}</code></pre>`);
+    return `\u0000FENCE${fences.length - 1}\u0000`;
+  });
+
+  const inline = t => t
+    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+    .replace(/\*\*\*([^*\n]+)\*\*\*/g, "<strong><em>$1</em></strong>")
+    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+    .replace(/(^|[\s(])_([^_\n]+)_/g, "$1<em>$2</em>")
+    .replace(/~~([^~\n]+)~~/g, "<del>$1</del>")
+    // Only http(s) links become anchors. A markdown link is still text the
+    // model wrote, so it opens in a new tab and carries noopener.
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g,
+             '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+  const lines = body.split("\n");
+  const out = [];
+  let para = [], list = null, quote = [];
+
+  const flushPara = () => { if (para.length) { out.push(`<p>${inline(para.join(" "))}</p>`); para = []; } };
+  const flushList = () => { if (list) { out.push(`<${list.tag}>${list.items.join("")}</${list.tag}>`); list = null; } };
+  const flushQuote = () => { if (quote.length) { out.push(`<blockquote>${md(quote.join("\n"))}</blockquote>`); quote = []; } };
+  const flushAll = () => { flushPara(); flushList(); flushQuote(); };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (/^\s*$/.test(line)) { flushAll(); continue; }
+    if (/^\u0000FENCE\d+\u0000$/.test(line.trim())) { flushAll(); out.push(line.trim()); continue; }
+    if (/^\s{0,3}(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { flushAll(); out.push("<hr>"); continue; }
+
+    const h = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (h) { flushAll(); const n = Math.min(6, h[1].length + 2); out.push(`<h${n}>${inline(h[2])}</h${n}>`); continue; }
+
+    const q = /^\s{0,3}>\s?(.*)$/.exec(line);
+    if (q) { flushPara(); flushList(); quote.push(q[1]); continue; }
+    flushQuote();
+
+    // A table needs its separator row to be a table at all, so look ahead.
+    if (line.includes("|") && /^\s*\|?[\s:|-]+\|[\s:|-]*$/.test(lines[i + 1] || "")) {
+      flushAll();
+      const cells = r => r.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map(c => c.trim());
+      const align = cells(lines[i + 1]).map(c =>
+        c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : "left");
+      const head = cells(line);
+      const rows = [];
+      let j = i + 2;
+      while (j < lines.length && lines[j].includes("|") && lines[j].trim()) { rows.push(cells(lines[j])); j++; }
+      out.push(`<table class="md-table"><thead><tr>${
+        head.map((c, k) => `<th style="text-align:${align[k] || "left"}">${inline(c)}</th>`).join("")
+      }</tr></thead><tbody>${
+        rows.map(r => `<tr>${r.map((c, k) => `<td style="text-align:${align[k] || "left"}">${inline(c)}</td>`).join("")}</tr>`).join("")
+      }</tbody></table>`);
+      i = j - 1;
+      continue;
+    }
+
+    const li = /^\s*([-*+]|\d+[.)])\s+(.*)$/.exec(line);
+    if (li) {
+      flushPara();
+      const tag = /^\d/.test(li[1]) ? "ol" : "ul";
+      if (!list || list.tag !== tag) { flushList(); list = { tag, items: [] }; }
+      list.items.push(`<li>${inline(li[2])}</li>`);
+      continue;
+    }
+    flushList();
+    para.push(line.trim());
+  }
+  flushAll();
+
+  return out.join("").replace(/\u0000FENCE(\d+)\u0000/g, (_, n) => fences[Number(n)]);
 }
 
 function paintUsage() {
@@ -6232,10 +6721,10 @@ async function openSkillLibrary() {
     foot: `<span class="hint sk-foothint">Markdown, front matter optional.</span>
            <span class="spacer"></span>
            <button class="btn sm" id="sk-restore" type="button">RESTORE DEFAULTS</button>
-           <button class="btn sm" id="sk-new" type="button">NEW SKILL</button>
-           <button class="btn primary sm" id="sk-done" type="button">DONE</button>`
+           <button class="btn primary sm" id="sk-new" type="button">NEW SKILL</button>`,
+    // Closing the library is what refreshes the summary behind it.
+    onClose: () => renderAgentSettings()
   });
-  on("#sk-done", "click", () => { closeModal(); renderAgentSettings(); });
   on("#sk-new", "click", () => editSkill(null));
   on("#sk-restore", "click", async () => {
     const r = await api("/agent/skills/restore", { method: "POST" }).catch(e => { toast(e.message, "err"); });
@@ -6416,8 +6905,17 @@ async function editSkill(id) {
         <button type="button" class="ag-mode${k.mode === "ondemand" ? " on" : ""}" data-m="ondemand">
           <b>On demand</b><span>Only its name and one line cost anything.</span></button>
       </div></div>
+    <div class="sk-editbar">
+      <label for="sk-e-body">Skill text</label>
+      <span class="spacer"></span>
+      <div class="sk-tabs" role="group" aria-label="Write or preview">
+        <button type="button" class="sk-tab on" data-pane="write">WRITE</button>
+        <button type="button" class="sk-tab" data-pane="read">PREVIEW</button>
+      </div>
+    </div>
     <textarea id="sk-e-body" class="sk-body" spellcheck="false"
-              placeholder="Markdown. Write it as instructions to Hermes.">${esc(k.body)}</textarea>`;
+              placeholder="Markdown. Write it as instructions to Hermes.">${esc(k.body)}</textarea>
+    <div id="sk-e-view" class="sk-view md" hidden></div>`;
 
   let mode = k.mode;
   openModal({
@@ -6440,6 +6938,17 @@ async function editSkill(id) {
     if (have.includes(b.dataset.sug)) return;
     box.value = [...have, b.dataset.sug].join(", ");
   }));
+  // Write / preview. The preview uses the same renderer the chat does, so what
+  // you see here is what Hermes will be handed.
+  const pane = which => {
+    $$(".sk-tab", form).forEach(t => t.classList.toggle("on", t.dataset.pane === which));
+    const ta = $("#sk-e-body", form), view = $("#sk-e-view", form);
+    ta.hidden = which !== "write";
+    view.hidden = which !== "read";
+    if (which === "read") view.innerHTML = md(ta.value) || '<p class="dim">nothing written yet</p>';
+  };
+  $$(".sk-tab", form).forEach(t => t.addEventListener("click", () => pane(t.dataset.pane)));
+
   on("#sk-e-back", "click", () => openSkillLibrary());
   on("#sk-e-save", "click", async () => {
     const name = $("#sk-e-name", form).value.trim();

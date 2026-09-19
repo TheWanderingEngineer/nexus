@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#14101F">
-<script src="/appearance.js?v=0.4.0"></script>
+<script src="/appearance.js?v=0.5.0"></script>
 <title>Nexus</title>
 <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/icons/nexus-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/assets/brand/icons/nexus-16.png">
 <link rel="apple-touch-icon" href="/assets/brand/icons/nexus-128.png">
 <link rel="stylesheet" href="/vendor/xterm.css">
-<link rel="stylesheet" href="/style.css?v=0.4.0">
-<link rel="stylesheet" href="/workstation.css?v=0.4.0">
+<link rel="stylesheet" href="/style.css?v=0.5.0">
+<link rel="stylesheet" href="/workstation.css?v=0.5.0">
 </head>
 <body>
 
@@ -63,12 +63,15 @@
   <div id="body">
     <nav id="rail" aria-label="Main navigation">
       <button id="rail-toggle" title="Expand or collapse the menu"><span id="rail-toggle-txt">&#9776;</span></button>
+      <!-- Two groups. Everything above the rule is a place you go to look at or
+           use the machine; everything below it configures Nexus itself. Control
+           Panel sat in the first group and belongs in the second. -->
       <button class="nav on" data-page="dash"><img src="/assets/brand/icons/ui-dashboard.png" alt=""><span class="nlabel">Dashboard</span><span class="tip">DASHBOARD</span></button>
-      <button class="nav" data-page="store"><img src="/assets/brand/icons/ui-apps.png" alt=""><span class="nlabel">App Store</span><span class="tip">APP STORE</span></button>
+      <button class="nav" data-page="apps"><img src="/assets/brand/icons/ui-launcher.png" alt=""><span class="nlabel">Apps</span><span class="tip">APPS</span></button>
       <button class="nav" data-page="containers"><img src="/assets/brand/icons/ui-containers.png" alt=""><span class="nlabel">Containers</span><span class="tip">CONTAINERS</span></button>
       <button class="nav" data-page="files"><img src="/assets/brand/icons/ui-files.png" alt=""><span class="nlabel">Files</span><span class="tip">FILES</span></button>
       <button class="nav" data-page="term"><img src="/assets/brand/icons/ui-terminal.png" alt=""><span class="nlabel">Terminal</span><span class="tip">TERMINAL</span></button>
-      <button class="nav" data-page="control"><img src="/assets/brand/icons/ui-power.png" alt=""><span class="nlabel">Control Panel</span><span class="tip">CONTROL PANEL</span></button>
+      <button class="nav" data-page="store"><img src="/assets/brand/icons/ui-apps.png" alt=""><span class="nlabel">App Store</span><span class="tip">APP STORE</span></button>
       <span class="spacer"></span>
       <div class="rail-workbench" aria-hidden="true">
         <!-- Layered so only the moving parts move. The leaves are a separate
@@ -82,6 +85,8 @@
         </span>
         <p>A PLACE FOR YOUR MACHINE</p>
       </div>
+      <div class="navrule" aria-hidden="true"></div>
+      <button class="nav" data-page="control"><img src="/assets/brand/icons/ui-power.png" alt=""><span class="nlabel">Control Panel</span><span class="tip">CONTROL PANEL</span></button>
       <button class="nav" data-page="settings"><img src="/assets/brand/icons/ui-settings.png" alt=""><span class="nlabel">Settings</span><span class="tip">SETTINGS</span></button>
       <div id="rail-grip" title="Drag to resize the menu"></div>
     </nav>
@@ -98,6 +103,11 @@
         </div>
         <div id="tools-containers" hidden>
           <button class="btn" id="c-refresh" data-tip="Re-read the container list from Docker.">REFRESH</button>
+        </div>
+        <div id="tools-apps" hidden>
+          <button class="btn" id="l-add" data-tip="Add an app by hand.">+ ADD APP</button>
+          <button class="btn" id="l-pull" data-tip="Look at what is running and offer anything not already here. Nothing you have set up is touched.">PULL ALL</button>
+          <button class="btn" id="l-tidy" data-tip="Pack the tiles top-left with no gaps.">TIDY</button>
         </div>
         <div id="tools-files" hidden>
           <button class="btn" id="f-back" data-tip="Back to the folder you came from.">&#8592; BACK</button>
@@ -148,6 +158,18 @@
           </div>
         </div>
         <div class="cgrid" id="c-grid"></div>
+      </section>
+
+      <section class="page" id="page-apps">
+        <div class="lbar" id="l-bar">
+          <input id="l-q" type="search" placeholder="Find an app…" aria-label="Find an app">
+          <span class="spacer"></span>
+          <span class="lcount" id="l-count"></span>
+        </div>
+        <div class="lgrid" id="l-grid"></div>
+        <div class="empty" id="l-empty" hidden>
+          NOTHING HERE YET &mdash; PRESS &ldquo;PULL ALL&rdquo; TO FIND WHAT IS RUNNING, OR ADD ONE BY HAND
+        </div>
       </section>
 
       <!-- files -->
@@ -350,7 +372,7 @@
 <!-- ============ WIDGET LIBRARY ============ -->
 <div id="drawer">
   <div class="dw raised">
-    <div class="dw-head"><span>WIDGET LIBRARY</span><span class="dcount" id="dcount"></span><span class="spacer"></span><button class="btn" id="dclose">CLOSE</button></div>
+    <div class="dw-head"><span>WIDGET LIBRARY</span><span class="dcount" id="dcount"></span><span class="spacer"></span><button class="xbtn" id="dclose" type="button" aria-label="Close" data-tip="Close">&times;</button></div>
     <div class="dw-body" id="dbody"></div>
   </div>
 </div>
@@ -373,7 +395,7 @@
       <img id="mw-icon" src="/assets/brand/icons/ui-apps.png" alt="">
       <span id="mw-title">TITLE</span>
       <span class="spacer"></span>
-      <button class="btn" id="mw-close">CLOSE</button>
+      <button class="xbtn" id="mw-close" type="button" aria-label="Close" data-tip="Close">&times;</button>
     </div>
     <div class="mw-body" id="mw-body"></div>
     <div class="mw-foot" id="mw-foot"></div>
@@ -411,6 +433,6 @@
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/xterm-addon-fit.js"></script>
 <script src="/vendor/xterm-addon-web-links.js"></script>
-<script src="/app.js?v=0.4.0"></script>
+<script src="/app.js?v=0.5.0"></script>
 </body>
 </html>

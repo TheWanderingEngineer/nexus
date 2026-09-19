@@ -37,9 +37,13 @@ server/
   automation.js   watch rules, scheduled tasks, webhooks, power
   dockerx.js      container list + control, reads io.casaos.* labels
   files.js        path-jailed file ops, uploads
+  terminal.js     pty-less shell over a WebSocket
   library.js      app-store catalogue sync + CasaOS adapter
   apps.js         compose install/uninstall, port checks, job bus
-  routes.js       the whole REST surface
+  agent.js        Hermes: providers, tools, approvals, usage, crons
+  skills.js       the agent's Markdown skill library
+  netmatch.js     trustedProxies matching (CIDR, exact, prefix, localhost)
+  routes.js       the whole REST surface — including the Apps launcher
 web/
   app.js          one IIFE, no framework, no bundler
   appearance.js   loaded before paint; sets the theme attributes on <html>
@@ -83,6 +87,14 @@ all-clear when it failed to look is worse than no check.
 **Visibility lists store what is HIDDEN, not what is shown.** A "shown" list
 silently omits any drive or sensor that did not exist when the menu was last
 opened, which is indistinguishable from a bug.
+
+**No inline event handlers, ever.** The CSP is `script-src 'self'`, so
+`onclick=` and `onerror=` written into HTML are *refused silently* — the
+attribute is there, the handler never runs, and it looks like the code path is
+simply wrong. Image fallbacks go through the one document-level capturing
+`error` listener near the top of `app.js`, which reads `data-letter` (draw a
+lettered tile instead) or `data-onfail="hide"`. Two App Store handlers sat dead
+in the tree for months before this was noticed.
 
 **Anything slow gets a `busy` guard, not just a longer interval.** On a slow
 host, un-guarded periodic work queues behind itself until the calls overlap
@@ -416,6 +428,73 @@ and `wanted` from a thrown error through a **named allowlist**, and `api()` in
 places or it silently does not arrive — without this a 409 reaches the user as
 "1 item already exists" with no way to say which.
 
+## The launcher (Apps page)
+
+`web/app.js`, the `LP` block — state, a 12-column grid (`L_COLS`, `L_ROW`,
+`L_GAP`), and the same snapshot-at-pointer-down drag the dashboard uses. The
+server side is a hundred lines in `routes.js`, not a module: the stored shape is
+positions plus a little text, which is what the widget layout already is, so it
+reuses `clampInt` and the same clamp-don't-trust posture.
+
+Three rules that are not obvious:
+
+**`safeUrl` accepts `http:` and `https:` only.** A tile becomes an `<a href>`.
+A `javascript:` URL stored here would be persistent XSS wearing a Jellyfin icon,
+and the tile is rendered from server state on every load, so the check belongs on
+the way *in*. It returns `""` for anything else rather than throwing — a tile
+with a bad address is still a tile you can edit.
+
+**`/launcher/discover` proposes and never writes.** It reads the container list,
+drops anything whose name *or* any published port already appears on a tile, and
+returns the rest as candidates. "Pull All" then shows them with tick boxes. The
+owner has renamed and arranged those tiles by hand; a discovery pass that
+overwrote them would be the single most annoying thing this page could do, so the
+skip is decided on the server and the write is a normal `PUT /launcher` of
+whatever the client ends up with.
+
+**Icons resolve by slug, and the fallback is a letter.** `iconSlug()` normalises
+the name, runs it through `ICON_ALIASES` for the ones that do not match
+(`npm` → `nginx-proxy-manager`, `qbit` → `qbittorrent`), and builds a
+`dashboard-icons` CDN URL; `img-src 'self' data: https:` is what allows it. A
+box with no outbound access is the normal case, not the error case, so the
+failure path draws a lettered tile — via the delegated `error` listener, because
+`onerror=` would be refused (see the invariants).
+
+---
+
+## Modals have one way out
+
+`openModal({title, icon, body, foot, onClose})`. The **×** in the top-right
+corner closes it and nothing else does the same job: no CLOSE button in the
+footer, ever. The footer is for the buttons that *do* something — SAVE, BACK,
+DELETE — and a second dismiss sitting among them makes you read all of them to
+find the harmless one.
+
+`onClose` is fired by `closeModal()` however the modal went away, so a dialog
+that has to restore state (re-open its parent, repaint a list) hangs it there
+rather than on the × handler, which would be skipped by Escape or a backdrop
+click. `scripts/launcher-check.js` asserts that no window carries a second CLOSE
+button; keep it that way when you add one.
+
+---
+
+## Rendering Markdown
+
+`md(text)` in `app.js` renders the agent's replies and the skill editor's
+preview. It is deliberately small — headings, bold/italic/strike, inline code,
+fenced blocks, lists, tables, blockquotes, rules, and `http(s)` links.
+
+**It escapes first, then marks up.** Everything it renders is untrusted: model
+output, and `.md` files dropped into the skill library. Escaping the whole string
+before any tag is inserted is what makes that safe, and it is why fenced code is
+lifted out before the inline pass — otherwise `**` inside a code block would be
+rendered as emphasis, which is exactly wrong in the one place people paste shell.
+
+There is no library and there should not be: adding a Markdown dependency to buy
+footnotes would be the first frontend build step in the project.
+
+---
+
 ## Adding a widget
 
 Widgets are entries in the `REG` object in `web/app.js`. That is the whole
@@ -605,8 +684,15 @@ Motion stops completely under `[data-motion="reduced"]` and
 There is a real self-check; run it before pushing anything server-side:
 
 ```bash
-npm run check
+npm run check          # auth, CSRF, the path jail, the WS origin check, the store
+npm run gui:check      # theme tokens, trustedProxies matching
+npm run agent:check    # providers, capabilities, the agent's jails, skills, crons
+npm run proxy:check    # the four reverse-proxy shapes
+npm run dash:check     # widget layout, drag, presets, tidy — in a real browser
+npm run apps:check     # the launcher: URLs, discovery, icons, the close rule
 ```
+
+The last three drive Chromium through Playwright.
 
 It boots a server on a scratch port with a scratch data dir and exercises auth,
 CSRF, the path jail, the WebSocket origin check and the store endpoints.
@@ -624,7 +710,7 @@ afterwards to prove it is gone.
 
 ---
 
-## Two ways this codebase has been broken before
+## Ways this codebase has been broken before
 
 **Editing structured text with regex or shell strings.** A rewrite of a CSS rule
 with `/\.foo\{[\s\S]*?\n\}/` matched an older duplicate of the same selector and
@@ -636,6 +722,16 @@ template literal landed as `content:;` and silently killed two pseudo-elements.
 **Use an editor for structured text.**
 
 **Assuming a helper does what its name suggests.** See `$` vs `$$` above.
+
+**Writing a test that cannot fail.** A widget-overlap regression test passed
+twice with the fix removed: once because the ResizeObserver repaired the layout
+before the assertion ran, and once because it only checked the first widget —
+and a negative CSS `width` is silently rejected, so that one widget's `left`
+looked untouched while five others had been rewritten. **Delete the fix and
+watch the test go red** before believing it. The failure message should name what
+it found: "6 widgets rewritten" is a test that works.
+
+**Trusting an inline handler to run.** See the CSP invariant above.
 
 ---
 

@@ -144,7 +144,7 @@ try {
   await page.fill('#pz-name', 'Everything');
   await page.click('#pz-add'); await sleep(1200);
   ok('a preset can be saved', (await page.$$('.pz-item')).length === 1);
-  await page.click('#pz-done'); await sleep(400);
+  await page.click('#mw-close'); await sleep(400);   // one way out: the X
 
   const count0 = (await geometry(page)).box.length;
   await page.evaluate(() => document.querySelector('#grid .w .w-x').click());
