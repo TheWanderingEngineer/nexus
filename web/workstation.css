@@ -61,7 +61,11 @@
 [data-gui="workstation"] .btn.primary:hover{filter:brightness(1.08)}
 [data-gui="workstation"] .btn.danger{color:var(--crit)}
 [data-gui="workstation"] .btn.sm{min-height:30px;font-size:10px;padding:4px 9px}
-[data-gui="workstation"] :is(input[type=text],input[type=password],input[type=search],input[type=number],textarea,.sel){background:var(--sunk);border:1px solid var(--rule);border-radius:5px;min-height:38px;font-size:13px;padding:8px 10px}
+[data-gui="workstation"] :is(input[type=text],input[type=password],input[type=search],input[type=number],textarea,select){background:var(--sunk);border:1px solid var(--rule);border-radius:5px;font-size:13px;padding:8px 10px}
+/* A one-line field gets a floor. Text areas are excluded on purpose: this
+   selector outranks any component class, so a min-height here squashed every
+   editor in the app down to one line and no component rule could argue. */
+[data-gui="workstation"] :is(input[type=text],input[type=password],input[type=search],input[type=number],select){min-height:38px}
 [data-gui="workstation"] input::placeholder,[data-gui="workstation"] textarea::placeholder{color:var(--text-3);opacity:1}
 [data-gui="workstation"] .searchwrap input{padding-left:36px}
 [data-gui="workstation"] .pill{font-size:10px;border-width:1px;border-radius:4px;letter-spacing:.02em;padding:2px 6px}
@@ -483,10 +487,15 @@
 [data-gui="workstation"] .xbtn:active{transform:scale(.94)}
 
 /* ---- the launcher ---- */
-[data-gui="workstation"] :is(.ltile,.lico,.lact,.lsize,.lpullrow,.lpreview,.lpullstate){border-radius:9px}
-[data-gui="workstation"] :is(.ltile,.lsize,.lpullrow){border-width:1px}
+[data-gui="workstation"] :is(.ltile,.lico,.lact,.lsize,.lpullrow,.lpreview,.lpullstate,.ltagchip,.ltag,.lghost,.lmenu,.lselbar,.lsecempty){border-radius:9px}
+[data-gui="workstation"] :is(.ltile,.lsize,.lpullrow,.ltagchip,.lselbar){border-width:1px}
+[data-gui="workstation"] :is(.lsecmark,.ltagchip::before){border-radius:3px}
+[data-gui="workstation"] .ltag{border-left-width:2px;border-radius:0 6px 6px 0}
 [data-gui="workstation"] .ltile{box-shadow:0 1px 2px rgba(0,0,0,.05)}
 [data-gui="workstation"] .ltile:hover{box-shadow:var(--shadow)}
+[data-gui="workstation"] .ltile.on{box-shadow:inset 0 0 0 2px var(--accent)}
+[data-gui="workstation"] .lsec.pinned{border-bottom-width:1px}
+[data-gui="workstation"] .lsecempty{border-width:1px}
 [data-gui="workstation"] .lico{border-radius:11px}
 [data-gui="workstation"] .lact{border-width:1px;border-radius:7px}
 [data-gui="workstation"] .lsize{font-family:var(--pixel);font-size:11px;font-weight:600;letter-spacing:.02em;border-radius:999px}

@@ -3130,18 +3130,31 @@ on("#c-refresh", "click", loadContainers);
 
 /* ============================ the launcher ============================
  * The Apps page: a board of the things actually running on this box, as tiles
- * you press to open them. Same 12-column grid as the dashboard, so dragging a
- * tile feels like dragging a widget, but a much smaller engine — an app tile
- * has no live data in it, so there is no mount/update cycle to run.
+ * you press to open them.
+ *
+ * Tiles are an ordered list with a named size, not x/y boxes on a canvas. This
+ * board is read on a phone at least as often as on the desktop, and absolute
+ * positions cannot make that trip — three columns become one and the
+ * arrangement is gone. A list reflows: the same order, the same relative
+ * sizes, fewer columns. Groups are the structure instead, which is what "put
+ * the watching things together" actually means.
  */
-const LP = { apps: [], q: "", dirty: false };
+const LP = { apps: [], groups: [], q: "", tag: "", sel: new Set() };
 
-const L_COLS = 12, L_ROW = 92, L_GAP = 10;
-const lCellW = () => {
-  const g = $("#l-grid");
-  return g ? (g.clientWidth - (L_COLS - 1) * L_GAP) / L_COLS : 0;
-};
-const lOverlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+const L_SIZES = [
+  { key: "s",  label: "Small", hint: "Icon and name" },
+  { key: "m",  label: "Medium", hint: "Name, description, ports" },
+  { key: "l",  label: "Large", hint: "Twice the height" },
+  { key: "xl", label: "Huge",  hint: "The one you always want first" }
+];
+const GROUP_COLORS = ["cyan", "orchid", "amber", "green", "coral", "blue"];
+
+/* Small marks, drawn rather than borrowed from the emoji font: an emoji is a
+   different typeface at a different weight and it shows on a tile. */
+const SVG_PIN = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 1.5 14.5 6.5 12 7l-1 4-3-3-4.5 4.5L3 12l4.5-4.5-3-3 4-1z" fill="currentColor"/></svg>`;
+const SVG_LOCK = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 7V5a4 4 0 0 1 8 0v2h1v8H3V7zm2 0h4V5a2 2 0 0 0-4 0z" fill="currentColor"/></svg>`;
+const SVG_GLOBE = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1m0 1.6c.9 0 1.9 1.6 2.2 4H5.8c.3-2.4 1.3-4 2.2-4M4.3 6.6H2.8A5.4 5.4 0 0 1 5.6 3a11 11 0 0 0-1.3 3.6m-1.5 2.8h1.5A11 11 0 0 0 5.6 13a5.4 5.4 0 0 1-2.8-3.6m3 0h4.4c-.3 2.4-1.3 4-2.2 4s-1.9-1.6-2.2-4m5.9 0h1.5A5.4 5.4 0 0 1 10.4 13a11 11 0 0 0 1.3-3.6m0-2.8A11 11 0 0 0 10.4 3a5.4 5.4 0 0 1 2.8 3.6z" fill="currentColor"/></svg>`;
+const SVG_GEAR = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 5.6A2.4 2.4 0 1 0 8 10.4 2.4 2.4 0 0 0 8 5.6M6.8 1h2.4l.3 1.8 1.2.5 1.5-1 1.7 1.7-1 1.5.5 1.2 1.8.3v2.4l-1.8.3-.5 1.2 1 1.5-1.7 1.7-1.5-1-1.2.5-.3 1.8H6.8l-.3-1.8-1.2-.5-1.5 1-1.7-1.7 1-1.5-.5-1.2L.8 9.2V6.8l1.8-.3.5-1.2-1-1.5 1.7-1.7 1.5 1 1.2-.5z" fill="currentColor"/></svg>`;
 
 /**
  * Where a tile's picture comes from.
@@ -3154,7 +3167,7 @@ const lOverlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h
  */
 const ICON_ALIASES = {
   "nginx-proxy-manager": "nginx-proxy-manager", npm: "nginx-proxy-manager",
-  qbittorrent: "qbittorrent", qbit: "qbittorrent",
+  qbittorrent: "qbittorrent", qbit: "qbittorrent", "qbittorrent-nox": "qbittorrent",
   "immich-server": "immich", "immich-machine-learning": "immich",
   jellyseerr: "jellyseerr", jellyfin: "jellyfin",
   homeassistant: "home-assistant", "home-assistant": "home-assistant",
@@ -3216,172 +3229,529 @@ function wireIcons(root) {
   });
 }
 
+/** A tag's colour is a function of the tag, so "media" is the same colour on
+ *  every tile and on the filter chip — that is the whole point of colouring
+ *  them. Hashed rather than assigned, so a new tag needs no bookkeeping. */
+function tagHue(tag) {
+  let h = 0;
+  for (let i = 0; i < tag.length; i++) h = (h * 31 + tag.charCodeAt(i)) >>> 0;
+  return GROUP_COLORS[h % GROUP_COLORS.length];
+}
+
 async function loadLauncher() {
-  try { LP.apps = (await api("/launcher")).apps || []; }
-  catch { LP.apps = []; }
+  try {
+    const out = await api("/launcher");
+    LP.apps = out.apps || [];
+    LP.groups = out.groups || [];
+  } catch { LP.apps = []; LP.groups = []; }
+  LP.sel.clear();
   paintLauncher();
 }
 
 function saveLauncher() {
   clearTimeout(saveLauncher.t);
   saveLauncher.t = setTimeout(() => {
-    api("/launcher", { method: "PUT", body: { apps: LP.apps } }).catch(e => toast(e.message, "err"));
+    api("/launcher", { method: "PUT", body: { apps: LP.apps, groups: LP.groups } })
+      .catch(e => toast(e.message, "err"));
   }, 400);
 }
 
-function lPlace(el, a) {
-  const cw = lCellW();
-  el.style.left = Math.round(a.x * (cw + L_GAP)) + "px";
-  el.style.top = Math.round(a.y * (L_ROW + L_GAP)) + "px";
-  el.style.width = Math.round(a.w * cw + (a.w - 1) * L_GAP) + "px";
-  el.style.height = Math.round(a.h * L_ROW + (a.h - 1) * L_GAP) + "px";
+/* ---- what is on screen ---- */
+
+const lMatches = a => {
+  const q = LP.q.trim().toLowerCase();
+  if (LP.tag && !(a.tags || []).includes(LP.tag)) return false;
+  if (!q) return true;
+  return (a.name + " " + (a.desc || "") + " " + (a.url || "") + " " +
+          (a.tags || []).join(" ") + " " + (a.ports || []).join(" ")).toLowerCase().includes(q);
+};
+
+/**
+ * The board, in bands.
+ *
+ * Pinned first with a rule under it — and only when something is pinned, since
+ * a divider with nothing above it is a line for its own sake. Then each group,
+ * then whatever is in no group.
+ */
+function lSections() {
+  const shown = LP.apps.filter(lMatches);
+  const out = [];
+  const pinned = shown.filter(a => a.pinned);
+  if (pinned.length) out.push({ key: "__pinned", name: "Pinned", pinned: true, apps: pinned });
+
+  const rest = shown.filter(a => !a.pinned);
+  const filtering = !!(LP.q.trim() || LP.tag);
+  for (const g of LP.groups) {
+    const apps = rest.filter(a => a.group === g.id);
+    // An empty group still shows while you are arranging, because it is a
+    // target you need to be able to drop into. It hides while you search.
+    if (apps.length || !filtering) out.push({ key: g.id, name: g.name, color: g.color, group: g, apps });
+  }
+  const loose = rest.filter(a => !LP.groups.some(g => g.id === a.group));
+  if (loose.length || !LP.groups.length) {
+    out.push({ key: "", name: LP.groups.length ? "Everything else" : "", apps: loose });
+  }
+  return out;
 }
 
-function paintLauncher() {
-  const grid = $("#l-grid"), empty = $("#l-empty");
-  if (!grid) return;
-  const q = LP.q.trim().toLowerCase();
-  const shown = LP.apps.filter(a =>
-    !q || (a.name + " " + (a.desc || "") + " " + (a.url || "")).toLowerCase().includes(q));
-
-  empty.hidden = LP.apps.length > 0;
-  $("#l-count").textContent = LP.apps.length
-    ? `${shown.length}${shown.length === LP.apps.length ? "" : " of " + LP.apps.length} app${LP.apps.length === 1 ? "" : "s"}`
-    : "";
-
-  grid.innerHTML = shown.map(a => `
-    <article class="ltile" data-id="${esc(a.id)}" tabindex="0" role="link"
-             aria-label="${esc(a.name)}${a.desc ? " — " + esc(a.desc) : ""}">
+function tileHTML(a) {
+  const tags = (a.tags || []).slice(0, 4);
+  return `
+    <article class="ltile ${esc(a.size || "m")}${LP.sel.has(a.id) ? " on" : ""}"
+             data-id="${esc(a.id)}" tabindex="0" role="link"
+             aria-label="${esc(a.name)}${a.desc ? " — " + esc(a.desc) : ""}${a.locked ? " (needs a PIN)" : ""}">
       <span class="lico">${appIconHTML(a)}</span>
       <span class="lbody">
         <b class="lname">${esc(a.name)}</b>
         ${a.desc ? `<span class="ldesc">${esc(a.desc)}</span>` : ""}
         ${a.ports?.length ? `<span class="lports">${a.ports.map(p => `:${p}`).join(" ")}</span>` : ""}
+        ${tags.length ? `<span class="ltags">${tags.map(t =>
+          `<span class="ltag wc-${tagHue(t)}">${esc(t)}</span>`).join("")}</span>` : ""}
+      </span>
+      <span class="lflags">
+        ${a.pinned ? `<span class="lflag" title="Pinned">${SVG_PIN}</span>` : ""}
+        ${a.locked ? `<span class="lflag lk" title="Opens with a PIN">${SVG_LOCK}</span>` : ""}
       </span>
       <span class="lacts">
-        ${a.externalUrl ? `<button class="lact" data-ext="${esc(a.id)}" data-tip="Open the outside address: ${esc(a.externalUrl)}" aria-label="Open externally">&#127758;</button>` : ""}
-        <button class="lact" data-edit="${esc(a.id)}" data-tip="Edit this app" aria-label="Edit">&#9881;</button>
+        ${a.externalUrl || (a.locked && a.hasExternal) ? `<button class="lact" data-ext="${esc(a.id)}"
+           data-tip="Open the outside address" aria-label="Open externally">${SVG_GLOBE}</button>` : ""}
+        <button class="lact" data-edit="${esc(a.id)}" data-tip="Edit this app" aria-label="Edit">${SVG_GEAR}</button>
       </span>
-    </article>`).join("");
+    </article>`;
+}
 
-  // Layout only makes sense against a measured grid — same rule as the
-  // dashboard canvas, same reason.
-  if (grid.clientWidth < 1) return;
-  const narrow = grid.clientWidth < 560;
-  grid.classList.toggle("lstack", narrow);
-  if (narrow) {
-    grid.style.height = "";
-    [...grid.children].forEach(el => { el.style.cssText = ""; });
-  } else {
-    shown.forEach(a => { const el = grid.querySelector(`[data-id="${CSS.escape(a.id)}"]`); if (el) lPlace(el, a); });
-    grid.style.height = LP.apps.reduce((m, a) => Math.max(m, a.y + a.h), 0) * (L_ROW + L_GAP) + "px";
-  }
+function paintLauncher() {
+  const grid = $("#l-grid"), empty = $("#l-empty");
+  if (!grid) return;
+
+  const shown = LP.apps.filter(lMatches);
+  empty.hidden = LP.apps.length > 0;
+  $("#l-count").textContent = LP.apps.length
+    ? `${shown.length}${shown.length === LP.apps.length ? "" : " of " + LP.apps.length} app${LP.apps.length === 1 ? "" : "s"}`
+    : "";
+
+  grid.innerHTML = lSections().map(s => `
+    <section class="lsec${s.pinned ? " pinned" : ""}" data-sec="${esc(s.key)}">
+      ${s.name ? `<header class="lsechead${s.color ? " wc-" + esc(s.color) : ""}">
+        <span class="lsecmark"></span>
+        <b>${esc(s.name)}</b>
+        <span class="lseccount">${s.apps.length}</span>
+        ${s.group ? `<button class="lact" data-group="${esc(s.group.id)}" data-tip="Rename, recolour or remove this group"
+                       aria-label="Edit group">${SVG_GEAR}</button>` : ""}
+      </header>` : ""}
+      <div class="lsecgrid">${s.apps.map(tileHTML).join("") ||
+        `<p class="lsecempty">${s.pinned ? "" : "Drag an app here"}</p>`}</div>
+    </section>`).join("");
+
+  paintTagBar();
+  paintSelBar();
   wireIcons(grid);
 }
 
-/** Open a tile: the outside address when we are not on the LAN is the owner's
- *  call, so the tile itself always opens the local one and the globe opens the
- *  external. Guessing which network you are on is a guess. */
-function openApp(a, external) {
+function paintTagBar() {
+  const bar = $("#l-tags");
+  if (!bar) return;
+  const counts = new Map();
+  for (const a of LP.apps) for (const t of a.tags || []) counts.set(t, (counts.get(t) || 0) + 1);
+  const tags = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  bar.hidden = tags.length === 0;
+  bar.innerHTML = tags.map(([t, n]) =>
+    `<button type="button" class="ltagchip wc-${tagHue(t)}${LP.tag === t ? " on" : ""}" data-tagf="${esc(t)}">
+       ${esc(t)}<i>${n}</i></button>`).join("") +
+    (LP.tag ? `<button type="button" class="ltagchip clear" data-tagf="">CLEAR</button>` : "");
+}
+
+/** The bar that appears when something is selected. On touch there is no
+ *  right-click and no Delete key, so every bulk action lives here. */
+function paintSelBar() {
+  const bar = $("#l-selbar");
+  if (!bar) return;
+  // A selection can outlive the app it pointed at (removed, or filtered away).
+  for (const id of [...LP.sel]) if (!LP.apps.some(a => a.id === id)) LP.sel.delete(id);
+  bar.hidden = LP.sel.size === 0;
+  if (!LP.sel.size) return;
+  $("#l-selcount").textContent = `${LP.sel.size} SELECTED`;
+}
+
+function lSelected() { return LP.apps.filter(a => LP.sel.has(a.id)); }
+
+/* ---- opening one ----
+ * The tile always opens the local address and the globe opens the outside one:
+ * guessing which network you are on is a guess, and the wrong guess is a dead
+ * tab. A locked app has neither address in the page at all — the server holds
+ * both until the PIN is given.
+ */
+async function openApp(a, external) {
+  if (!a) return;
+  if (a.locked) return askPin(a, external);
   const url = external ? a.externalUrl : (a.url || a.externalUrl);
   if (!url) return toast("no address set for that app", "err");
   window.open(url, "_blank", "noopener");
 }
 
+function askPin(a, external) {
+  // Opened now, while we are still inside the click, and pointed at the real
+  // address once the server hands it over: a window.open after an await is a
+  // popup the browser blocks.
+  const form = document.createElement("div");
+  form.className = "lpin";
+  form.innerHTML = `
+    <p class="hint">${esc(a.name)} is behind a PIN.</p>
+    <input id="lpin-in" type="password" inputmode="numeric" autocomplete="off"
+           maxlength="4" pattern="\\d{4}" placeholder="••••" aria-label="Four-digit PIN">
+    <p class="lpin-err" id="lpin-err" hidden></p>`;
+  openModal({
+    title: "PIN", icon: "/assets/brand/icons/ui-launcher.png", body: form,
+    foot: `<span class="spacer"></span><button class="btn primary sm" id="lpin-go" type="button">OPEN</button>`
+  });
+  const input = $("#lpin-in", form);
+  setTimeout(() => input.focus(), 50);
+
+  const go = async () => {
+    const pin = input.value.trim();
+    const err = $("#lpin-err", form);
+    if (!/^\d{4}$/.test(pin)) { err.hidden = false; err.textContent = "Four digits."; return; }
+    const win = window.open("", "_blank", "noopener");
+    try {
+      const out = await api(`/launcher/${encodeURIComponent(a.id)}/open`, { method: "POST", body: { pin } });
+      const url = external ? out.externalUrl : (out.url || out.externalUrl);
+      if (!url) { win?.close(); throw new Error("no address set for that app"); }
+      if (win) win.location = url; else window.open(url, "_blank", "noopener");
+      closeModal();
+    } catch (e) {
+      win?.close();
+      err.hidden = false;
+      err.textContent = e.message || "that did not work";
+      input.select();
+    }
+  };
+  on("#lpin-go", "click", go);
+  input.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+}
+
+/* ---- clicks ---- */
 on("#l-grid", "click", e => {
   const ext = e.target.closest("[data-ext]");
   if (ext) { e.stopPropagation(); return openApp(LP.apps.find(a => a.id === ext.dataset.ext), true); }
   const ed = e.target.closest("[data-edit]");
   if (ed) { e.stopPropagation(); return editApp(LP.apps.find(a => a.id === ed.dataset.edit)); }
-  const tile = e.target.closest(".ltile");
-  if (tile && !tile.dataset.dragged) openApp(LP.apps.find(a => a.id === tile.dataset.id));
-});
-on("#l-grid", "keydown", e => {
-  if (e.key !== "Enter" && e.key !== " ") return;
-  const tile = e.target.closest(".ltile");
-  if (!tile) return;
-  e.preventDefault();
-  openApp(LP.apps.find(a => a.id === tile.dataset.id));
-});
-on("#l-q", "input", e => { LP.q = e.target.value; paintLauncher(); });
+  const gr = e.target.closest("[data-group]");
+  if (gr) { e.stopPropagation(); return editGroup(LP.groups.find(g => g.id === gr.dataset.group)); }
 
-/* ---- dragging a tile ----
-   The same rules the widget canvas follows: every frame is computed from the
-   snapshot taken at pointer-down, and a press that does not travel is a click
-   rather than a nudge. */
-on("#l-grid", "pointerdown", e => {
-  if (e.pointerType === "touch" || e.button !== 0) return;
-  if (e.target.closest("button")) return;
   const tile = e.target.closest(".ltile");
-  if (!tile || $("#l-grid").classList.contains("lstack")) return;
+  if (!tile) { if (LP.sel.size) { LP.sel.clear(); paintLauncher(); } return; }
+  if (tile.dataset.dragged) return;
 
   const app = LP.apps.find(a => a.id === tile.dataset.id);
-  if (!app) return;
-  const snapshot = LP.apps.map(a => ({ ...a }));
+  // Ctrl/⌘ builds a selection; a plain click opens the app. Same rule as the
+  // widget canvas, so one habit works on both pages.
+  if (e.ctrlKey || e.metaKey || e.shiftKey || LP.sel.size) {
+    e.preventDefault();
+    LP.sel.has(app.id) ? LP.sel.delete(app.id) : LP.sel.add(app.id);
+    paintLauncher();
+    return;
+  }
+  openApp(app);
+});
+
+on("#l-grid", "keydown", e => {
+  const tile = e.target.closest(".ltile");
+  if (!tile) return;
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    openApp(LP.apps.find(a => a.id === tile.dataset.id));
+  }
+});
+
+on("#l-q", "input", e => { LP.q = e.target.value; paintLauncher(); });
+on("#l-tags", "click", e => {
+  const b = e.target.closest("[data-tagf]");
+  if (!b) return;
+  LP.tag = b.dataset.tagf === LP.tag ? "" : b.dataset.tagf;
+  paintLauncher();
+});
+
+/* ---- selection ---- */
+on("#l-selclear", "click", () => { LP.sel.clear(); paintLauncher(); });
+on("#l-selremove", "click", () => removeApps(lSelected()));
+on("#l-selpin", "click", () => {
+  const sel = lSelected();
+  const on = !sel.every(a => a.pinned);
+  sel.forEach(a => { a.pinned = on; });
+  paintLauncher(); saveLauncher();
+});
+on("#l-selsize", "click", e => chooseFrom(e.currentTarget, L_SIZES.map(s => ({ label: s.label, value: s.key })), v => {
+  lSelected().forEach(a => { a.size = v; });
+  paintLauncher(); saveLauncher();
+}));
+on("#l-selgroup", "click", e => chooseFrom(e.currentTarget,
+  [{ label: "No group", value: "" }, ...LP.groups.map(g => ({ label: g.name, value: g.id }))], v => {
+    lSelected().forEach(a => { a.group = v; a.pinned = false; });
+    paintLauncher(); saveLauncher();
+  }));
+
+/** A little menu anchored to a button. Small enough not to need the widget
+ *  context-menu machinery, and it closes on the next click anywhere. */
+function chooseFrom(anchor, items, pick) {
+  $$(".lmenu").forEach(m => m.remove());
+  const menu = document.createElement("div");
+  menu.className = "lmenu";
+  menu.innerHTML = items.map(i => `<button type="button" data-v="${esc(String(i.value))}">${esc(i.label)}</button>`).join("");
+  document.body.appendChild(menu);
+  const r = anchor.getBoundingClientRect(), m = menu.getBoundingClientRect();
+  menu.style.left = Math.max(8, Math.min(r.left, innerWidth - m.width - 8)) + "px";
+  menu.style.top = (r.top - m.height - 6 > 8 ? r.top - m.height - 6 : r.bottom + 6) + "px";
+  menu.addEventListener("click", e => {
+    const b = e.target.closest("[data-v]");
+    if (b) pick(b.dataset.v);
+    menu.remove();
+  });
+  setTimeout(() => addEventListener("pointerdown", function off(ev) {
+    if (!menu.contains(ev.target)) { menu.remove(); removeEventListener("pointerdown", off); }
+  }), 0);
+}
+
+function removeApps(list) {
+  if (!list.length) return;
+  const what = list.length === 1 ? `"${list[0].name}"` : `${list.length} apps`;
+  if (!confirm(`Remove ${what} from the Apps page?\n\nThis only removes the tiles. Nothing is stopped or uninstalled.`)) return;
+  const gone = new Set(list.map(a => a.id));
+  LP.apps = LP.apps.filter(a => !gone.has(a.id));
+  LP.sel.clear();
+  paintLauncher(); saveLauncher();
+  toast("REMOVED", "ok");
+}
+
+addEventListener("keydown", e => {
+  if (!LP.sel.size || !$("#page-apps")?.classList.contains("on")) return;
+  if (document.activeElement?.matches("input,textarea")) return;
+  if (e.key === "Escape") { LP.sel.clear(); paintLauncher(); }
+  if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeApps(lSelected()); }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+    e.preventDefault();
+    LP.apps.filter(lMatches).forEach(a => LP.sel.add(a.id));
+    paintLauncher();
+  }
+});
+
+/* ---- dragging: reorder, and move between groups ----
+ *
+ * A drag ends at a place in a list, not at a pixel, so what follows the
+ * pointer is a ghost and what says where it will land is a marker drawn
+ * between two tiles. Dropping on a group's band moves the app into that group;
+ * dropping on the Pinned band pins it. The whole selection travels together.
+ */
+let lDrag = null;
+
+function lDragStart(e, tile) {
+  const ids = LP.sel.has(tile.dataset.id) && LP.sel.size ? [...LP.sel] : [tile.dataset.id];
+  const ghost = document.createElement("div");
+  ghost.className = "lghost";
+  ghost.innerHTML = tile.innerHTML + (ids.length > 1 ? `<span class="lghostn">${ids.length}</span>` : "");
+  const r = tile.getBoundingClientRect();
+  ghost.style.width = Math.min(r.width, 260) + "px";
+  document.body.appendChild(ghost);
+
+  const mark = document.createElement("span");
+  mark.className = "lmark";
+
+  lDrag = { ids, ghost, mark, tile, target: null };
+  $("#l-grid").classList.add("ldragging");
+  ids.forEach(id => $(`.ltile[data-id="${CSS.escape(id)}"]`, $("#l-grid"))?.classList.add("moving"));
+  lDragMove(e);
+}
+
+function lDragMove(e) {
+  if (!lDrag) return;
+  lDrag.ghost.style.transform = `translate(${e.clientX + 12}px, ${e.clientY + 12}px)`;
+
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const sec = el?.closest(".lsec");
+  if (!sec) return;
+  const over = el?.closest(".ltile");
+  const grid = $(".lsecgrid", sec);
+
+  if (over && !lDrag.ids.includes(over.dataset.id)) {
+    const r = over.getBoundingClientRect();
+    const after = e.clientX > r.left + r.width / 2;
+    over.parentNode.insertBefore(lDrag.mark, after ? over.nextSibling : over);
+    lDrag.target = { sec: sec.dataset.sec, anchor: over.dataset.id, after };
+  } else if (!over) {
+    grid.appendChild(lDrag.mark);
+    lDrag.target = { sec: sec.dataset.sec, anchor: null, after: true };
+  }
+}
+
+function lDragEnd(cancelled) {
+  if (!lDrag) return;
+  const { ids, ghost, mark, target } = lDrag;
+  ghost.remove(); mark.remove();
+  $("#l-grid").classList.remove("ldragging");
+  lDrag = null;
+
+  if (cancelled || !target) { paintLauncher(); return; }
+
+  const moving = LP.apps.filter(a => ids.includes(a.id));
+  const rest = LP.apps.filter(a => !ids.includes(a.id));
+  for (const a of moving) {
+    if (target.sec === "__pinned") a.pinned = true;
+    else { a.pinned = false; a.group = target.sec; }
+  }
+  let at = rest.length;
+  if (target.anchor) {
+    const i = rest.findIndex(a => a.id === target.anchor);
+    if (i >= 0) at = target.after ? i + 1 : i;
+  } else {
+    // Dropped on a band rather than between two tiles: the end of that band.
+    const last = [...rest].reverse().find(a =>
+      target.sec === "__pinned" ? a.pinned : (!a.pinned && (a.group || "") === target.sec));
+    at = last ? rest.indexOf(last) + 1 : rest.length;
+  }
+  rest.splice(at, 0, ...moving);
+  LP.apps = rest;
+  paintLauncher(); saveLauncher();
+}
+
+on("#l-grid", "pointerdown", e => {
+  if (e.button !== 0) return;
+  if (e.target.closest("button")) return;
+  const grid = $("#l-grid");
+  const tile = e.target.closest(".ltile");
+
+  if (!tile) return lMarqueeStart(e);
+
   const sx = e.clientX, sy = e.clientY;
-  const cw = lCellW();
-  let moved = false;
+  const touch = e.pointerType === "touch";
+  let started = false, held = null;
+
+  const begin = ev => { started = true; lDragStart(ev, tile); if (touch) navigator.vibrate?.(8); };
+  // A finger has no hover to protect, so a press that stays still is the
+  // signal; a mouse has a cursor, so distance is.
+  if (touch) held = setTimeout(() => begin(e), 340);
 
   const mv = ev => {
-    if (!moved && Math.abs(ev.clientX - sx) < 5 && Math.abs(ev.clientY - sy) < 5) return;
-    if (!moved) { moved = true; tile.classList.add("dragging"); }
-    // Restore the snapshot first, or each frame packs the already-packed
-    // result of the last one and the board creeps.
-    LP.apps = snapshot.map(a => ({ ...a }));
-    const me = LP.apps.find(a => a.id === app.id);
-    me.x = clamp(Math.round((app.x * (cw + L_GAP) + ev.clientX - sx) / (cw + L_GAP)), 0, L_COLS - me.w);
-    me.y = Math.max(0, Math.round((app.y * (L_ROW + L_GAP) + ev.clientY - sy) / (L_ROW + L_GAP)));
-    // Push anything it lands on downwards.
-    let guard = 0, again = true;
-    while (again && guard++ < 200) {
-      again = false;
-      for (const a of LP.apps) for (const b of LP.apps) {
-        if (a === b || b.id === me.id) continue;
-        if (lOverlap(a, b) && (a.id === me.id || a.y < b.y || (a.y === b.y && a.x < b.x))) { b.y = a.y + a.h; again = true; }
-      }
+    if (!started) {
+      const far = Math.abs(ev.clientX - sx) > 6 || Math.abs(ev.clientY - sy) > 6;
+      if (touch) { if (far) { clearTimeout(held); cleanup(); } return; }
+      if (!far) return;
+      begin(ev);
     }
-    paintLauncher();
+    ev.preventDefault();
+    lDragMove(ev);
   };
   const up = () => {
-    tile.removeEventListener("pointermove", mv);
-    tile.removeEventListener("pointerup", up);
-    tile.removeEventListener("pointercancel", cancel);
-    tile.classList.remove("dragging");
-    try { tile.releasePointerCapture(e.pointerId); } catch {}
-    if (moved) {
-      // Swallow the click that follows the drop, or letting go opens the app.
+    clearTimeout(held);
+    if (started) {
       tile.dataset.dragged = "1";
       setTimeout(() => { delete tile.dataset.dragged; }, 0);
-      saveLauncher();
+      lDragEnd(false);
     }
+    cleanup();
   };
-  // pointercancel is a cancel, not a drop.
-  const cancel = () => { LP.apps = snapshot; paintLauncher(); up(); };
+  const cancel = () => { clearTimeout(held); if (started) lDragEnd(true); cleanup(); };
+  const esc = ev => { if (ev.key === "Escape" && started) { lDragEnd(true); cleanup(); } };
+  function cleanup() {
+    grid.removeEventListener("pointermove", mv);
+    removeEventListener("pointerup", up);
+    removeEventListener("pointercancel", cancel);
+    removeEventListener("keydown", esc);
+    try { tile.releasePointerCapture(e.pointerId); } catch {}
+  }
 
   try { tile.setPointerCapture(e.pointerId); } catch {}
-  tile.addEventListener("pointermove", mv);
-  tile.addEventListener("pointerup", up);
-  tile.addEventListener("pointercancel", cancel);
+  grid.addEventListener("pointermove", mv);
+  addEventListener("pointerup", up);
+  addEventListener("pointercancel", cancel);
+  addEventListener("keydown", esc);
 });
 
-on("#l-tidy", "click", () => {
-  const order = LP.apps.slice().sort((a, b) => a.y - b.y || a.x - b.x);
-  const placed = [];
-  for (const a of order) {
-    let done = false;
-    for (let y = 0; !done && y < 200; y++) {
-      for (let x = 0; x + a.w <= L_COLS; x++) {
-        if (!placed.some(p => lOverlap({ x, y, w: a.w, h: a.h }, p))) { a.x = x; a.y = y; done = true; break; }
-      }
+/** Drag a box over empty space to select what it touches. */
+function lMarqueeStart(e) {
+  if (e.pointerType === "touch") return;      // a finger there is a scroll
+  const grid = $("#l-grid");
+  const sx = e.clientX, sy = e.clientY;
+  const box = document.createElement("div");
+  box.className = "lmarquee";
+  let live = false;
+  const add = e.ctrlKey || e.metaKey;
+  if (!add) LP.sel.clear();
+
+  const mv = ev => {
+    if (!live) {
+      if (Math.abs(ev.clientX - sx) < 5 && Math.abs(ev.clientY - sy) < 5) return;
+      live = true; document.body.appendChild(box);
     }
-    placed.push(a);
-  }
-  paintLauncher(); saveLauncher(); toast("TIDIED", "ok");
-});
+    const x = Math.min(sx, ev.clientX), y = Math.min(sy, ev.clientY);
+    const w = Math.abs(ev.clientX - sx), h = Math.abs(ev.clientY - sy);
+    Object.assign(box.style, { left: x + "px", top: y + "px", width: w + "px", height: h + "px" });
+    for (const el of $$(".ltile", grid)) {
+      const r = el.getBoundingClientRect();
+      const hit = r.left < x + w && r.right > x && r.top < y + h && r.bottom > y;
+      if (hit) LP.sel.add(el.dataset.id); else if (!add) LP.sel.delete(el.dataset.id);
+      el.classList.toggle("on", LP.sel.has(el.dataset.id));
+    }
+    paintSelBar();
+  };
+  const up = () => {
+    box.remove();
+    removeEventListener("pointermove", mv);
+    removeEventListener("pointerup", up);
+    if (live) paintLauncher();
+  };
+  addEventListener("pointermove", mv);
+  addEventListener("pointerup", up);
+}
 
-/* ---- add / edit ---- */
+/* ---- groups ---- */
+function editGroup(g) {
+  const isNew = !g;
+  const row = g || { id: "", name: "", color: "cyan" };
+  const form = document.createElement("div");
+  form.className = "lform";
+  form.innerHTML = `
+    <div class="ag-row"><label for="lg-name">Name</label>
+      <input id="lg-name" type="text" maxlength="40" value="${esc(row.name)}" placeholder="Watching"></div>
+    <div class="ag-row"><label>Colour</label>
+      <div class="ctxrow">${GROUP_COLORS.map(c =>
+        `<button type="button" class="swatch wc-${c}${row.color === c ? " sel" : ""}" data-c="${c}"
+                 aria-label="${c}"></button>`).join("")}</div>
+      <span class="hint">Only a marker on the band and its tags — it does not recolour the apps.</span></div>`;
+
+  let color = row.color;
+  openModal({
+    title: isNew ? "NEW GROUP" : "EDIT GROUP",
+    icon: "/assets/brand/icons/ui-launcher.png", body: form,
+    foot: `${isNew ? "" : `<button class="btn sm danger" id="lg-del" type="button">REMOVE</button>`}
+           <span class="spacer"></span>
+           <button class="btn primary sm" id="lg-save" type="button">SAVE</button>`
+  });
+  $$("[data-c]", form).forEach(b => b.addEventListener("click", () => {
+    color = b.dataset.c;
+    $$("[data-c]", form).forEach(x => x.classList.toggle("sel", x === b));
+  }));
+  on("#lg-del", "click", () => {
+    if (!confirm(`Remove the group "${row.name}"?\n\nThe apps in it stay on the board, without a group.`)) return;
+    LP.groups = LP.groups.filter(x => x.id !== row.id);
+    LP.apps.forEach(a => { if (a.group === row.id) a.group = ""; });
+    closeModal(); paintLauncher(); saveLauncher();
+  });
+  on("#lg-save", "click", () => {
+    const name = $("#lg-name", form).value.trim();
+    if (!name) return toast("give it a name", "err");
+    if (isNew) LP.groups.push({ id: "g" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name, color });
+    else LP.groups = LP.groups.map(x => x.id === row.id ? { ...x, name, color } : x);
+    closeModal(); paintLauncher(); saveLauncher();
+    toast(isNew ? "GROUP ADDED" : "GROUP SAVED", "ok");
+  });
+}
+
+on("#l-group", "click", () => editGroup(null));
+
+/* ---- add / edit an app ---- */
 function editApp(app) {
-  const a = app || { id: "", name: "", url: "", externalUrl: "", icon: "", desc: "", ports: [], x: 0, y: 0, w: 2, h: 1 };
+  const a = app || { id: "", name: "", url: "", externalUrl: "", icon: "", desc: "",
+                     ports: [], tags: [], group: "", pinned: false, size: "m", locked: false };
+  const used = [...new Set(LP.apps.flatMap(x => x.tags || []))].sort().slice(0, 12);
   const form = document.createElement("div");
   form.className = "lform";
   form.innerHTML = `
@@ -3391,23 +3761,46 @@ function editApp(app) {
     <div class="ag-row"><label for="lf-name">Name</label>
       <input id="lf-name" type="text" maxlength="60" value="${esc(a.name)}" placeholder="Jellyfin"></div>
     <div class="ag-row"><label for="lf-url">Address</label>
-      <input id="lf-url" type="text" value="${esc(a.url)}" placeholder="http://192.168.1.50:8096" spellcheck="false"></div>
+      <input id="lf-url" type="text" value="${esc(a.url)}" placeholder="${a.locked ? "hidden while the PIN is on" : "http://192.168.1.50:8096"}"
+             spellcheck="false"${a.locked ? " disabled" : ""}></div>
     <div class="ag-row"><label for="lf-ext">Outside address</label>
-      <input id="lf-ext" type="text" value="${esc(a.externalUrl)}" placeholder="https://jellyfin.you.duckdns.org" spellcheck="false">
-      <span class="hint">Optional — used by the globe button when you are not at home.</span></div>
+      <input id="lf-ext" type="text" value="${esc(a.externalUrl)}" placeholder="${a.locked ? "hidden while the PIN is on" : "https://jellyfin.you.duckdns.org"}"
+             spellcheck="false"${a.locked ? " disabled" : ""}>
+      <span class="hint">${a.locked
+        ? "Both addresses are held on the server while this app has a PIN. Take the PIN off to change them."
+        : "Optional — used by the globe button when you are not at home."}</span></div>
     <div class="ag-row"><label for="lf-icon">Icon</label>
       <input id="lf-icon" type="text" value="${esc(a.icon)}" placeholder="jellyfin" spellcheck="false"></div>
     <div class="ag-row"><label for="lf-ports">Ports</label>
       <input id="lf-ports" type="text" value="${esc((a.ports || []).join(", "))}" placeholder="8096, 8920" spellcheck="false"></div>
     <div class="ag-row"><label for="lf-desc">Description</label>
       <input id="lf-desc" type="text" maxlength="200" value="${esc(a.desc)}" placeholder="Films and TV"></div>
-    <div class="ag-row"><label for="lf-size">Tile size</label>
+    <div class="ag-row"><label for="lf-tags">Tags</label>
+      <input id="lf-tags" type="text" value="${esc((a.tags || []).join(", "))}" placeholder="media, watching" spellcheck="false">
+      ${used.length ? `<div class="sk-tagsug">${used.map(t =>
+        `<button type="button" class="sk-tag sug" data-sug="${esc(t)}">+ ${esc(t)}</button>`).join("")}</div>` : ""}</div>
+    <div class="ag-row"><label for="lf-group">Group</label>
+      <select id="lf-group">
+        <option value="">No group</option>
+        ${LP.groups.map(g => `<option value="${esc(g.id)}"${a.group === g.id ? " selected" : ""}>${esc(g.name)}</option>`).join("")}
+      </select></div>
+    <div class="ag-row"><label>Tile size</label>
       <div class="lsizes" role="group" aria-label="Tile size">
-        ${[[2, 1, "Small"], [3, 1, "Wide"], [2, 2, "Tall"], [4, 2, "Big"]].map(([w, h, lbl]) =>
-          `<button type="button" class="lsize${a.w === w && a.h === h ? " on" : ""}" data-w="${w}" data-h="${h}">${lbl}</button>`).join("")}
-      </div></div>`;
+        ${L_SIZES.map(s => `<button type="button" class="lsize${(a.size || "m") === s.key ? " on" : ""}"
+           data-s="${s.key}" data-tip="${esc(s.hint)}">${s.label}</button>`).join("")}
+      </div></div>
+    <label class="ctxcheck lf-check"><input type="checkbox" id="lf-pin"${a.pinned ? " checked" : ""}>
+      <span class="tick"></span><span>Pinned — keep it in the band at the top</span></label>
+    <div class="ag-row"><label>PIN</label>
+      ${a.locked
+        ? `<div class="lockrow"><span class="lockon">${SVG_LOCK} This app opens with a PIN</span>
+             <button class="btn sm" id="lf-unlock" type="button">TAKE IT OFF</button></div>`
+        : `<input id="lf-lock" type="password" inputmode="numeric" maxlength="4" placeholder="four digits" autocomplete="off">`}
+      <span class="hint">Keeps the tile's address out of this page and asks for four digits before
+        opening it. It is a screen for whoever is looking at Nexus, not a lock on the app itself —
+        that app still has its own login, and anyone who knows its address can type it in.</span></div>`;
 
-  let size = { w: a.w || 2, h: a.h || 1 };
+  let size = a.size || "m";
   openModal({
     title: app ? "EDIT APP" : "ADD APP",
     icon: "/assets/brand/icons/ui-launcher.png",
@@ -3425,36 +3818,66 @@ function editApp(app) {
   $("#lf-icon", form).addEventListener("input", repaint);
   $("#lf-name", form).addEventListener("input", repaint);
   $$(".lsize", form).forEach(b => b.addEventListener("click", () => {
-    size = { w: Number(b.dataset.w), h: Number(b.dataset.h) };
+    size = b.dataset.s;
     $$(".lsize", form).forEach(x => x.classList.toggle("on", x === b));
   }));
+  $$("[data-sug]", form).forEach(b => b.addEventListener("click", () => {
+    const box = $("#lf-tags", form);
+    const have = box.value.split(",").map(x => x.trim().toLowerCase()).filter(Boolean);
+    if (have.includes(b.dataset.sug)) return;
+    box.value = [...have, b.dataset.sug].join(", ");
+  }));
 
-  on("#lf-del", "click", () => {
-    if (!confirm(`Remove "${a.name}" from the Apps page?\n\nThis only removes the tile. Nothing is stopped or uninstalled.`)) return;
-    LP.apps = LP.apps.filter(x => x.id !== a.id);
-    closeModal(); paintLauncher(); saveLauncher();
+  on("#lf-unlock", "click", async () => {
+    try {
+      const out = await api(`/launcher/${encodeURIComponent(a.id)}/lock`, { method: "DELETE" });
+      LP.apps = out.apps; LP.groups = out.groups;
+      closeModal(); paintLauncher();
+      toast("PIN REMOVED", "ok");
+    } catch (e) { toast(e.message || "could not do that", "err"); }
   });
-  on("#lf-save", "click", () => {
+
+  on("#lf-del", "click", () => { closeModal(); removeApps([a]); });
+
+  on("#lf-save", "click", async () => {
     const name = $("#lf-name", form).value.trim();
     if (!name) return toast("give it a name", "err");
-    const url = $("#lf-url", form).value.trim();
-    const ext = $("#lf-ext", form).value.trim();
-    if (!url && !ext) return toast("give it an address", "err");
+    const url = a.locked ? a.url : $("#lf-url", form).value.trim();
+    const ext = a.locked ? a.externalUrl : $("#lf-ext", form).value.trim();
+    if (!a.locked && !url && !ext) return toast("give it an address", "err");
+
     const row = {
       ...a, name, url, externalUrl: ext,
       icon: $("#lf-icon", form).value.trim(),
       desc: $("#lf-desc", form).value.trim(),
       ports: $("#lf-ports", form).value.split(/[,\s]+/).map(Number).filter(n => n > 0 && n < 65536),
-      w: size.w, h: size.h
+      tags: $("#lf-tags", form).value.split(",").map(t => t.trim().toLowerCase()).filter(Boolean).slice(0, 6),
+      group: $("#lf-group", form).value,
+      pinned: $("#lf-pin", form).checked,
+      size
     };
     if (app) LP.apps = LP.apps.map(x => x.id === a.id ? row : x);
     else {
       row.id = "l" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-      // New tiles land on the first free row rather than on top of something.
-      row.x = 0; row.y = LP.apps.reduce((m, x) => Math.max(m, x.y + x.h), 0);
       LP.apps.push(row);
     }
-    closeModal(); paintLauncher(); saveLauncher();
+    paintLauncher();
+
+    // A new PIN goes on its own request, so it is never part of the board's
+    // ordinary saves — and the board is written first, or the id it names does
+    // not exist on the server yet.
+    const pin = $("#lf-lock", form)?.value.trim();
+    if (pin) {
+      if (!/^\d{4}$/.test(pin)) { toast("a PIN is four digits", "err"); return; }
+      try {
+        await api("/launcher", { method: "PUT", body: { apps: LP.apps, groups: LP.groups } });
+        const out = await api(`/launcher/${encodeURIComponent(row.id)}/lock`, { method: "POST", body: { pin } });
+        LP.apps = out.apps; LP.groups = out.groups;
+        paintLauncher();
+      } catch (e) { toast(e.message || "could not set the PIN", "err"); return; }
+    } else saveLauncher();
+
+    closeModal();
     toast(app ? "APP SAVED" : "APP ADDED", "ok");
   });
 }
@@ -3489,9 +3912,13 @@ async function pullApps() {
     <p class="hint">Found ${out.found.length} running container${out.found.length === 1 ? "" : "s"} not on
       the board yet. Addresses are built from <code>${esc(host)}</code>, which is how you reached Nexus,
       so it is a route that works. Untick anything you do not want.</p>
+    ${LP.groups.length ? `<div class="ag-row"><label for="lp-group">Put them in</label>
+      <select id="lp-group"><option value="">No group</option>
+        ${LP.groups.map(g => `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join("")}</select></div>` : ""}
     <div class="lpull">${out.found.map((f, i) => `
       <label class="lpullrow">
         <input type="checkbox" data-pick="${i}" checked>
+        <span class="tick"></span>
         <span class="lico sm">${appIconHTML({ name: f.name, icon: f.slug })}</span>
         <span class="lpullmain"><b>${esc(f.name)}</b>
           <span>http://${esc(host)}:${f.ports[0]}${f.ports.length > 1 ? ` · also ${f.ports.slice(1).map(p => ":" + p).join(" ")}` : ""}</span></span>
@@ -3508,16 +3935,13 @@ async function pullApps() {
   on("#lp-add", "click", () => {
     const picked = $$("[data-pick]", body).filter(b => b.checked).map(b => out.found[Number(b.dataset.pick)]);
     if (!picked.length) { closeModal(); return; }
-    let y = LP.apps.reduce((m, a) => Math.max(m, a.y + a.h), 0);
-    let x = 0;
+    const group = $("#lp-group", body)?.value || "";
     for (const f of picked) {
       LP.apps.push({
         id: "l" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
         name: f.name, url: `http://${host}:${f.ports[0]}`, externalUrl: "",
-        icon: f.slug, desc: "", ports: f.ports, x, y, w: 2, h: 1
+        icon: f.slug, desc: "", ports: f.ports, tags: [], group, pinned: false, size: "m"
       });
-      x += 2;
-      if (x + 2 > L_COLS) { x = 0; y += 1; }
     }
     closeModal(); paintLauncher(); saveLauncher();
     toast(`${picked.length} APP${picked.length === 1 ? "" : "S"} ADDED`, "ok");
@@ -5399,7 +5823,7 @@ on("#cp-rules", "click", async e => {
 });
 
 function selectHTML(id, options, current) {
-  return `<select id="${id}" class="sel">` + options.map(o =>
+  return `<select id="${id}">` + options.map(o =>
     `<option value="${esc(o.value)}"${String(o.value) === String(current) ? " selected" : ""}>${esc(o.label)}</option>`
   ).join("") + `</select>`;
 }
@@ -6908,9 +7332,9 @@ async function editSkill(id) {
     <div class="sk-editbar">
       <label for="sk-e-body">Skill text</label>
       <span class="spacer"></span>
-      <div class="sk-tabs" role="group" aria-label="Write or preview">
-        <button type="button" class="sk-tab on" data-pane="write">WRITE</button>
+      <div class="sk-tabs" role="group" aria-label="Preview or write">
         <button type="button" class="sk-tab" data-pane="read">PREVIEW</button>
+        <button type="button" class="sk-tab" data-pane="write">WRITE</button>
       </div>
     </div>
     <textarea id="sk-e-body" class="sk-body" spellcheck="false"
@@ -6948,6 +7372,10 @@ async function editSkill(id) {
     if (which === "read") view.innerHTML = md(ta.value) || '<p class="dim">nothing written yet</p>';
   };
   $$(".sk-tab", form).forEach(t => t.addEventListener("click", () => pane(t.dataset.pane)));
+  // Reading first: opening a skill is usually to see what it says, and rendered
+  // Markdown is the readable form of it. A blank new skill has nothing to read,
+  // so that one opens on the keyboard instead.
+  pane(k.body.trim() ? "read" : "write");
 
   on("#sk-e-back", "click", () => openSkillLibrary());
   on("#sk-e-save", "click", async () => {

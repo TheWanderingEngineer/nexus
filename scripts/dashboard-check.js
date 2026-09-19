@@ -158,6 +158,83 @@ try {
   ok('using the preset puts the widget back', restored.box.length === count0, `${restored.box.length} vs ${count0}`);
   ok('the restored layout has no overlaps', restored.overlaps === 0);
 
+  /* Every selected control has to be readable, in every theme.
+
+     `.sel` was doing two jobs — "this is a dropdown" and "this is the chosen
+     one" — and the workstation theme styled dropdowns with the sunk
+     background. Selected options came out as near-black text on near-black,
+     in every widget menu in the app, and nothing failed. Contrast is the
+     assertion because "it looks fine" is what missed it. */
+  const contrastSweep = () => page.evaluate(() => {
+    const lum = c => {
+      const [r, g, b] = c.match(/[\d.]+/g).slice(0, 3).map(Number).map(v => {
+        v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    // The nearest ancestor that actually paints something.
+    const behind = el => {
+      for (let n = el; n; n = n.parentElement) {
+        const bg = getComputedStyle(n).backgroundColor;
+        if (bg && !/rgba\(0, 0, 0, 0\)|transparent/.test(bg)) return bg;
+      }
+      return 'rgb(255,255,255)';
+    };
+    const worst = [];
+    for (const el of document.querySelectorAll('#ctx .ctxopt, #ctx .ctxcheck, #ctx .ctxnote')) {
+      if (!el.textContent.trim() || !el.getClientRects().length) continue;
+      const cs = getComputedStyle(el);
+      const a = lum(cs.color), b = lum(behind(el));
+      const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      worst.push({ txt: el.textContent.trim().slice(0, 12), sel: el.classList.contains('sel'), ratio: +ratio.toFixed(2) });
+    }
+    return worst.sort((x, y) => x.ratio - y.ratio);
+  });
+
+  const looks = [
+    ['workstation/parchment', () => NexusAppearance.setPalette('parchment')],
+    ['workstation/evergreen', () => NexusAppearance.setPalette('evergreen')],
+    ['workstation/midnight',  () => NexusAppearance.setPalette('midnight')],
+    ['classic/dark',  () => { NexusAppearance.setClassic(true); if (document.documentElement.dataset.theme !== 'dark') NexusAppearance.toggleClassicMode(); }],
+    ['classic/light', () => { NexusAppearance.setClassic(true); if (document.documentElement.dataset.theme !== 'light') NexusAppearance.toggleClassicMode(); }]
+  ];
+  for (const [name, set] of looks) {
+    await page.evaluate(`(${set.toString()})()`);
+    await sleep(250);
+    const bx = await (await page.$('#grid .w')).boundingBox();
+    await page.mouse.click(bx.x + bx.width / 2, bx.y + 10, { button: 'right' });
+    await sleep(350);
+    const bad = (await contrastSweep()).filter(s => s.ratio < 4.5);
+    ok(`every option in the widget menu is readable (${name})`, bad.length === 0,
+       bad.map(b => `${b.txt}${b.sel ? ' [selected]' : ''} at ${b.ratio}:1`).join(', '));
+    await page.keyboard.press('Escape'); await sleep(200);
+  }
+  await page.evaluate(() => NexusAppearance.setPalette('evergreen'));
+
+  /* The skill editor is a document editor, and it has twice been squashed to
+     one line by a theme rule that outranks its own — the same specificity
+     trap as the contrast bug above. Assert the height, not the rule. */
+  await page.click('.nav[data-page="settings"]'); await sleep(1800);
+  await page.click('#ag-skills-open'); await sleep(1500);
+  await page.click('.sk-item >> text=OPEN'); await sleep(1200);
+  const editor = await page.evaluate(() => {
+    const ta = document.querySelector('#sk-e-body');
+    const view = document.querySelector('#sk-e-view');
+    return {
+      taH: ta ? ta.getBoundingClientRect().height : 0,
+      taHidden: ta?.hidden,
+      viewHidden: view?.hidden,
+      tabs: [...document.querySelectorAll('.sk-tab')].map(t => t.textContent.trim() + (t.classList.contains('on') ? '*' : '')),
+      rendered: !!view?.querySelector('table, h2, strong')
+    };
+  });
+  ok('the skill editor opens on the rendered view', editor.tabs.join(',') === 'PREVIEW*,WRITE', editor.tabs.join(','));
+  ok('and what it renders is markdown, not the source', editor.rendered && !editor.viewHidden);
+  await page.click('.sk-tab >> text=WRITE'); await sleep(400);
+  const writeH = await page.evaluate(() => document.querySelector('#sk-e-body').getBoundingClientRect().height);
+  ok('the text box is document-sized, not one line', writeH > 300, writeH + 'px');
+  await page.click('#mw-close'); await sleep(400);
+
   ok('no page errors', errs.length === 0, errs.join(' | '));
   await browser.close();
   console.log(`\n${pass} passed, ${fail} failed`);

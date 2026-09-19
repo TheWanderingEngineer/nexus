@@ -314,7 +314,7 @@ td.name{color:var(--text)}
 .searchwrap{position:relative;flex:1 1 260px;min-width:0}
 .searchwrap .si{position:absolute;left:calc(var(--u)*2);top:50%;transform:translateY(-50%);width:16px;height:16px;pointer-events:none}
 .searchwrap input{padding-left:calc(var(--u)*8)}
-.sel{font-family:var(--screen);font-size:10px;letter-spacing:.06em;padding:calc(var(--u)*1.5) calc(var(--u)*2);
+select{font-family:var(--screen);font-size:10px;letter-spacing:.06em;padding:calc(var(--u)*1.5) calc(var(--u)*2);
      background:var(--sunk);color:var(--text);
      border-top:2px solid var(--bevel-dk);border-left:2px solid var(--bevel-dk);
      border-right:2px solid var(--bevel-lt);border-bottom:2px solid var(--bevel-lt)}
@@ -1111,7 +1111,7 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
   #f-table td,#c-table td,.tw td{padding-top:calc(var(--u)*2.5);padding-bottom:calc(var(--u)*2.5)}
   .crumbs button{padding:calc(var(--u)*1.5) calc(var(--u)*2)}
   .rootcard{min-height:46px}
-  input[type=text],input[type=password],input[type=search],select,.sel{min-height:42px}
+  input[type=text],input[type=password],input[type=search],select{min-height:42px}
   /* Hover states are noise on touch — they latch on after a tap. */
   .btn:hover,.nav:hover,.ctxopt:hover,.rootcard:hover{background:inherit}
 }
@@ -2255,12 +2255,18 @@ input[type=checkbox]:disabled{opacity:.45;cursor:not-allowed}
         font-family:var(--screen);font-size:10px;letter-spacing:.08em;border:2px solid transparent}
 .sk-tab:hover{color:var(--text)}
 .sk-tab.on{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
-/* The old box was six lines tall and the text was unreadable. A skill is a
-   document; give it room to be one. */
-.sk-body{min-height:min(52vh,460px)}
-.sk-view{min-height:min(52vh,460px);max-height:min(52vh,460px);overflow:auto;
+/* A skill is a document, so the editor is document-sized. Both panes are the
+   same height, because a pane that resizes the window when you switch tabs
+   moves the buttons out from under the pointer. */
+.sk-body{min-height:min(58vh,520px);font-size:13px;line-height:1.65;padding:calc(var(--u)*3)}
+.sk-view{min-height:min(58vh,520px);max-height:min(58vh,520px);overflow:auto;
          padding:calc(var(--u)*3);background:var(--sunk);border:2px solid var(--rule);
          font-size:13px;line-height:1.6}
+/* A phone has no room for 58vh of editor plus the keyboard on top of it. */
+@media (max-width:640px){
+  .sk-body{min-height:44vh}
+  .sk-view{min-height:44vh;max-height:44vh}
+}
 
 /* ============================================================
    ONE WAY OUT
@@ -2281,48 +2287,139 @@ input[type=checkbox]:disabled{opacity:.45;cursor:not-allowed}
 
 /* ============================================================
    THE LAUNCHER (Apps page)
-   A board of the things you actually run. Same 12-column grid as the dashboard
-   so a tile drags like a widget, but a tile holds no live data — there is no
-   mount/update cycle here, just a link with a picture on it.
+   A board of the things you actually run.
+
+   Tiles flow rather than sit at coordinates. The same board is opened on a
+   phone, an iPad and a desktop, and a grid of absolute positions cannot make
+   that trip — three columns become one and the arrangement is gone. Flow with
+   a named size keeps the order and the relative weight on every screen, and
+   groups carry the structure that positions used to imply.
    ============================================================ */
-.lbar{display:flex;flex-wrap:wrap;gap:calc(var(--u)*2);align-items:center;margin-bottom:calc(var(--u)*4)}
+.lbar{display:flex;flex-wrap:wrap;gap:calc(var(--u)*2);align-items:center;margin-bottom:calc(var(--u)*3)}
 .lbar input[type=search]{flex:1 1 220px;min-width:180px;max-width:420px}
 .lcount{font-family:var(--mono);font-size:11px;color:var(--text-3)}
 
-.lgrid{position:relative;min-height:120px}
+/* ---- tag chips ---- */
+.ltagbar{display:flex;flex-wrap:wrap;gap:calc(var(--u)*1.5);margin-bottom:calc(var(--u)*3)}
+.ltagchip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;cursor:pointer;
+  font-family:var(--screen);font-size:10px;letter-spacing:.06em;text-transform:lowercase;
+  color:var(--text-2);background:var(--panel);border:2px solid var(--rule);
+  transition:border-color .12s ease-out,color .12s ease-out}
+.ltagchip i{font-style:normal;font-family:var(--mono);font-size:9.5px;color:var(--text-3)}
+.ltagchip::before{content:"";width:8px;height:8px;background:var(--tagc,var(--accent));flex:none}
+.ltagchip.clear::before{display:none}
+.ltagchip:hover{border-color:var(--tagc,var(--accent));color:var(--text)}
+.ltagchip.on{border-color:var(--tagc,var(--accent));color:var(--text);
+  box-shadow:inset 0 0 0 1px var(--tagc,var(--accent))}
+
+/* ---- the selection bar ---- */
+.lselbar{display:flex;flex-wrap:wrap;gap:calc(var(--u)*1.5);align-items:center;
+  padding:calc(var(--u)*2) calc(var(--u)*3);margin-bottom:calc(var(--u)*3);
+  background:var(--sunk);border:2px solid var(--accent)}
+
+/* ---- bands ---- */
+.lgrid{display:flex;flex-direction:column;gap:calc(var(--u)*5);min-height:120px}
+.lsec{display:flex;flex-direction:column;gap:calc(var(--u)*2)}
+/* The rule belongs to the pinned band, so there is no divider when nothing is
+   pinned — a line with nothing above it is a line for its own sake. */
+.lsec.pinned{padding-bottom:calc(var(--u)*4);border-bottom:2px solid var(--rule)}
+.lsechead{display:flex;align-items:center;gap:calc(var(--u)*2);min-height:24px}
+.lsechead b{font-family:var(--screen);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-2)}
+.lsecmark{width:10px;height:10px;flex:none;background:var(--secc,var(--accent))}
+.lseccount{font-family:var(--mono);font-size:10px;color:var(--text-3)}
+.lsechead .lact{opacity:0;margin-left:auto}
+.lsec:hover .lsechead .lact,.lsechead .lact:focus-visible{opacity:1}
+.lsecempty{grid-column:1/-1;margin:0;padding:calc(var(--u)*4);text-align:center;
+  font-family:var(--screen);font-size:10px;letter-spacing:.08em;color:var(--text-3);
+  border:2px dashed var(--rule)}
+
+/* Auto-fill decides the column count from the width, so the same board is
+   six columns on a desktop, three on an iPad and one on a phone with no
+   breakpoints of its own. `dense` closes the holes a tall tile leaves. */
+.lsecgrid{display:grid;gap:calc(var(--u)*2.5);grid-auto-rows:88px;grid-auto-flow:dense;
+  grid-template-columns:repeat(auto-fill,minmax(168px,1fr))}
 .ltile{
-  position:absolute;display:flex;align-items:center;gap:calc(var(--u)*3);min-width:0;
+  display:flex;align-items:center;gap:calc(var(--u)*3);min-width:0;position:relative;
   padding:calc(var(--u)*3);cursor:pointer;overflow:hidden;
   background:var(--panel);border:2px solid var(--rule);
   transition:border-color .14s ease-out,transform .14s ease-out,box-shadow .14s ease-out;
 }
+/* Four sizes, not free resizing: a board of arbitrary rectangles is the mess
+   this is meant to avoid, and a span wider than the screen is clamped by the
+   grid itself rather than overflowing. */
+.ltile.s{grid-column:span 1}
+.ltile.m{grid-column:span 2}
+.ltile.l{grid-column:span 2;grid-row:span 2}
+.ltile.xl{grid-column:span 3;grid-row:span 2}
+.ltile.s .ldesc,.ltile.s .lports,.ltile.s .ltags{display:none}
+.ltile.s{flex-direction:column;justify-content:center;gap:calc(var(--u)*1.5);text-align:center}
+.ltile.s .lname{white-space:normal;line-height:1.2;font-size:12.5px}
+/* A tall tile is a column, not a wide tile with a hole under it: the icon
+   leads, the description gets room to wrap, and the tags sit on the floor. */
+.ltile:is(.l,.xl){flex-direction:column;align-items:stretch;gap:calc(var(--u)*2)}
+.ltile:is(.l,.xl) .lbody{flex:1}
+.ltile:is(.l,.xl) .lname{font-size:17px}
+.ltile:is(.l,.xl) .ldesc{white-space:normal;overflow:hidden;
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
+.ltile:is(.l,.xl) .ltags{margin-top:auto;padding-top:calc(var(--u)*2)}
+
 .ltile:hover{border-color:var(--accent);transform:translateY(-2px)}
 .ltile:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.ltile.dragging{transition:none;z-index:50;border-color:var(--accent);filter:brightness(1.05)}
+.ltile.on{border-color:var(--accent);box-shadow:inset 0 0 0 2px var(--accent)}
+.ltile.moving{opacity:.35}
 
 .lico{width:44px;height:44px;flex:none;display:grid;place-items:center;overflow:hidden;background:var(--sunk)}
 .lico.sm{width:30px;height:30px}
+.ltile:is(.l,.xl) .lico{width:54px;height:54px}
 .lico-img{width:100%;height:100%;object-fit:contain;image-rendering:auto;padding:4px}
 .lico-letter{font-family:var(--screen);font-size:19px;font-weight:700;color:var(--accent)}
 .lico.sm .lico-letter{font-size:13px}
 
-.lbody{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.lbody{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
 .lname{font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ldesc{font-size:12px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lports{font-family:var(--mono);font-size:10.5px;color:var(--text-3)}
+.ltags{display:flex;flex-wrap:wrap;gap:4px;margin-top:2px}
+.ltag{font-family:var(--screen);font-size:8.5px;letter-spacing:.06em;padding:2px 6px;
+  color:var(--text-2);background:color-mix(in srgb,var(--tagc,var(--accent)) 24%,var(--panel));
+  border-left:3px solid var(--tagc,var(--accent))}
+
+/* Pinned and PIN are different marks and must not be mistaken for each other:
+   one says "I keep this at the top", the other says "this asks for digits". */
+.lflags{position:absolute;top:6px;right:6px;display:flex;gap:4px;color:var(--text-3)}
+.lflag svg{width:12px;height:12px;display:block}
+.lflag.lk{color:var(--warn)}
+.ltile:hover .lflags{opacity:0}
 
 /* The controls stay out of the way until you are on the tile — the tile's own
    job is to be pressed, and two buttons competing with that is noise. */
-.lacts{display:flex;gap:4px;flex:none;opacity:0;transition:opacity .14s ease-out}
+.lacts{position:absolute;top:5px;right:5px;display:flex;gap:4px;opacity:0;transition:opacity .14s ease-out}
 .ltile:hover .lacts,.ltile:focus-within .lacts{opacity:1}
 .lact{width:26px;height:26px;display:grid;place-items:center;cursor:pointer;
-      background:var(--sunk);color:var(--text-2);font-size:12px;border:2px solid transparent}
+      background:var(--sunk);color:var(--text-2);border:2px solid transparent}
+.lact svg{width:13px;height:13px;display:block}
 .lact:hover{border-color:var(--accent);color:var(--text)}
-@media(pointer:coarse){ .lacts{opacity:1} }
+@media(pointer:coarse){ .lacts{opacity:1} .lflags{display:none} }
 
-/* Below this the grid is a list: a 2-column tile on a phone is a postage stamp. */
-.lgrid.lstack{display:flex;flex-direction:column;gap:calc(var(--u)*2);height:auto!important}
-.lgrid.lstack .ltile{position:static;width:auto;height:auto}
+/* ---- dragging ---- */
+.lghost{position:fixed;left:0;top:0;z-index:300;pointer-events:none;display:flex;align-items:center;
+  gap:calc(var(--u)*2);padding:calc(var(--u)*2);background:var(--panel);
+  border:2px solid var(--accent);box-shadow:var(--shadow);opacity:.95}
+.lghost .lacts,.lghost .lflags,.lghost .ltags{display:none}
+.lghostn{font-family:var(--screen);font-size:10px;padding:2px 6px;background:var(--accent);color:var(--on-accent)}
+.lmark{display:block;width:4px;background:var(--accent);border-radius:2px;
+  grid-row:span 1;align-self:stretch;animation:lmarkin .12s ease-out}
+@keyframes lmarkin{from{opacity:0;transform:scaleY(.4)}to{opacity:1;transform:none}}
+.ldragging .ltile{cursor:grabbing}
+.lmarquee{position:fixed;z-index:200;pointer-events:none;
+  background:color-mix(in srgb,var(--accent) 16%,transparent);border:2px solid var(--accent)}
+
+/* A menu small enough not to need the widget context-menu machinery. */
+.lmenu{position:fixed;z-index:320;display:flex;flex-direction:column;min-width:150px;
+  background:var(--panel);border:2px solid var(--rule);box-shadow:var(--shadow)}
+.lmenu button{padding:9px 12px;text-align:left;cursor:pointer;background:none;color:var(--text-2);
+  font-family:var(--screen);font-size:10.5px;letter-spacing:.05em}
+.lmenu button:hover{background:var(--accent);color:var(--on-accent)}
 
 /* ---- the form ---- */
 .lform{display:flex;flex-direction:column;gap:calc(var(--u)*2)}
@@ -2333,6 +2430,14 @@ input[type=checkbox]:disabled{opacity:.45;cursor:not-allowed}
        transition:border-color .12s ease-out,background-color .12s ease-out,color .12s ease-out}
 .lsize:hover{border-color:var(--accent)}
 .lsize.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.lf-check{margin:calc(var(--u))0}
+.lockrow{display:flex;align-items:center;gap:calc(var(--u)*2);flex-wrap:wrap}
+.lockon{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--warn)}
+.lockon svg{width:13px;height:13px}
+.lpin{display:flex;flex-direction:column;gap:calc(var(--u)*2);align-items:center;padding:calc(var(--u)*3) 0}
+.lpin input{width:140px;text-align:center;font-family:var(--mono);font-size:24px;letter-spacing:.5em;
+  padding-left:.5em}
+.lpin-err{margin:0;color:var(--crit);font-size:12px}
 
 /* ---- pull all ---- */
 .lpull{display:flex;flex-direction:column;gap:calc(var(--u)*1.5);max-height:52vh;overflow:auto}
@@ -2346,6 +2451,31 @@ input[type=checkbox]:disabled{opacity:.45;cursor:not-allowed}
 .lpullstate{flex:none;font-family:var(--screen);font-size:9px;letter-spacing:.09em;
             padding:2px 6px;background:var(--sunk);color:var(--text-3)}
 .lpullstate.up{color:var(--ok)}
+
+/* One tag colour, wherever the tag appears: the chip in the filter bar and the
+   chip on the tile are the same colour because they are the same tag. */
+.wc-cyan{--tagc:var(--wc-cyan);--secc:var(--wc-cyan)}
+.wc-orchid{--tagc:var(--wc-orchid);--secc:var(--wc-orchid)}
+.wc-amber{--tagc:var(--wc-amber);--secc:var(--wc-amber)}
+.wc-green{--tagc:var(--wc-green);--secc:var(--wc-green)}
+.wc-coral{--tagc:var(--wc-coral);--secc:var(--wc-coral)}
+.wc-blue{--tagc:var(--wc-blue);--secc:var(--wc-blue)}
+.swatch.wc-cyan{background:var(--wc-cyan)}
+.swatch.wc-orchid{background:var(--wc-orchid)}
+.swatch.wc-amber{background:var(--wc-amber)}
+.swatch.wc-green{background:var(--wc-green)}
+.swatch.wc-coral{background:var(--wc-coral)}
+.swatch.wc-blue{background:var(--wc-blue)}
+
+/* A phone gets one or two columns and a taller row, because a 88px row with a
+   44px icon in it leaves nothing for the name. */
+@media (max-width:560px){
+  .lsecgrid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));grid-auto-rows:78px;
+            gap:calc(var(--u)*2)}
+  .ltile{padding:calc(var(--u)*2)}
+  .ltile.xl{grid-column:span 2}
+  .lselbar{position:sticky;bottom:0;z-index:20}
+}
 
 /* ---- the rail's two groups ---- */
 .navrule{height:2px;background:var(--rule);margin:calc(var(--u)*2) calc(var(--u)*1.5);flex:none;opacity:.7}

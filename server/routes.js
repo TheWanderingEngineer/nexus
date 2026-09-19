@@ -2,6 +2,7 @@ import express from "express";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import crypto from "node:crypto";
 import cfg from "./config.js";
 import { db, save, audit, clientIp } from "./store.js";
 import * as metrics from "./metrics.js";
@@ -411,16 +412,16 @@ export default function routes() {
   });
 
   /* ---------------- the launcher (Apps page) ----------------
-     A dashboard of links to the things actually running on this box. Stored
-     in settings, clamped the same way the widget layout is, because it is the
-     same kind of data: positions plus a little text. */
-  const MAX_APPS = 120;
+     A board of links to the things actually running on this box. Stored in
+     settings and clamped the same way the widget layout is.
 
-  const launcher = () => {
-    const s0 = db().settings = db().settings || {};
-    if (!Array.isArray(s0.launcher)) s0.launcher = [];
-    return s0.launcher;
-  };
+     Order is the array's order and size is one of four names, rather than x/y
+     and a width in cells. An app board is read on a phone as often as on the
+     desktop, and absolute positions cannot survive that trip: three columns
+     become one and the arrangement is gone. A list plus a size reflows and
+     stays recognisable, which is what "the same board everywhere" needs. */
+  const MAX_APPS = 120, MAX_GROUPS = 16;
+  const SIZES = ["s", "m", "l", "xl"];
 
   const str = (v, n) => typeof v === "string" ? v.slice(0, n) : "";
   /** Only http(s). A launcher tile becomes an <a href>, so a javascript: URL
@@ -434,6 +435,19 @@ export default function routes() {
     } catch { return ""; }
   };
 
+  /** Tags are lowercase, short, and few — they exist to be filter chips, and a
+   *  chip row nobody can scan is not a filter. */
+  const tagsOf = v => {
+    const raw = Array.isArray(v) ? v : String(v || "").split(",");
+    const out = [];
+    for (const t of raw) {
+      const k = String(t).toLowerCase().replace(/[^a-z0-9 +-]/g, "").trim().slice(0, 18);
+      if (k && !out.includes(k)) out.push(k);
+      if (out.length === 6) break;
+    }
+    return out;
+  };
+
   const sanitizeApp = (a, i) => ({
     id: str(a.id, 40) || "l" + Date.now().toString(36) + i,
     name: str(a.name, 60) || "App",
@@ -443,20 +457,128 @@ export default function routes() {
     desc: str(a.desc, 200),
     ports: (Array.isArray(a.ports) ? a.ports : []).slice(0, 12)
       .map(p => clampInt(p, 1, 65535)).filter(Boolean),
-    x: clampInt(a.x, 0, 11), y: clampInt(a.y, 0, 500),
-    w: clampInt(a.w, 1, 12), h: clampInt(a.h, 1, 12)
+    tags: tagsOf(a.tags),
+    group: str(a.group, 40),
+    pinned: !!a.pinned,
+    size: SIZES.includes(a.size) ? a.size : "m"
   });
 
-  r.get("/launcher", (_req, res) => res.json({ apps: launcher() }));
+  const sanitizeGroup = (g, i) => ({
+    id: str(g.id, 40) || "g" + Date.now().toString(36) + i,
+    name: str(g.name, 40) || "Group",
+    color: ["cyan", "orchid", "amber", "green", "coral", "blue"].includes(g.color) ? g.color : "cyan"
+  });
+
+  /**
+   * Old boards carried x/y/w/h. Read them once into order-and-size rather than
+   * asking the owner to rebuild: reading order is what the positions meant.
+   */
+  const launcher = () => {
+    const s0 = db().settings = db().settings || {};
+    let L = s0.launcher;
+    if (Array.isArray(L)) L = { apps: L, groups: [] };
+    if (!L || typeof L !== "object") L = { apps: [], groups: [] };
+    if (!Array.isArray(L.apps)) L.apps = [];
+    if (!Array.isArray(L.groups)) L.groups = [];
+    if (L.apps.some(a => a && a.size === undefined && a.x !== undefined)) {
+      L.apps = L.apps
+        .slice()
+        .sort((a, b) => (a.y || 0) - (b.y || 0) || (a.x || 0) - (b.x || 0))
+        .map(a => ({ ...a, size: (a.w >= 4 && a.h >= 2) ? "xl" : a.h >= 2 ? "l" : a.w >= 2 ? "m" : "s" }));
+    }
+    s0.launcher = L;
+    return L;
+  };
+
+  /** What a browser is allowed to see. A locked app's address is the thing the
+   *  PIN is protecting, so it does not travel until the PIN is given. */
+  const publicApps = () => launcher().apps.map(a => {
+    const { lock, ...rest } = a;
+    return lock ? { ...rest, url: "", externalUrl: "", locked: true } : { ...rest, locked: false };
+  });
+
+  r.get("/launcher", (_req, res) => res.json({ apps: publicApps(), groups: launcher().groups }));
 
   r.put("/launcher", (req, res) => {
     const incoming = req.body?.apps;
     if (!Array.isArray(incoming)) throw Object.assign(new Error("apps must be an array"), { status: 400 });
     if (incoming.length > MAX_APPS) throw Object.assign(new Error("too many apps"), { status: 400 });
-    const s0 = db().settings = db().settings || {};
-    s0.launcher = incoming.map(sanitizeApp);
+    const L = launcher();
+    // The browser never held the PIN or a locked app's address, so it cannot
+    // send them back. Carry both across from what is stored, or every save
+    // would quietly unlock the board.
+    const before = new Map(L.apps.map(a => [a.id, a]));
+    L.apps = incoming.map(sanitizeApp).map(a => {
+      const old = before.get(a.id);
+      if (!old?.lock) return a;
+      return { ...a, lock: old.lock, url: old.url, externalUrl: old.externalUrl };
+    });
+    if (Array.isArray(req.body?.groups)) L.groups = req.body.groups.slice(0, MAX_GROUPS).map(sanitizeGroup);
     save();
-    res.json({ apps: s0.launcher });
+    res.json({ apps: publicApps(), groups: L.groups });
+  });
+
+  /* ---- the PIN on a tile ----
+   * Said plainly, because the difference matters: this keeps an app off the
+   * board and its address out of the page for whoever is looking at Nexus over
+   * your shoulder. It is not access control on the app itself — that app has
+   * its own login, and anyone who knows its address can still type it in.
+   *
+   * It is still done properly. The PIN is stored as a scrypt hash, never
+   * returned by any endpoint, and a locked app's address is withheld until the
+   * PIN is given. Four digits is 10,000 guesses, so the attempts are counted.
+   */
+  const lockTries = new Map();
+  const LOCK_WINDOW_MS = 60_000, LOCK_MAX_TRIES = 6;
+
+  const findApp = id => {
+    const a = launcher().apps.find(x => x.id === id);
+    if (!a) throw Object.assign(new Error("no such app"), { status: 404 });
+    return a;
+  };
+  const pinOf = v => {
+    const pin = String(v ?? "");
+    if (!/^\d{4}$/.test(pin)) throw Object.assign(new Error("the PIN is four digits"), { status: 400 });
+    return pin;
+  };
+
+  r.post("/launcher/:id/lock", (req, res) => {
+    const app = findApp(req.params.id);
+    const salt = crypto.randomBytes(16).toString("hex");
+    app.lock = { salt, hash: crypto.scryptSync(pinOf(req.body?.pin), salt, 32).toString("hex") };
+    save();
+    audit("launcher.lock", { app: app.name }, req);
+    res.json({ apps: publicApps(), groups: launcher().groups });
+  });
+
+  r.delete("/launcher/:id/lock", (req, res) => {
+    const app = findApp(req.params.id);
+    delete app.lock;
+    save();
+    audit("launcher.unlock", { app: app.name }, req);
+    res.json({ apps: publicApps(), groups: launcher().groups });
+  });
+
+  r.post("/launcher/:id/open", (req, res) => {
+    const app = findApp(req.params.id);
+    if (!app.lock) return res.json({ url: app.url, externalUrl: app.externalUrl });
+
+    const now = Date.now();
+    const t = lockTries.get(app.id) || { n: 0, at: now };
+    if (now - t.at > LOCK_WINDOW_MS) { t.n = 0; t.at = now; }
+    if (t.n >= LOCK_MAX_TRIES) {
+      audit("launcher.pin.throttled", { app: app.name }, req);
+      throw Object.assign(new Error("too many tries — wait a minute"), { status: 429 });
+    }
+
+    const given = crypto.scryptSync(pinOf(req.body?.pin), app.lock.salt, 32).toString("hex");
+    if (!crypto.timingSafeEqual(Buffer.from(given, "hex"), Buffer.from(app.lock.hash, "hex"))) {
+      t.n++; lockTries.set(app.id, t);
+      audit("launcher.pin.failed", { app: app.name }, req);
+      throw Object.assign(new Error("that is not the PIN"), { status: 403 });
+    }
+    lockTries.delete(app.id);
+    res.json({ url: app.url, externalUrl: app.externalUrl });
   });
 
   /**
@@ -471,7 +593,7 @@ export default function routes() {
     if (!dockerx.status().available) {
       return res.json({ available: false, reason: dockerx.status().reason, found: [] });
     }
-    const have = launcher();
+    const have = launcher().apps;
     const havePorts = new Set(have.flatMap(a => a.ports || []));
     const haveNames = new Set(have.map(a => a.name.toLowerCase().replace(/[^a-z0-9]/g, "")));
 

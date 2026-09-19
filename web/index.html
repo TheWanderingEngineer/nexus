@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#14101F">
-<script src="/appearance.js?v=0.5.0"></script>
+<script src="/appearance.js?v=0.6.0"></script>
 <title>Nexus</title>
 <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/icons/nexus-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/assets/brand/icons/nexus-16.png">
 <link rel="apple-touch-icon" href="/assets/brand/icons/nexus-128.png">
 <link rel="stylesheet" href="/vendor/xterm.css">
-<link rel="stylesheet" href="/style.css?v=0.5.0">
-<link rel="stylesheet" href="/workstation.css?v=0.5.0">
+<link rel="stylesheet" href="/style.css?v=0.6.0">
+<link rel="stylesheet" href="/workstation.css?v=0.6.0">
 </head>
 <body>
 
@@ -106,8 +106,8 @@
         </div>
         <div id="tools-apps" hidden>
           <button class="btn" id="l-add" data-tip="Add an app by hand.">+ ADD APP</button>
+          <button class="btn" id="l-group" data-tip="A titled band to arrange apps into — watching, downloading, keeping an eye on.">+ GROUP</button>
           <button class="btn" id="l-pull" data-tip="Look at what is running and offer anything not already here. Nothing you have set up is touched.">PULL ALL</button>
-          <button class="btn" id="l-tidy" data-tip="Pack the tiles top-left with no gaps.">TIDY</button>
         </div>
         <div id="tools-files" hidden>
           <button class="btn" id="f-back" data-tip="Back to the folder you came from.">&#8592; BACK</button>
@@ -165,6 +165,16 @@
           <input id="l-q" type="search" placeholder="Find an app…" aria-label="Find an app">
           <span class="spacer"></span>
           <span class="lcount" id="l-count"></span>
+        </div>
+        <div class="ltagbar" id="l-tags" hidden></div>
+        <div class="lselbar" id="l-selbar" hidden>
+          <span class="selc" id="l-selcount">0 SELECTED</span>
+          <span class="spacer"></span>
+          <button class="btn sm" id="l-selgroup">GROUP</button>
+          <button class="btn sm" id="l-selsize">SIZE</button>
+          <button class="btn sm" id="l-selpin">PIN</button>
+          <button class="btn sm danger" id="l-selremove">REMOVE</button>
+          <button class="btn sm" id="l-selclear">CLEAR</button>
         </div>
         <div class="lgrid" id="l-grid"></div>
         <div class="empty" id="l-empty" hidden>
@@ -227,7 +237,7 @@
             <img class="si" src="/assets/brand/icons/ui-search.png" alt="">
             <input id="st-q" type="search" placeholder="Search apps…" autocapitalize="none" spellcheck="false">
           </div>
-          <select id="st-cat" class="sel"><option value="">All categories</option></select>
+          <select id="st-cat"><option value="">All categories</option></select>
           <span class="hint" id="st-count"></span>
         </div>
 
@@ -433,6 +443,6 @@
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/xterm-addon-fit.js"></script>
 <script src="/vendor/xterm-addon-web-links.js"></script>
-<script src="/app.js?v=0.5.0"></script>
+<script src="/app.js?v=0.6.0"></script>
 </body>
 </html>

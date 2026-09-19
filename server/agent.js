@@ -639,11 +639,14 @@ async function callModel(s, messages, brief) {
   const base = s.provider === "custom" ? String(s.baseUrl || "").replace(/\/+$/, "") : null;
   if (s.provider === "custom" && !base) throw httpError(400, "Set the base URL for your OpenAI-compatible endpoint.");
 
-  if (prov.kind === "anthropic") return anthropicCall({ prov, model, key, tools, messages, system: systemPrompt(s, brief) });
-  if (prov.kind === "google")    return googleCall({ prov, model, key, tools, messages, system: systemPrompt(s, brief) });
+  // One place seals the history, so no adapter can be the one that forgets.
+  const wire = sealed(messages);
+
+  if (prov.kind === "anthropic") return anthropicCall({ prov, model, key, tools, messages: wire, system: systemPrompt(s, brief) });
+  if (prov.kind === "google")    return googleCall({ prov, model, key, tools, messages: wire, system: systemPrompt(s, brief) });
   return openaiCall({
     endpoint: base ? base + "/chat/completions" : prov.endpoint,
-    model, key, tools, messages, system: systemPrompt(s, brief)
+    model, key, tools, messages: wire, system: systemPrompt(s, brief)
   });
 }
 
@@ -666,11 +669,74 @@ async function postJSON(url, headers, body) {
   return json;
 }
 
+/**
+ * Every tool call has to come back with a result, and every provider enforces
+ * it. Getting that wrong is not one bad reply: the mismatched pair stays in the
+ * history, so the *next* message fails the same way, and the one after that —
+ * the conversation is bricked until you start a new one.
+ *
+ * It can go wrong honestly. A model emits three calls, the second needs the
+ * owner's approval, and the third is never reached. Or the owner ignores the
+ * approval card and types something else instead. So rather than trusting the
+ * loop to be perfect, the history is sealed on the way out: anything still
+ * owed a result gets one saying plainly that it was not run. A model told "not
+ * run" asks again; a model told nothing gets a 400 on its owner's behalf.
+ *
+ * Results that answer no call at all are dropped — an orphan is the same error
+ * seen from the other end.
+ */
+export function sealed(messages) {
+  const stub = ids => ({
+    role: "tool",
+    content: ids.map(id => ({
+      type: "tool_result", tool_use_id: id,
+      content: [{ type: "text", text: "not run — the conversation moved on before this call was answered" }]
+    }))
+  });
+
+  const out = [];
+  let owed = [];
+  for (const m of messages) {
+    if (m.role === "tool") {
+      const keep = (m.content || []).filter(b => owed.includes(b.tool_use_id));
+      if (keep.length) out.push({ role: "tool", content: keep });
+      owed = owed.filter(id => !keep.some(b => b.tool_use_id === id));
+      continue;
+    }
+    if (owed.length) { out.push(stub(owed)); owed = []; }
+    out.push(m);
+    if (m.role === "assistant") owed = (m.content || []).filter(b => b.type === "tool_use").map(b => b.id);
+  }
+  if (owed.length) out.push(stub(owed));
+  return out;
+}
+
 /* ---- Anthropic ---- */
+/** Anthropic has no `tool` role — results are user turns — and it rejects keys
+ *  its schema does not name, so blocks are rebuilt rather than passed through.
+ *  Same-role turns are merged because roles have to alternate. */
+export function anthropicMessages(messages) {
+  const block = b =>
+    b.type === "tool_use"    ? { type: "tool_use", id: b.id, name: b.name, input: b.input || {} }
+  : b.type === "tool_result" ? { type: "tool_result", tool_use_id: b.tool_use_id, content: b.content }
+  :                            { type: "text", text: b.text };
+
+  const out = [];
+  for (const m of messages) {
+    const role = m.role === "tool" ? "user" : m.role;
+    const content = (m.content || []).map(block);
+    if (!content.length) continue;
+    const last = out[out.length - 1];
+    if (last && last.role === role) last.content.push(...content);
+    else out.push({ role, content });
+  }
+  return out;
+}
+
 async function anthropicCall({ prov, model, key, tools, messages, system }) {
   const body = {
     model, max_tokens: 8000, system,
-    messages: messages.map(m => ({ role: m.role, content: m.content })),
+    messages: anthropicMessages(messages),
     ...(tools.length ? { tools: tools.map(t => ({ name: t.name, description: t.description, input_schema: t.schema })) } : {})
   };
   const headers = { "x-api-key": key, "anthropic-version": "2023-06-01" };
@@ -824,6 +890,21 @@ function needsApproval(tool, s) {
 export async function send(runId, text, req) {
   const r = run(runId);
   const s = settings();
+
+  // Typing instead of answering the approval card is a legitimate way to say
+  // no. Treat it as one: the waiting call is closed off and the model is told,
+  // rather than being left open with a user message stacked on top of it.
+  if (r.pending) {
+    const p = r.pending;
+    r.pending = null;
+    r.steps.push({ kind: "tool", name: p.name, args: p.args, denied: true, at: Date.now() });
+    r.messages.push({
+      role: "tool",
+      content: [{ type: "tool_result", tool_use_id: p.id, name: p.name,
+                  content: [{ type: "text", text: "Not run — the owner moved on without approving it. Answer what they asked now." }] }]
+    });
+  }
+
   r.messages.push({ role: "user", content: [{ type: "text", text: String(text).slice(0, 20000) }] });
   r.steps.push({ kind: "user", text: String(text).slice(0, 20000), at: Date.now() });
   const u = db().settings?.agentUsage; if (u) { u.runs = (u.runs || 0) + 1; save(); }

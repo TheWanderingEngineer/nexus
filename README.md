@@ -258,6 +258,11 @@ file contents and command output, comes back into its context, and text in a fil
 can be written to look like an instruction. Ask-me-first is what stands between
 that and an action.
 
+If you ignore the approval and ask something else instead, that is taken as a
+no: the waiting action is closed off, Hermes is told it was not run, and the
+conversation carries on. Nothing is left half-answered — a tool call with no
+result in the history is a conversation every provider refuses from then on.
+
 Every tool call it makes lands in the audit log on the Settings page, whichever
 mode you are in.
 
@@ -293,8 +298,8 @@ Skills carry **tags** — search the library, or filter it down to `docker`,
 `media`, `networking`. Tags are a line in the file's front matter, so they travel
 with it.
 
-The editor has **WRITE** and **PREVIEW** tabs: write the Markdown, then look at
-it the way Hermes will be handed it.
+The editor opens on **PREVIEW** — rendered, the way Hermes will be handed it —
+with **WRITE** next to it for the source.
 
 They are ordinary files in `/var/lib/nexus/agent-skills`, so you can edit them in
 the browser, drop your own in, or copy one to another machine. **RESTORE
@@ -449,19 +454,19 @@ desktop layout at a size you can read from a sofa.
 
 The dashboard watches the machine. **Apps** is the other half: a launcher for the
 things running *on* it — Jellyfin, Sonarr, Nginx Proxy Manager, whatever you have
-— as a grid of tiles you click to open.
+— as tiles you click to open.
 
-Each tile carries a name, an icon, a description, the ports it publishes, and two
-addresses:
+Each tile carries a name, an icon, a description, the ports it publishes, tags,
+and two addresses:
 
 - **Local** — `http://192.168.1.50:8096`, the one that works on your own network.
 - **External** — your DuckDNS hostname, for when you are not on it.
 
 Both are optional and Nexus keeps them apart rather than guessing. A tile with
-both shows a small **EXT** button; clicking the tile itself always takes the
-local route, because that is the one you want nine times out of ten. Only `http`
-and `https` addresses are stored — anything else is rejected by the server, not
-just by the form.
+both shows a small globe button; clicking the tile itself always takes the local
+route, because that is the one you want nine times out of ten. Only `http` and
+`https` addresses are stored — anything else is rejected by the server, not just
+by the form.
 
 **Icons pull themselves.** Type "jellyfin" and the icon appears, from the same
 [dashboard-icons](https://github.com/homarr-labs/dashboard-icons) set Homarr
@@ -471,16 +476,72 @@ image URL instead. If the icon cannot be fetched — no internet, a name nothing
 matches — the tile falls back to a lettered square rather than a broken-image
 glyph, so a box with no outbound access still gets a usable launcher.
 
-**PULL ALL** reads the containers that are actually running and proposes the ones
-that are not on the page yet, with a tick box each. It is additive by
-construction: a container is skipped if its name or any of its published ports
-already appears on a tile, so running it a second time after you have renamed and
-arranged everything adds only what is new and leaves your work alone. It proposes;
-you choose; nothing is written until you press ADD.
+### Arranging it
 
-Tiles move the way widgets do — drag to reposition, **TIDY** to pack them
-top-left with no gaps — and the search box filters by name, description or port
-once there are more than a screenful.
+**Groups** are titled bands: one for watching, one for grabbing, one for the
+things you keep an eye on. **+ GROUP** makes one, and dragging a tile onto a
+band moves it there. A group has a colour, which marks the band and nothing else
+— it does not recolour your apps.
+
+**Pinned** apps sit in their own band at the top, above a dividing rule, with a
+pin mark on the tile. Nothing pinned means no band and no rule: a divider with
+nothing above it is a line for its own sake.
+
+**Tags** are how you find things once there are thirty of them. Add them in Edit
+App, and each one becomes a filter chip above the board — click to narrow, click
+again to clear. A tag's colour is derived from the tag itself, so `media` is the
+same colour on every tile and on its chip. Search matches names, descriptions,
+ports and tags.
+
+| Gesture | Effect |
+|---|---|
+| Click a tile | Opens the app |
+| Drag a tile | Moves it — within its band to reorder, onto another band to regroup |
+| Ctrl/⌘ + click | Add or remove a tile from the selection |
+| Drag over empty space | Marquee-select everything the box touches |
+| Ctrl/⌘ + A | Select everything currently shown |
+| Delete / Escape | Remove the selection / clear it |
+| Hold a tile (touch) | Picks it up — a finger has no hover, so a still press is the signal |
+
+With something selected, a bar offers the bulk actions: move to a group, change
+size, pin, remove.
+
+**Four tile sizes**, not free resizing. Small is an icon and a name; medium adds
+the description and ports; large and huge are twice the height for the two or
+three you actually look at. A board of arbitrary rectangles is the mess this is
+meant to avoid.
+
+### The same board on a phone
+
+Tiles are an ordered list with a size, not boxes at coordinates. That is a
+deliberate choice and it is what makes the board survive the trip: the desktop
+shows six columns, an iPad three, a phone one, and the order, the groups and the
+relative sizes are the same on all of them. Nothing to rearrange twice, and no
+arrangement to lose.
+
+### A PIN on a tile
+
+Any app can be given a four-digit PIN in Edit App; the tile then shows a lock and
+asks for the digits before it opens.
+
+What it does, said plainly: it keeps that app off the board and **its address out
+of the page** for whoever is looking at Nexus over your shoulder. The PIN is
+stored as a scrypt hash, is never returned by any endpoint, and the server
+withholds the app's addresses until the digits are given — so "view source" does
+not defeat it and neither does the API. Guesses are counted and throttled.
+
+What it is not: access control on the app itself. That app has its own login, and
+anyone who knows its address can still type it into a browser. It is a screen, a
+good one, and it is described as one.
+
+### PULL ALL
+
+Reads the containers that are actually running and proposes the ones that are not
+on the board yet, with a tick box each. It is additive by construction: a
+container is skipped if its name or any of its published ports already appears on
+a tile, so running it a second time after you have renamed, tagged and arranged
+everything adds only what is new and leaves your work alone. It proposes; you
+choose; nothing is written until you press ADD.
 
 ## Files
 

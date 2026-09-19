@@ -319,11 +319,43 @@ unless the owner has chosen full access. `cap` must be one of the keys in
 and is clipped — `clip()` exists because a 200 MB log would otherwise become a
 200 MB request.
 
+### Every tool call must come back answered
+
+`sealed(messages)` runs once in `callModel`, before any adapter sees the
+history, and it is the reason a conversation cannot brick itself.
+
+Every provider enforces the same contract: an assistant turn carrying tool calls
+must be followed by a result for each one. Break it and you do not get one bad
+reply — the mismatched pair stays in the history, so the next message fails the
+same way, and the one after that, until the owner starts a new conversation.
+DeepSeek says it plainly: *"An assistant message with 'tool_calls' must be
+followed by tool messages responding to each 'tool_call_id'."*
+
+Two honest ways to break it, both of which happened:
+
+- A model emits three calls in one turn, the second needs approval, so the loop
+  stops — and the third is never reached.
+- The owner ignores the approval card and types something else instead, stacking
+  a user message on top of an open call.
+
+`send()` now closes an ignored approval explicitly (it is a "no", and the model
+is told so), and `sealed` is the backstop: anything still owed a result gets one
+saying it was not run, and results answering no call at all are dropped. A model
+told "not run" asks again. A model told nothing gets a 400 on its owner's behalf.
+
+The stub provider in `scripts/agent-check.js` enforces the same contract, so a
+broken history fails in the test rather than on the owner's box.
+
 ### Providers
 
 Three wire shapes behind one normalised `{text, calls, usage}`: `anthropicCall`,
 `openaiCall` (OpenAI, DeepSeek, and every local server that copies them) and
-`googleCall`. Raw `fetch` rather than the vendors' SDKs, because `npm ci` on the
+`googleCall`.
+
+**Anthropic has no `tool` role.** Results are user turns, roles must alternate,
+and it rejects block keys its schema does not name — so `anthropicMessages()`
+rebuilds each block rather than passing the internal shape through, and merges
+same-role turns. Sending the internal shape straight out is a 400 every time. Raw `fetch` rather than the vendors' SDKs, because `npm ci` on the
 target box must never need a compiler and one adapter is less code than three
 SDKs plus the glue to make them interchangeable behind a single model picker.
 
@@ -430,11 +462,30 @@ places or it silently does not arrive — without this a 409 reaches the user as
 
 ## The launcher (Apps page)
 
-`web/app.js`, the `LP` block — state, a 12-column grid (`L_COLS`, `L_ROW`,
-`L_GAP`), and the same snapshot-at-pointer-down drag the dashboard uses. The
-server side is a hundred lines in `routes.js`, not a module: the stored shape is
-positions plus a little text, which is what the widget layout already is, so it
-reuses `clampInt` and the same clamp-don't-trust posture.
+`web/app.js`, the `LP` block. The server side is in `routes.js`, not a module of
+its own: the stored shape is a list, a few flags and some text.
+
+**A tile has an order and a size, not an x/y and a width.** This is the load-
+bearing decision on this page. The same board is opened on a desktop, an iPad
+and a phone, and absolute positions cannot make that trip — three columns become
+one and the arrangement is gone, or worse, is silently kept per-device and
+diverges. Flow plus a named size (`s`/`m`/`l`/`xl`, spans in a `repeat(auto-fill,
+minmax(168px,1fr))` grid) reflows into any width with the order and the relative
+weight intact. Groups carry the structure that positions used to imply.
+
+`grid-auto-flow: dense` closes the holes a tall tile leaves, and a span wider
+than the viewport is clamped by the grid itself rather than overflowing — which
+is why there is no phone-specific layout code, only a smaller row height.
+
+Old boards are migrated on read (`launcher()` in `routes.js`): sorted by `y`
+then `x`, and `w`/`h` mapped to a size. Reading order is what the positions
+meant.
+
+**Dragging ends at a place in a list, not at a pixel.** A ghost follows the
+pointer, a marker between two tiles says where it will land, and the drop
+computes `(section, anchor, before/after)`. Dropping on a band's background
+means the end of that band; dropping on the pinned band pins it. The whole
+selection travels together.
 
 Three rules that are not obvious:
 
@@ -449,8 +500,7 @@ drops anything whose name *or* any published port already appears on a tile, and
 returns the rest as candidates. "Pull All" then shows them with tick boxes. The
 owner has renamed and arranged those tiles by hand; a discovery pass that
 overwrote them would be the single most annoying thing this page could do, so the
-skip is decided on the server and the write is a normal `PUT /launcher` of
-whatever the client ends up with.
+skip is decided on the server and the write is a normal `PUT /launcher`.
 
 **Icons resolve by slug, and the fallback is a letter.** `iconSlug()` normalises
 the name, runs it through `ICON_ALIASES` for the ones that do not match
@@ -459,6 +509,53 @@ the name, runs it through `ICON_ALIASES` for the ones that do not match
 box with no outbound access is the normal case, not the error case, so the
 failure path draws a lettered tile — via the delegated `error` listener, because
 `onerror=` would be refused (see the invariants).
+
+### The PIN, and what it actually protects
+
+A four-digit PIN is worth almost nothing if it only hides a button, so it does
+not. `POST /launcher/:id/lock` stores a scrypt hash; `GET /launcher` returns
+locked apps with `url` and `externalUrl` blanked and `locked: true`; the address
+is handed over only by `POST /launcher/:id/open` with the right digits, counted
+and throttled at six tries a minute. "View source" and the API are both dead
+ends.
+
+Two consequences worth knowing before changing this code:
+
+- **`PUT /launcher` must carry the lock and the addresses across.** The browser
+  never held either, so it cannot send them back; the merge in the handler is
+  what stops an ordinary board save from silently unlocking everything.
+- **A locked app's address cannot be edited**, because it is not on screen to
+  edit. The form disables those two fields and says why. Take the PIN off first.
+
+The README states the limit in the UI's own words: this is a screen against
+whoever is looking at Nexus, not access control on the app, which has its own
+login. Do not let the code drift into implying more than that.
+
+---
+
+## Two rules that outrank yours
+
+Both of these shipped, both were invisible in review, and both came from the same
+mechanism: `[data-gui="workstation"] :is(input[type=text],…)` has specificity
+(0,2,1) and beats any single class.
+
+**`.sel` meant two things.** It was the class on `<select>` elements *and* the
+"this one is chosen" state on `.ctxopt`, file rows and swatches. The workstation
+theme styled selects with `background: var(--sunk)`, so every selected option in
+every widget menu became `--on-accent` text on the sunk background: a contrast
+ratio of **1.05:1** — invisible, in all three dark palettes, everywhere in the
+app. Dropdowns are matched by element now, and `.sel` means exactly one thing.
+
+**`min-height: 38px` squashed every editor.** The same rule listed `textarea`,
+so the skill editor's `min-height: min(58vh,520px)` lost and the box came out
+60px tall. One-line fields keep the floor; text areas are excluded, and
+`textarea` in `style.css` carries its own.
+
+The lesson for new theme rules: a base rule for form fields should style the
+*look* and leave the size to the component, or it will win an argument it was
+never meant to have. Both are now asserted in `npm run dash:check` — contrast is
+measured across five theme combinations, and the editor's height is measured
+rather than its CSS read.
 
 ---
 
@@ -688,8 +785,8 @@ npm run check          # auth, CSRF, the path jail, the WS origin check, the sto
 npm run gui:check      # theme tokens, trustedProxies matching
 npm run agent:check    # providers, capabilities, the agent's jails, skills, crons
 npm run proxy:check    # the four reverse-proxy shapes
-npm run dash:check     # widget layout, drag, presets, tidy — in a real browser
-npm run apps:check     # the launcher: URLs, discovery, icons, the close rule
+npm run dash:check     # widget layout and drag, plus the app-wide UI rules
+npm run apps:check     # the launcher: URLs, PINs, groups, tags, drag, a phone
 ```
 
 The last three drive Chromium through Playwright.
@@ -722,6 +819,9 @@ template literal landed as `content:;` and silently killed two pseudo-elements.
 **Use an editor for structured text.**
 
 **Assuming a helper does what its name suggests.** See `$` vs `$$` above.
+
+**One class name meaning two things.** `.sel` was both "this is a dropdown" and
+"this is selected". See *Two rules that outrank yours*.
 
 **Writing a test that cannot fail.** A widget-overlap regression test passed
 twice with the fix removed: once because the ResizeObserver repaired the layout

@@ -25,13 +25,31 @@ let script=[], seen=[];
 const stub=http.createServer((req,res)=>{
   let b=''; req.on('data',d=>b+=d); req.on('end',()=>{
     const body=JSON.parse(b); seen.push(body);
+
+    // The stub enforces the contract a real provider enforces, so a broken
+    // history fails here the way DeepSeek failed on the owner's box rather
+    // than sailing through and passing the test.
+    const want=new Set(), got=new Set();
+    for (const m of body.messages||[]) {
+      for (const c of m.tool_calls||[]) want.add(c.id);
+      if (m.role==='tool') got.add(m.tool_call_id);
+    }
+    if ([...want].some(id=>!got.has(id))) {
+      res.statusCode=400; res.setHeader('content-type','application/json');
+      return res.end(JSON.stringify({ error:{ message:
+        "An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'." } }));
+    }
+
     const next=script.shift() || { content:'done' };
+    // `tool`/`args` is one call; `tools` is a parallel batch, which is where
+    // the half-answered-turn bug lived.
+    const calls=next.tools ? next.tools : (next.tool ? [{ name:next.tool, args:next.args }] : []);
     res.setHeader('content-type','application/json');
     res.end(JSON.stringify({
       choices:[{ message:{ role:'assistant', content:next.content ?? null,
-        ...(next.tool ? { tool_calls:[{ id:'c1', type:'function',
-          function:{ name:next.tool, arguments:JSON.stringify(next.args||{}) } }] } : {}) },
-        finish_reason: next.tool ? 'tool_calls' : 'stop' }],
+        ...(calls.length ? { tool_calls: calls.map((c,i)=>({ id:'c'+(i+1), type:'function',
+          function:{ name:c.name, arguments:JSON.stringify(c.args||{}) } })) } : {}) },
+        finish_reason: calls.length ? 'tool_calls' : 'stop' }],
       usage:{ prompt_tokens: next.in ?? 100, completion_tokens: next.out ?? 20 }
     }));
   });
@@ -102,6 +120,42 @@ try{
   t=(await A(`/agent/run/${run.id}/send`,{method:'POST',body:JSON.stringify({text:'make it for real'})})).body;
   t=(await A(`/agent/run/${run.id}/approve`,{method:'POST',body:JSON.stringify({decision:'allow'})})).body;
   ok('approving performs the write', fs.existsSync(target) && fs.readFileSync(target,'utf8')==='written by hermes');
+
+  /* 4b. A half-answered turn must never reach the provider.
+
+     Two ways it used to happen, both of which bricked the conversation for
+     good: a parallel batch where a later call needed approval and the ones
+     after it were never reached, and an owner who typed a new message instead
+     of answering the approval card. Either left an assistant turn carrying
+     tool calls with no results after it, and every later message failed with
+     "must be followed by tool messages responding to each tool_call_id". */
+  const answered = body => {
+    const ids=new Set(), got=new Set();
+    for (const m of body.messages||[]) {
+      for (const c of m.tool_calls||[]) ids.add(c.id);
+      if (m.role==='tool') got.add(m.tool_call_id);
+    }
+    return [...ids].every(id=>got.has(id));
+  };
+
+  await A('/agent/config',{method:'PUT',body:JSON.stringify({approval:'ask'})});
+  const target2=path.join(share,'batch.txt');
+  seen=[];
+  script=[ { tools:[ { name:'system_metrics', args:{} },
+                     { name:'write_file', args:{ path:target2, content:'from a batch' } },
+                     { name:'read_file', args:{ path: path.join(share,'readme.txt') } } ] },
+           { content:'Here is what I found.' } ];
+  run=(await A('/agent/run',{method:'POST'})).body;
+  t=(await A(`/agent/run/${run.id}/send`,{method:'POST',body:JSON.stringify({text:'check and write'})})).body;
+  ok('a batch pauses on the call that needs approval', t.pending?.name==='write_file', JSON.stringify(t.pending));
+
+  const after=(await A(`/agent/run/${run.id}/send`,{method:'POST',
+    body:JSON.stringify({text:'never mind, just tell me the numbers'})}));
+  ok('typing instead of approving is accepted, not a 400', after.status===200, String(after.status));
+  ok('every tool call the model made came back answered',
+     seen.length>1 && answered(seen[seen.length-1]),
+     JSON.stringify(seen[seen.length-1]?.messages?.map(m=>[m.role,(m.tool_calls||[]).length,m.tool_call_id||''])));
+  ok('the call the owner walked away from was not run', !fs.existsSync(target2));
 
   /* 5. Full access runs a real command with no gate. */
   await A('/agent/config',{method:'PUT',body:JSON.stringify({approval:'auto'})});
@@ -207,6 +261,39 @@ try{
   ok('a skill can be deleted permanently', !del.list.some(k=>k.id==='media-stack'));
   const rest=(await A('/agent/skills/restore',{method:'POST'})).body;
   ok('restore defaults brings a stock skill back', rest.added===1 && rest.list.some(k=>k.id==='media-stack'));
+
+  /* 9b. The wire shape each provider actually accepts.
+
+     `sealed` is the one place that guarantees the tool-call contract, and
+     Anthropic has no `tool` role at all — results are user turns, roles must
+     alternate, and it rejects block keys its schema does not name. */
+  // Importing the module runs its seed; point it at the scratch dir first, so
+  // running the checks never touches a real /var/lib/nexus.
+  process.env.NEXUS_DATA_DIR = dataDir; process.env.NEXUS_CONFIG = conf;
+  const agent = await import('../server/agent.js');
+  const hist = [
+    { role:'user', content:[{type:'text',text:'hi'}] },
+    { role:'assistant', content:[{type:'tool_use',id:'a1',name:'x',input:{}},
+                                 {type:'tool_use',id:'a2',name:'y',input:{}}] },
+    { role:'tool', content:[{type:'tool_result',tool_use_id:'a1',name:'x',content:[{type:'text',text:'ok'}]}] },
+    { role:'user', content:[{type:'text',text:'never mind'}] }
+  ];
+  const sealedMsgs = agent.sealed(hist);
+  const ids = new Set(sealedMsgs.flatMap(m=>m.role==='tool'?m.content.map(b=>b.tool_use_id):[]));
+  ok('sealing answers every call the model made', ids.has('a1') && ids.has('a2'), [...ids].join(','));
+  ok('the stub lands before the next user turn, not after it',
+     sealedMsgs.findIndex(m=>m.role==='tool'&&m.content.some(b=>b.tool_use_id==='a2'))
+       < sealedMsgs.length-1 && sealedMsgs[sealedMsgs.length-1].role==='user');
+
+  const orphan = agent.sealed([{ role:'tool', content:[{type:'tool_result',tool_use_id:'ghost',content:[]}] }]);
+  ok('a result answering no call is dropped', orphan.length===0, JSON.stringify(orphan));
+
+  const anth = agent.anthropicMessages(sealedMsgs);
+  ok('Anthropic gets no tool role', !anth.some(m=>m.role==='tool'), anth.map(m=>m.role).join(','));
+  ok('Anthropic roles alternate', anth.every((m,i)=>i===0||m.role!==anth[i-1].role), anth.map(m=>m.role).join(','));
+  ok('Anthropic blocks carry no keys its schema rejects',
+     anth.every(m=>m.content.every(b=>b.type!=='tool_result'||Object.keys(b).join()==='type,tool_use_id,content')),
+     JSON.stringify(anth.flatMap(m=>m.content.filter(b=>b.type==='tool_result'))));
 
   /* 10. The key test reports a real failure rather than pretending. */
   const test=(await A('/agent/test',{method:'POST'})).body;
