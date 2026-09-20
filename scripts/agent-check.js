@@ -196,9 +196,30 @@ try{
     await sleep(500);
   }
 
+  /* 8b. The agent can read what Nexus itself is set to do — without the
+     credentials in it. A webhook URL is enough to post as its owner. */
+  await A('/automation/notify', { method: 'PUT', body: JSON.stringify({
+    webhookUrl: 'https://ntfy.sh/super-secret-topic-name', browser: true }) });
+  await A('/automation/rules', { method: 'PUT', body: JSON.stringify({
+    name: 'Disk almost full', source: 'disk', target: '/', op: 'above', value: 90,
+    forSec: 300, cooldownSec: 21600, actions: ['notify'], severity: 'warn', enabled: true }) });
+  await A('/agent/config', { method: 'PUT', body: JSON.stringify({ approval: 'auto' }) });
+
+  script = [{ tool: 'nexus_config', args: {} }, { content: 'You have one rule.' }];
+  run = (await A('/agent/run', { method: 'POST' })).body;
+  t = (await A(`/agent/run/${run.id}/send`, { method: 'POST', body: JSON.stringify({ text: 'what rules do I have' }) })).body;
+  const conf = t.steps.find(x => x.kind === 'tool' && x.name === 'nexus_config');
+  ok('the agent can read the owner\'s watch rules', !!conf && conf.result.includes('Disk almost full'), conf?.result?.slice(0, 120));
+  ok('and the notification webhook is redacted to its host',
+     conf && conf.result.includes('ntfy.sh') && !conf.result.includes('super-secret-topic-name'),
+     (conf?.result || '').split('\n').filter(l => l.includes('webhook')).join(' '));
+
   /* 9. Skills: the library seeds itself, memory vs on-demand behave differently. */
   const sk0 = (await A('/agent/skills')).body;
-  ok('the starter library is seeded on first boot', sk0.list.length >= 8, sk0.list.length + ' skills');
+  ok('the starter library is seeded on first boot', sk0.list.length >= 13, sk0.list.length + ' skills');
+  ok('the stack skills are there to be fetched',
+     ['arr-stack', 'requesting-media', 'torrents-and-indexers', 'verifying-media'].every(id => sk0.list.some(k => k.id === id)),
+     sk0.list.map(k => k.id).join(','));
   ok('some skills are memory and some are on demand',
      sk0.list.some(k => k.mode === 'always') && sk0.list.some(k => k.mode === 'ondemand'));
   ok('the memory budget is reported', sk0.budget.limit > 0 && sk0.budget.used > 0 && !sk0.budget.over,

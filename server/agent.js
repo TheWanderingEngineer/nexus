@@ -8,6 +8,7 @@ import * as metrics from "./metrics.js";
 import * as filesvc from "./files.js";
 import * as dockerx from "./dockerx.js";
 import * as skills from "./skills.js";
+import * as automation from "./automation.js";
 
 /**
  * Hermes — the Nexus Expert agent.
@@ -318,6 +319,56 @@ const TOOLS = [
         host: m.host, cpu: m.cpu, mem: m.mem, disks: m.disks, net: { rx: m.net.rx, tx: m.net.tx },
         diskIO: m.diskIO, sensors: m.sensors, uptimeSec: m.uptimeSec,
         topByCpu: m.procs.byCpu?.slice(0, 8), topByMem: m.procs.byMem?.slice(0, 8)
+      }, null, 1);
+    }
+  },
+  {
+    /**
+     * What Nexus itself is set to do.
+     *
+     * The briefing says what the machine is doing; this says what its owner has
+     * already told it to do about that. Without it Hermes proposes a watch rule
+     * that already exists, or explains an alert it has no way of knowing fired.
+     *
+     * Read-only and redacted. A webhook URL is a credential — an ntfy topic or
+     * a Discord token is enough to post as you — so only its host is reported,
+     * and an app's PIN never leaves the server at all.
+     */
+    name: "nexus_config", cap: "metrics", risk: "read",
+    description: "What Nexus is currently configured to do: watch rules, scheduled tasks, recent alerts, where notifications go, whether power actions are armed, and the apps on the Apps page.",
+    schema: { type: "object", properties: {}, additionalProperties: false },
+    async run() {
+      const c = automation.getConfig();
+      const host = u => { try { return new URL(u).host; } catch { return "set"; } };
+      const L = db().settings?.launcher;
+      const apps = Array.isArray(L) ? L : (L?.apps || []);
+      return JSON.stringify({
+        watchRules: c.rules.map(r => ({
+          name: r.name, enabled: r.enabled, watches: r.source, target: r.target || "any",
+          when: `${r.op} ${r.value}`, sustainSec: r.forSec, cooldownSec: r.cooldownSec,
+          does: r.actions, severity: r.severity
+        })),
+        scheduledTasks: c.schedules.map(s => ({
+          name: s.name, enabled: s.enabled, action: s.action, target: s.target,
+          at: `${String(s.hour).padStart(2, "0")}:${String(s.minute).padStart(2, "0")}`,
+          days: s.days, note: "server local time"
+        })),
+        recentAlerts: automation.listAlerts(15).map(a => ({ at: new Date(a.ts).toISOString(), level: a.level, title: a.title, message: a.message })),
+        notifications: {
+          browser: c.notify.browser,
+          webhook: c.notify.webhookUrl ? `configured (${host(c.notify.webhookUrl)})` : "none",
+          format: c.notify.webhookFormat
+        },
+        power: { armed: c.power.allowRemote, supported: c.power.supported,
+                 note: c.power.allowRemote ? "reboot and shutdown will run" : "the server refuses reboot and shutdown" },
+        apps: apps.map(a => ({
+          name: a.name, url: a.lock ? "hidden behind a PIN" : a.url,
+          external: a.lock ? "hidden behind a PIN" : (a.externalUrl || ""),
+          ports: a.ports || [], tags: a.tags || [], pinned: !!a.pinned, hasPin: !!a.lock
+        })),
+        whatCanBeWatched: c.sources.map(s => ({ key: s.key, label: s.label, unit: s.unit })),
+        whatARuleCanDo: c.actions.map(a => a.key),
+        note: "Read-only. Changing any of this is the owner's job in the Control Panel; describe the change you would make and let them make it."
       }, null, 1);
     }
   },

@@ -226,7 +226,7 @@ tr:last-child td{border-bottom:none}
 tr:hover td{background:var(--panel-hi)}
 td.mono{font-family:var(--mono);font-size:11px;font-variant-numeric:tabular-nums}
 td.name{color:var(--text)}
-.rowbtns{display:flex;gap:var(--u);flex-wrap:wrap}
+.rowbtns{display:flex;gap:calc(var(--u)*2.5);flex-wrap:wrap}
 
 .crumbs{display:flex;flex-wrap:wrap;gap:var(--u);align-items:center;font-family:var(--mono);font-size:12px;margin-bottom:calc(var(--u)*3)}
 .crumbs button{color:var(--accent);text-decoration:underline}
@@ -264,6 +264,27 @@ td.name{color:var(--text)}
 .section{background:var(--panel);padding:calc(var(--u)*4);margin-bottom:calc(var(--u)*4)}
 .section h2{font-family:var(--screen);font-size:11px;letter-spacing:.1em;color:var(--accent);margin:0 0 calc(var(--u)*3);
             padding-bottom:calc(var(--u)*2);border-bottom:2px solid var(--rule)}
+
+/* A section that owns an action carries it in its own head. A page-level
+   toolbar cannot say which section a button belongs to, and "+ NEW RULE"
+   floating above five sections belongs to none of them. */
+.sechead{display:flex;flex-wrap:wrap;gap:calc(var(--u)*3);align-items:flex-start;
+         margin-bottom:calc(var(--u)*3);padding-bottom:calc(var(--u)*2.5);
+         border-bottom:2px solid var(--rule)}
+.sectitle{flex:1;min-width:200px}
+.sechead h2{margin:0;padding:0;border:0}
+.sechead .hint{margin:calc(var(--u)*1.5) 0 0;max-width:68ch}
+.secacts{display:flex;gap:calc(var(--u)*2.5);flex-wrap:wrap;flex:none}
+
+/* Bands group the sections that answer the same question. */
+.bandhead{font-family:var(--screen);font-size:9.5px;letter-spacing:.14em;color:var(--text-3);
+          margin:calc(var(--u)*6) 0 calc(var(--u)*3);display:flex;align-items:center;gap:calc(var(--u)*3)}
+.bandhead::after{content:"";flex:1;height:2px;background:var(--rule);opacity:.65}
+.pagelead{margin:0 0 calc(var(--u)*4);font-size:13.5px;color:var(--text-2);max-width:76ch;line-height:1.55}
+@media (max-width:560px){
+  .secacts{width:100%}
+  .secacts .btn{flex:1 1 auto;justify-content:center}
+}
 .kv{display:grid;grid-template-columns:minmax(120px,auto) minmax(0,1fr);gap:calc(var(--u)*2) calc(var(--u)*4);font-size:13px}
 .kv dt{font-family:var(--screen);font-size:9px;letter-spacing:.08em;color:var(--text-3);align-self:center}
 .kv dd{margin:0;font-family:var(--mono);font-size:12px;color:var(--text);word-break:break-all}
@@ -314,10 +335,64 @@ td.name{color:var(--text)}
 .searchwrap{position:relative;flex:1 1 260px;min-width:0}
 .searchwrap .si{position:absolute;left:calc(var(--u)*2);top:50%;transform:translateY(-50%);width:16px;height:16px;pointer-events:none}
 .searchwrap input{padding-left:calc(var(--u)*8)}
-select{font-family:var(--screen);font-size:10px;letter-spacing:.06em;padding:calc(var(--u)*1.5) calc(var(--u)*2);
-     background:var(--sunk);color:var(--text);
-     border-top:2px solid var(--bevel-dk);border-left:2px solid var(--bevel-dk);
-     border-right:2px solid var(--bevel-lt);border-bottom:2px solid var(--bevel-lt)}
+/* ---------------- dropdowns ----------------
+   The browser's own control brought its own arrow, its own font and its own
+   blue highlight into a themed page. `appearance:none` takes all three back.
+
+   The chevron is two gradients rather than an SVG, because a data-URI SVG
+   would carry a hard-coded colour and this one is drawn in `--text-3` like
+   everything else. Where the browser can style the open list too
+   (`appearance:base-select`), it does; where it cannot, the list at least
+   takes the panel's colours instead of arriving white. */
+select{
+  appearance:none;-webkit-appearance:none;cursor:pointer;
+  font-family:var(--screen);font-size:10px;letter-spacing:.06em;
+  padding:calc(var(--u)*1.5) calc(var(--u)*7) calc(var(--u)*1.5) calc(var(--u)*2);
+  background-color:var(--sunk);color:var(--text);
+  background-image:linear-gradient(45deg,transparent 50%,var(--text-3) 50%),
+                   linear-gradient(135deg,var(--text-3) 50%,transparent 50%);
+  background-position:right calc(var(--u)*4.5) center,right calc(var(--u)*3) center;
+  background-size:6px 6px,6px 6px;background-repeat:no-repeat;
+  border-top:2px solid var(--bevel-dk);border-left:2px solid var(--bevel-dk);
+  border-right:2px solid var(--bevel-lt);border-bottom:2px solid var(--bevel-lt);
+  transition:border-color .14s ease,background-color .14s ease;
+}
+select:hover{background-color:var(--panel-hi)}
+select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+select:disabled{opacity:.55;cursor:not-allowed}
+option{background:var(--panel);color:var(--text)}
+
+@supports (appearance:base-select){
+  select,::picker(select){appearance:base-select}
+  select{align-items:center;background-image:none}
+  /* The browser's own glyph is a font character and looks like one. Zero the
+     text and draw the chevron out of borders, in the palette's own colour. */
+  select::picker-icon{
+    font-size:0;color:transparent;width:0;height:0;margin-left:auto;
+    border-left:4px solid transparent;border-right:4px solid transparent;
+    border-top:5px solid var(--text-3);
+    transition:transform .16s ease,border-top-color .16s ease;
+  }
+  select:hover::picker-icon{border-top-color:var(--text)}
+  select:open::picker-icon{transform:rotate(180deg)}
+  ::picker(select){
+    background:var(--panel);color:var(--text);border:2px solid var(--rule);
+    box-shadow:var(--shadow);padding:calc(var(--u));margin-top:4px;
+  }
+  option{
+    display:flex;align-items:center;gap:calc(var(--u)*2);
+    padding:calc(var(--u)*1.5) calc(var(--u)*2);font-family:var(--screen);
+    font-size:10px;letter-spacing:.06em;background:transparent;
+  }
+  option::checkmark{color:var(--accent)}
+  option:checked{color:var(--accent)}
+  /* Last, and covering the checked row too: the option under the pointer is
+     the one being chosen, whatever else it is. Written the other way round,
+     the already-selected row came up accent-on-accent — the same mistake
+     `.sel` made, one pseudo-class along. */
+  option:is(:hover,:focus,:active){background:var(--accent);color:var(--on-accent);outline:none}
+  option:is(:hover,:focus,:active)::checkmark{color:var(--on-accent)}
+}
 
 .appgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:calc(var(--u)*3)}
 .appcard{display:flex;flex-direction:column;gap:calc(var(--u)*2);padding:calc(var(--u)*3);
@@ -354,8 +429,18 @@ select{font-family:var(--screen);font-size:10px;letter-spacing:.06em;padding:cal
 .mw-head img{width:20px;height:20px;flex:none}
 .mw-head #mw-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mw-body{padding:calc(var(--u)*4);overflow:auto;flex:1;min-height:0;display:flex;flex-direction:column;gap:calc(var(--u)*4)}
-.mw-foot{padding:calc(var(--u)*3) calc(var(--u)*4);border-top:2px solid var(--rule);
-         display:flex;gap:calc(var(--u)*2);justify-content:flex-end;flex-wrap:wrap;flex:none}
+/* Buttons in a row get room. Two buttons 8px apart read as one control, and
+   the one on the right is usually the one that does something irreversible —
+   CANCEL and SAVE touching is how you press the wrong one. */
+.mw-foot{padding:calc(var(--u)*3.5) calc(var(--u)*4);border-top:2px solid var(--rule);
+         display:flex;gap:calc(var(--u)*3.5);justify-content:flex-end;flex-wrap:wrap;flex:none}
+.mw-foot .btn{min-width:88px;justify-content:center}
+/* Several windows hand openModal() a <div> of buttons instead of a string, so
+   the buttons are that div's children and the footer's own gap never reaches
+   them — which is exactly how CANCEL and SAVE ended up touching. The wrapper
+   becomes the row instead of blocking it. */
+.mw-foot > div{display:flex;gap:inherit;flex-wrap:wrap;align-items:center;
+               flex:1;justify-content:flex-end}
 .mw-body p{margin:0;font-size:14px;color:var(--text-2);line-height:1.55}
 .mw-body h3{font-family:var(--screen);font-size:10px;letter-spacing:.1em;color:var(--text-3);margin:0 0 calc(var(--u)*2)}
 .applead{display:flex;gap:calc(var(--u)*3);align-items:flex-start}
@@ -446,7 +531,7 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
 .swatch.sel::after{
   content:"";position:absolute;inset:3px;border:2px solid var(--void);
 }
-.ctxfoot{border-top:2px solid var(--rule);padding-top:calc(var(--u)*2);display:flex;gap:calc(var(--u))}
+.ctxfoot{border-top:2px solid var(--rule);padding-top:calc(var(--u)*2.5);display:flex;gap:calc(var(--u)*2)}
 
 /* ============================================================
    SENSOR BARS  (right-click a Sensors widget -> visual)
@@ -814,16 +899,41 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
 .rule .rd b{font-family:var(--mono);font-weight:400;color:var(--text)}
 
 /* A switch, not a checkbox: these turn real automations on and off, and the
-   state needs to read across the room. */
+   state needs to read across the room.
+
+   The knob travels; it does not jump. The old two-step animation was meant to
+   read as a mechanical throw and read as a dropped frame instead — at 22px
+   there is no room for a stepped motion to look like anything but a glitch.
+   One eased slide, one colour crossfade, the same 180ms. */
 .toggle{
-  flex:none;width:42px;height:22px;padding:2px;position:relative;background:var(--void);
-  border-top:2px solid var(--bevel-dk);border-left:2px solid var(--bevel-dk);
-  border-right:2px solid var(--bevel-lt);border-bottom:2px solid var(--bevel-lt);
+  flex:none;width:46px;height:24px;padding:3px;position:relative;cursor:pointer;
+  display:flex;align-items:center;box-sizing:border-box;
+  background:var(--sunk);border:2px solid var(--rule);border-radius:999px;
+  transition:background-color .18s ease,border-color .18s ease;
 }
-.toggle i{display:block;width:16px;height:14px;background:var(--text-3);
-          transition:transform .1s steps(2,end),background .1s}
-.toggle.on{background:color-mix(in srgb, var(--ok) 30%, var(--void))}
-.toggle.on i{transform:translateX(20px);background:var(--ok)}
+.toggle i{
+  display:block;width:14px;height:14px;border-radius:50%;
+  background:var(--text-3);box-shadow:0 1px 2px rgba(0,0,0,.28);
+  transition:transform .18s cubic-bezier(.4,0,.2,1),background-color .18s ease;
+}
+.toggle:hover{border-color:var(--text-3)}
+.toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.toggle.on{background:color-mix(in srgb,var(--ok) 34%,var(--sunk));border-color:var(--ok)}
+.toggle.on i{transform:translateX(22px);background:var(--ok)}
+.toggle:active i{width:18px}
+/* Reduced motion means stop, not slow down — the switch still changes, it
+   just arrives rather than travels. */
+[data-motion="reduced"] .toggle,[data-motion="reduced"] .toggle i{transition:none}
+
+/* The classic theme keeps its corners: DESIGN.md's no-radius rule is that
+   theme's, and a rounded pill in a pixel UI is the wrong object. It gets the
+   same motion. */
+[data-gui="classic"] .toggle{border-radius:0;background:var(--void);
+  border-top:2px solid var(--bevel-dk);border-left:2px solid var(--bevel-dk);
+  border-right:2px solid var(--bevel-lt);border-bottom:2px solid var(--bevel-lt)}
+[data-gui="classic"] .toggle i{border-radius:0;width:16px;height:14px;box-shadow:none}
+[data-gui="classic"] .toggle.on{background:color-mix(in srgb,var(--ok) 30%,var(--void))}
+[data-gui="classic"] .toggle.on i{transform:translateX(20px)}
 
 /* --- day picker --- */
 .daypick{display:flex;gap:var(--u);flex-wrap:wrap}
@@ -1101,9 +1211,10 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
   .ctxcheck{min-height:44px}
   .swatch{width:36px;height:36px}
   .dayb{width:40px;height:40px}
-  .toggle{width:52px;height:28px}
-  .toggle i{width:20px;height:18px}
+  .toggle{width:54px;height:30px;padding:4px}
+  .toggle i{width:18px;height:18px}
   .toggle.on i{transform:translateX(24px)}
+  [data-gui="classic"] .toggle i{width:20px;height:18px}
   .w-cfg,.w-x{width:34px;height:34px;font-size:16px}
   .w-head{padding:calc(var(--u)*2)}
   /* A resize corner you can actually hit with a thumb. */
@@ -1776,7 +1887,7 @@ textarea{font-family:var(--mono);font-size:12px;padding:calc(var(--u)*2);backgro
 .hx-preview{margin:0 0 calc(var(--u)*2);font-family:var(--mono);font-size:11px;
             background:var(--void);padding:calc(var(--u)*2);max-height:160px;overflow:auto;
             white-space:pre-wrap;word-break:break-word}
-.hx-askrow{display:flex;gap:calc(var(--u)*2);justify-content:flex-end}
+.hx-askrow{display:flex;gap:calc(var(--u)*3);justify-content:flex-end}
 
 /* ---- composer + footer ---- */
 .hx-compose{flex:none;display:flex;gap:calc(var(--u)*2);align-items:flex-end;

@@ -66,6 +66,15 @@
    selector outranks any component class, so a min-height here squashed every
    editor in the app down to one line and no component rule could argue. */
 [data-gui="workstation"] :is(input[type=text],input[type=password],input[type=search],input[type=number],select){min-height:38px}
+/* The dropdown is a field in this theme, not a bevelled button: one border,
+   rounded like every other field, and the chevron set in from the edge. */
+[data-gui="workstation"] select{font-size:13px;letter-spacing:0;padding:8px 34px 8px 10px;
+  background-position:right 20px center,right 14px center}
+[data-gui="workstation"] select:hover{border-color:var(--text-3)}
+@supports (appearance:base-select){
+  [data-gui="workstation"] :is(::picker(select)){border-width:1px;border-radius:8px}
+  [data-gui="workstation"] option{border-radius:5px;font-size:13px;letter-spacing:0}
+}
 [data-gui="workstation"] input::placeholder,[data-gui="workstation"] textarea::placeholder{color:var(--text-3);opacity:1}
 [data-gui="workstation"] .searchwrap input{padding-left:36px}
 [data-gui="workstation"] .pill{font-size:10px;border-width:1px;border-radius:4px;letter-spacing:.02em;padding:2px 6px}

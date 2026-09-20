@@ -319,6 +319,16 @@ unless the owner has chosen full access. `cap` must be one of the keys in
 and is clipped — `clip()` exists because a 200 MB log would otherwise become a
 200 MB request.
 
+**A tool that reads stored state redacts credentials on the way out.** Whatever
+it returns goes into the model's context and, from there, potentially to a
+provider's servers. `nexus_config` reports the owner's watch rules, scheduled
+tasks, alerts and Apps page — but a notification webhook comes back as its host
+only (an ntfy topic or a Discord webhook URL is enough to post as its owner),
+and an app's PIN hash never leaves the server at all. When adding a tool, go
+through what it returns field by field and ask what each one would let someone
+do. `agent-check.js` asserts the redaction with a recognisable secret in the
+URL, so a future refactor that starts returning the whole config fails.
+
 ### Every tool call must come back answered
 
 `sealed(messages)` runs once in `callModel`, before any adapter sees the
@@ -551,11 +561,30 @@ so the skill editor's `min-height: min(58vh,520px)` lost and the box came out
 60px tall. One-line fields keep the floor; text areas are excluded, and
 `textarea` in `style.css` carries its own.
 
+**And once more, inside the dropdown.** `option:checked{color:var(--accent)}`
+written *after* `option:hover` won on source order, so the already-selected row
+in an open list came up accent on accent — invisible, the same failure one
+pseudo-class along. The state rule goes last and covers the checked row too.
+
 The lesson for new theme rules: a base rule for form fields should style the
 *look* and leave the size to the component, or it will win an argument it was
-never meant to have. Both are now asserted in `npm run dash:check` — contrast is
-measured across five theme combinations, and the editor's height is measured
-rather than its CSS read.
+never meant to have. And a "this one is chosen" colour must never be the last
+word over "this one is under the pointer". The first two are asserted in
+`npm run dash:check` — contrast is measured across five theme combinations, and
+the editor's height is measured rather than its CSS read.
+
+### Dropdowns
+
+`select` is styled with `appearance:none`, and the chevron is two
+`linear-gradient`s rather than an SVG — a data-URI SVG would have to carry a
+hard-coded colour, and this one is drawn in `--text-3` like everything else.
+
+The open list is the part the page could not reach for twenty years, and now
+can: `appearance:base-select` with `::picker(select)` gives the popup the
+panel's own colours, the accent highlight and the palette's fonts. It is behind
+`@supports`, so browsers without it keep the native popup and only the closed
+control is themed. Do not remove the fallback — it is most of the reason this
+is safe to ship.
 
 ---
 

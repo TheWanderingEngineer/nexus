@@ -6230,7 +6230,6 @@ function go(page) {
   $("#tools-files").hidden = page !== "files";
   $("#tools-store").hidden = page !== "store";
   $("#tools-term").hidden = page !== "term";
-  $("#tools-control").hidden = page !== "control";
 
   // Leaving a page should not leave its selection armed for the Delete key.
   if (page !== "dash") clearSelection();
@@ -6665,6 +6664,7 @@ async function hermesDecide(decision) {
    One map produced "Hermes wants to ran a command". */
 const TOOL_WORDS = {
   system_metrics: ["read the machine's readings", "read the machine's readings"],
+  nexus_config:   ["read the Nexus settings",       "read the Nexus settings"],
   list_dir:       ["listed a folder",             "list a folder"],
   read_file:      ["read a file",                 "read a file"],
   write_file:     ["wrote a file",                "write a file"],

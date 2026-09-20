@@ -211,6 +211,45 @@ try {
   }
   await page.evaluate(() => NexusAppearance.setPalette('evergreen'));
 
+  /* The Control Panel's controls: a switch that travels rather than jumping,
+     a dropdown that is the page's own and not the browser's, and buttons far
+     enough apart that CANCEL and SAVE are two targets. */
+  await page.click('.nav[data-page="control"]'); await sleep(1600);
+  const cp = await page.evaluate(() => {
+    const t = document.querySelector('.toggle');
+    const cs = t && getComputedStyle(t);
+    const knob = t && getComputedStyle(t.querySelector('i'));
+    const heads = [...document.querySelectorAll('#page-control .sechead')];
+    return {
+      toggles: document.querySelectorAll('.toggle').length,
+      eased: !!cs && /cubic-bezier|ease/.test(knob.transitionTimingFunction) && !/steps/.test(knob.transitionTimingFunction),
+      round: !!cs && parseFloat(cs.borderRadius) > 8,
+      newRuleInToolbar: !!document.querySelector('#toolbar #cp-new-rule'),
+      newRuleInSection: !!document.querySelector('#page-control .sechead #cp-new-rule'),
+      sections: heads.length
+    };
+  });
+  ok('the Control Panel sections carry their own actions',
+     cp.newRuleInSection && !cp.newRuleInToolbar && cp.sections >= 4, JSON.stringify(cp));
+  ok('the switch travels rather than stepping', cp.toggles > 0 && cp.eased, JSON.stringify(cp));
+  ok('and it is a pill in the workstation theme', cp.round);
+
+  await page.click('#cp-new-rule'); await sleep(1200);
+  const form = await page.evaluate(() => {
+    const sel = document.querySelector('#ru-src');
+    const cs = getComputedStyle(sel);
+    const foot = document.querySelector('.mw-foot');
+    const btns = [...foot.querySelectorAll('.btn')].map(b => b.getBoundingClientRect());
+    let gap = Infinity;
+    for (let i = 1; i < btns.length; i++) gap = Math.min(gap, btns[i].left - btns[i - 1].right);
+    return { appearance: cs.appearance, gap: btns.length > 1 ? Math.round(gap) : null,
+             boxes: btns.map(b => [Math.round(b.left), Math.round(b.right)]) };
+  });
+  ok('the dropdown is the page\'s own control, not the browser\'s',
+     form.appearance === 'none' || form.appearance === 'base-select', form.appearance);
+  ok('footer buttons are far enough apart to be two targets', form.gap === null || form.gap >= 12, JSON.stringify(form));
+  await page.click('#mw-close'); await sleep(400);
+
   /* The skill editor is a document editor, and it has twice been squashed to
      one line by a theme rule that outranks its own — the same specificity
      trap as the contrast bug above. Assert the height, not the rule. */

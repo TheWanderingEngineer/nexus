@@ -240,7 +240,7 @@ switch in **Settings → Nexus Expert**, off until you turn it on:
 
 | Capability | What it hands over |
 |---|---|
-| Read the machine's readings | CPU, memory, disks, sensors, uptime, top processes |
+| Read the machine's readings | CPU, memory, disks, sensors, uptime, top processes &mdash; and what Nexus itself is set to do: your watch rules, scheduled tasks, recent alerts and the apps on the Apps page |
 | Read files | Only inside the folders you tick, inside the file manager's existing path jail |
 | Create, change and delete files | The same folders. Deletions are recursive and permanent |
 | List and control containers | Start, stop, restart |
@@ -268,6 +268,15 @@ mode you are in.
 
 ### What it already knows
 
+**Your own settings, not just the machine's.** Hermes can read the Control
+Panel: which watch rules exist and what they are set to, what restarts on a
+clock, what has tripped recently, whether power actions are armed, and what is
+on the Apps page. So "do I already have a rule for this?" is a question it can
+answer instead of guess at. It reads; it cannot change any of it — a proposed
+rule comes back written out the way the Control Panel asks for it, for you to
+type in. Credentials are left behind: a notification webhook is reported as its
+host only, and an app's PIN never leaves the server.
+
 Hermes does not have to go looking for the machine it is running on. Every
 message you send carries a **Right now** block: hostname, OS, kernel, uptime,
 CPU and memory load, every filesystem with its usage, the containers and their
@@ -287,12 +296,24 @@ files in, switch them on and off, or delete them for good. Each one is either:
 - **On demand** — only its name and one-line description cost anything. Hermes
   loads the body himself when a question lands in its territory.
 
-Nexus ships eight to start with: **Who you are**, **This machine** and **Nexus
-itself** as memory; **Docker on this box**, **Ubuntu Server administration**,
-**The media stack** (Jellyfin, Jellyseerr, Radarr, Sonarr, Prowlarr,
-qBittorrent, Kaizoku — and the path layout that makes hardlinks work), **Remote
-access** (Nginx Proxy Manager, DuckDNS, ports, certificates) and **Homelab
-practice** on demand.
+Nexus ships thirteen to start with.
+
+In memory: **Who you are**, **This machine**, **Nexus itself**, and **What Nexus
+is set to do** (how to read your rules and tasks, and what sustain and cooldown
+are actually for).
+
+On demand: **Docker on this box**, **Ubuntu Server administration**, **Remote
+access** (Nginx Proxy Manager, DuckDNS, ports, certificates), **Homelab
+practice**, **The media stack** (how Jellyfin, Jellyseerr, the *arrs,
+qBittorrent and Kaizoku fit together) — and four written for the day-to-day of
+running it:
+
+| Skill | What it is for |
+|---|---|
+| **Running the \*arr stack** | Paths and hardlinks, quality profiles and custom formats, anime and absolute numbering, why nothing is being searched, imports that fail, the `/health` endpoint |
+| **Requesting media** | Where to ask for a film, a series, anime, manga, books or audiobooks; season rather than series; 4K on its own instance; the six-step list for a request that produced nothing — and the plain fact that Readarr is unmaintained, with what people use instead |
+| **qBittorrent and indexers** | Categories and save paths, seeding limits, what `stalledDL` versus `error` means, Prowlarr as the one indexer list, FlareSolverr, and why raising a rate limit is not a fix |
+| **Checking what actually arrived** | Proving a file is what was asked for with `ffprobe` — real resolution, codec, HDR, audio languages, subtitle tracks, runtime — episode counts, manga page counts, audiobook duration, and the fix in order: blocklist and re-search, then change the rule, not the file |
 
 Skills carry **tags** — search the library, or filter it down to `docker`,
 `media`, `networking`. Tags are a line in the file's front matter, so they travel
@@ -576,7 +597,10 @@ Three things worth knowing:
 
 ## Control panel
 
-Automations, in three parts.
+Automations, in three bands: what has already tripped, the rules and tasks that
+decide when something trips, and where the news is sent. Each section carries
+its own button — **+ NEW RULE** sits in **Watch rules**, not in a toolbar above
+five sections that cannot say which one it belongs to.
 
 **Watch rules** — one rule watches one thing (a temperature, CPU, memory, a disk,
 a container) and acts when it stays wrong. Two knobs make this useful rather than

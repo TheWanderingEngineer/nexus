@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#14101F">
-<script src="/appearance.js?v=0.6.0"></script>
+<script src="/appearance.js?v=0.7.0"></script>
 <title>Nexus</title>
 <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/icons/nexus-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/assets/brand/icons/nexus-16.png">
 <link rel="apple-touch-icon" href="/assets/brand/icons/nexus-128.png">
 <link rel="stylesheet" href="/vendor/xterm.css">
-<link rel="stylesheet" href="/style.css?v=0.6.0">
-<link rel="stylesheet" href="/workstation.css?v=0.6.0">
+<link rel="stylesheet" href="/style.css?v=0.7.0">
+<link rel="stylesheet" href="/workstation.css?v=0.7.0">
 </head>
 <body>
 
@@ -129,10 +129,6 @@
         <div id="tools-term" hidden>
           <button class="btn" id="t-new" data-tip="Close this shell and open a fresh one.">NEW SESSION</button>
           <button class="btn" id="t-clear" data-tip="Wipe the screen. The session keeps running.">CLEAR</button>
-        </div>
-        <div id="tools-control" hidden>
-          <button class="btn" id="cp-new-rule" data-tip="Watch something and act when it stays wrong.">+ NEW RULE</button>
-          <button class="btn" id="cp-new-task" data-tip="Restart a container on a schedule.">+ NEW TASK</button>
         </div>
       </div>
 
@@ -271,37 +267,78 @@
 
       <!-- control panel -->
       <section class="page" id="page-control">
+        <!-- Three bands, in the order the questions get asked: what happened,
+             what should happen, and where it is sent. A button belongs to the
+             section it acts on — a page-level toolbar cannot say which. -->
+        <p class="pagelead">Three things live here: what has already tripped, the rules and tasks that
+          decide when something trips, and where Nexus sends the news.</p>
+
         <div class="section">
-          <h2>ALERTS</h2>
-          <p class="hint">What has tripped, newest first. Kept on the server, so this survives a reload
-             &mdash; and a restart.</p>
-          <div class="rowbtns" style="margin:8px 0 12px">
-            <button class="btn" id="cp-ack" data-tip="Mark every alert as seen. Nothing is deleted.">MARK ALL READ</button>
-            <button class="btn danger" id="cp-clear" data-tip="Delete the alert history permanently.">CLEAR HISTORY</button>
+          <div class="sechead">
+            <div class="sectitle">
+              <h2>ALERTS</h2>
+              <p class="hint">What has tripped, newest first. Kept on the server, so this survives a
+                 reload &mdash; and a restart.</p>
+            </div>
+            <div class="secacts">
+              <button class="btn sm" id="cp-ack" data-tip="Mark every alert as seen. Nothing is deleted.">MARK ALL READ</button>
+              <button class="btn sm danger" id="cp-clear" data-tip="Delete the alert history permanently.">CLEAR HISTORY</button>
+            </div>
           </div>
           <div id="cp-alerts"></div>
         </div>
 
+        <h3 class="bandhead">WHEN SOMETHING SHOULD HAPPEN</h3>
+
         <div class="section">
-          <h2>WATCH RULES</h2>
-          <p class="hint">A rule watches one thing and does something when it stays wrong for long enough.
-             Sustain and cooldown are what keep this useful rather than noisy.</p>
+          <div class="sechead">
+            <div class="sectitle">
+              <h2>WATCH RULES</h2>
+              <p class="hint">A rule watches one thing and does something when it stays wrong for long
+                 enough. Sustain and cooldown are what keep this useful rather than noisy.</p>
+            </div>
+            <div class="secacts">
+              <button class="btn sm primary" id="cp-new-rule" data-tip="Watch something and act when it stays wrong.">+ NEW RULE</button>
+            </div>
+          </div>
           <div id="cp-rules"></div>
         </div>
 
         <div class="section">
-          <h2>SCHEDULED TASKS</h2>
-          <p class="hint">Container restarts on a clock, in the server&rsquo;s local time.</p>
+          <div class="sechead">
+            <div class="sectitle">
+              <h2>SCHEDULED TASKS</h2>
+              <p class="hint">Container restarts on a clock, in the server&rsquo;s local time. A timed
+                 whole-host reboot is deliberately not offered.</p>
+            </div>
+            <div class="secacts">
+              <button class="btn sm primary" id="cp-new-task" data-tip="Restart a container on a schedule.">+ NEW TASK</button>
+            </div>
+          </div>
           <div id="cp-schedules"></div>
         </div>
 
+        <h3 class="bandhead">WHERE IT GOES, AND THE SWITCH YOU ARM</h3>
+
         <div class="section">
-          <h2>NOTIFICATIONS</h2>
+          <div class="sechead">
+            <div class="sectitle">
+              <h2>NOTIFICATIONS</h2>
+              <p class="hint">An alert that only appears in a browser tab you do not have open is not
+                 an alert.</p>
+            </div>
+          </div>
           <div id="cp-notify"></div>
         </div>
 
         <div class="section">
-          <h2>POWER</h2>
+          <div class="sechead">
+            <div class="sectitle">
+              <h2>POWER</h2>
+              <p class="hint">Reboot and shutdown, disarmed by default. While disarmed the server
+                 refuses them, not just the buttons.</p>
+            </div>
+          </div>
           <div id="cp-power"></div>
         </div>
       </section>
@@ -443,6 +480,6 @@
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/xterm-addon-fit.js"></script>
 <script src="/vendor/xterm-addon-web-links.js"></script>
-<script src="/app.js?v=0.6.0"></script>
+<script src="/app.js?v=0.7.0"></script>
 </body>
 </html>
