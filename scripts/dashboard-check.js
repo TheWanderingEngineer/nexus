@@ -250,6 +250,71 @@ try {
   ok('footer buttons are far enough apart to be two targets', form.gap === null || form.gap >= 12, JSON.stringify(form));
   await page.click('#mw-close'); await sleep(400);
 
+  /* The expert panel: it has to look like a panel, sit where you put it, and
+     have its send button on the same line as the box it sends. */
+  await page.click('.nav[data-page="dash"]'); await sleep(800);
+  await page.click('#kernel-open'); await sleep(1200);
+  const chat = await page.evaluate(() => {
+    const panel = document.querySelector('#kernel');
+    const cs = getComputedStyle(panel);
+    const page_ = getComputedStyle(document.body);
+    const ta = document.querySelector('#kx-input').getBoundingClientRect();
+    const btn = document.querySelector('#kx-send').getBoundingClientRect();
+    return {
+      borderWidth: parseFloat(cs.borderTopWidth),
+      borderColor: cs.borderTopColor,
+      bodyBg: page_.backgroundColor,
+      panelBg: cs.backgroundColor,
+      shadow: cs.boxShadow !== 'none',
+      bottomGap: Math.abs(ta.bottom - btn.bottom),
+      heightGap: Math.abs(ta.height - btn.height)
+    };
+  });
+  ok('the panel has an edge of its own, not the page\'s colour',
+     chat.borderWidth >= 1 && chat.borderColor !== chat.panelBg &&
+     chat.borderColor !== chat.bodyBg && chat.shadow, JSON.stringify(chat));
+  ok('the box and SEND sit on the same line',
+     chat.bottomGap < 2 && chat.heightGap < 2, `bottom off by ${chat.bottomGap}px, height by ${chat.heightGap}px`);
+
+  // Dragged by its header, and it stays where it was put.
+  const head = await page.$('#kx-head');
+  const hb = await head.boundingBox();
+  await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(hb.x + hb.width / 2 - 240, hb.y + hb.height / 2 - 120, { steps: 10 });
+  await page.mouse.up();
+  await sleep(500);
+  const moved = await page.evaluate(() => {
+    const r = document.querySelector('#kernel').getBoundingClientRect();
+    return { x: Math.round(r.x), y: Math.round(r.y), saved: localStorage.getItem('nexus.kernel.geom') };
+  });
+  ok('the panel can be dragged anywhere on the page', moved.x < 900 && !!moved.saved, JSON.stringify(moved));
+
+  // Resized from the edge that has room in front of it.
+  const before2 = await page.evaluate(() => document.querySelector('#kernel').getBoundingClientRect().width);
+  const grip = await page.$('.kx-grip.w');
+  const gb = await grip.boundingBox();
+  await page.mouse.move(gb.x + 2, gb.y + gb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(gb.x - 160, gb.y + gb.height / 2, { steps: 10 });
+  await page.mouse.up();
+  await sleep(500);
+  const after2 = await page.evaluate(() => document.querySelector('#kernel').getBoundingClientRect().width);
+  ok('and resized from its edge', after2 > before2 + 100, `${Math.round(before2)} -> ${Math.round(after2)}`);
+
+  // Tabs, and the + that starts a conversation.
+  await page.click('#kx-add'); await sleep(900);
+  ok('the + starts another conversation', (await page.$$('.kx-tab:not(.add)')).length >= 1);
+  ok('the panel remembers it across a reload', await page.evaluate(() => !!localStorage.getItem('nexus.kernel.chat')));
+
+  await page.click('#kx-reset'); await sleep(500);
+  const home = await page.evaluate(() => {
+    const r = document.querySelector('#kernel').getBoundingClientRect();
+    return { right: Math.round(innerWidth - r.right), saved: localStorage.getItem('nexus.kernel.geom') };
+  });
+  ok('and it can be put back in the corner', home.right < 40 && home.saved === '{}', JSON.stringify(home));
+  await page.click('#kx-close'); await sleep(300);
+
   /* The skill editor is a document editor, and it has twice been squashed to
      one line by a theme rule that outranks its own — the same specificity
      trap as the contrast bug above. Assert the height, not the rule. */

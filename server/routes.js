@@ -16,6 +16,7 @@ import * as apps from "./apps.js";
 import * as automation from "./automation.js";
 import * as agent from "./agent.js";
 import * as agentSkills from "./skills.js";
+import * as pins from "./pins.js";
 import {
   hashPassword, verifyPassword, createSession, destroySession,
   setSessionCookies, clearSessionCookies, requireAuth, requireCsrf,
@@ -515,18 +516,34 @@ export default function routes() {
     });
     if (Array.isArray(req.body?.groups)) L.groups = req.body.groups.slice(0, MAX_GROUPS).map(sanitizeGroup);
     save();
+    // A tile that has been removed should not leave its PIN behind.
+    pins.prune(new Set(L.apps.map(a => a.id)));
     res.json({ apps: publicApps(), groups: L.groups });
   });
 
   /* ---- the PIN on a tile ----
-   * Said plainly, because the difference matters: this keeps an app off the
-   * board and its address out of the page for whoever is looking at Nexus over
-   * your shoulder. It is not access control on the app itself — that app has
-   * its own login, and anyone who knows its address can still type it in.
+   * What it is for, said plainly: it keeps an app off the board and its
+   * address out of the page for whoever is looking at Nexus over your
+   * shoulder. It is not access control on the app itself — that app has its
+   * own login, and anyone who knows its address can still type it in.
    *
-   * It is still done properly. The PIN is stored as a scrypt hash, never
-   * returned by any endpoint, and a locked app's address is withheld until the
-   * PIN is given. Four digits is 10,000 guesses, so the attempts are counted.
+   * Three things make it a real screen rather than a decoration:
+   *
+   * 1. A locked app's addresses never reach the browser. They are withheld by
+   *    `publicApps()` until the PIN is given, so "view source" is a dead end.
+   * 2. **Taking the PIN off needs the PIN.** A lock anyone can flick open from
+   *    the settings gear is not a lock; that is the whole point of the thing.
+   *    Same for changing it.
+   * 3. Guesses are counted. Four digits is 10,000 combinations, and six tries
+   *    a minute makes working through them take a fortnight.
+   *
+   * The PIN lives in its own root-only file rather than in the state file, and
+   * it is stored so it can be read back, because the owner asked to be able to
+   * recover it — Kernel can read it out with `recall_app_pin`, which needs
+   * approval and is written to the audit log. That is a deliberate trade and it
+   * costs nothing against the threat this defends: anyone who can read a 0600
+   * file in /var/lib/nexus is already root and already has the addresses, the
+   * state file and the machine.
    */
   const lockTries = new Map();
   const LOCK_WINDOW_MS = 60_000, LOCK_MAX_TRIES = 6;
@@ -542,17 +559,43 @@ export default function routes() {
     return pin;
   };
 
+  /** Constant-time, throttled, audited. Throws unless the PIN is right. */
+  const checkPin = (app, given, req) => {
+    const stored = pins.get(app.id);
+    if (!stored) return;                       // not locked — nothing to prove
+    const now = Date.now();
+    const t = lockTries.get(app.id) || { n: 0, at: now };
+    if (now - t.at > LOCK_WINDOW_MS) { t.n = 0; t.at = now; }
+    if (t.n >= LOCK_MAX_TRIES) {
+      audit("launcher.pin.throttled", { app: app.name }, req);
+      throw Object.assign(new Error("too many tries — wait a minute"), { status: 429 });
+    }
+    const a = Buffer.from(String(given ?? "").padEnd(16).slice(0, 16));
+    const b = Buffer.from(String(stored).padEnd(16).slice(0, 16));
+    if (!crypto.timingSafeEqual(a, b)) {
+      t.n++; lockTries.set(app.id, t);
+      audit("launcher.pin.failed", { app: app.name }, req);
+      throw Object.assign(new Error("that is not the PIN"), { status: 403 });
+    }
+    lockTries.delete(app.id);
+  };
+
+  /** Set or change a PIN. Changing one needs the one it replaces. */
   r.post("/launcher/:id/lock", (req, res) => {
     const app = findApp(req.params.id);
-    const salt = crypto.randomBytes(16).toString("hex");
-    app.lock = { salt, hash: crypto.scryptSync(pinOf(req.body?.pin), salt, 32).toString("hex") };
+    if (pins.get(app.id)) checkPin(app, req.body?.current, req);
+    pins.set(app.id, pinOf(req.body?.pin));
+    app.lock = true;
     save();
     audit("launcher.lock", { app: app.name }, req);
     res.json({ apps: publicApps(), groups: launcher().groups });
   });
 
+  /** Taking it off needs it. Otherwise it was never a lock. */
   r.delete("/launcher/:id/lock", (req, res) => {
     const app = findApp(req.params.id);
+    checkPin(app, req.body?.pin ?? req.query.pin, req);
+    pins.clear(app.id);
     delete app.lock;
     save();
     audit("launcher.unlock", { app: app.name }, req);
@@ -562,22 +605,7 @@ export default function routes() {
   r.post("/launcher/:id/open", (req, res) => {
     const app = findApp(req.params.id);
     if (!app.lock) return res.json({ url: app.url, externalUrl: app.externalUrl });
-
-    const now = Date.now();
-    const t = lockTries.get(app.id) || { n: 0, at: now };
-    if (now - t.at > LOCK_WINDOW_MS) { t.n = 0; t.at = now; }
-    if (t.n >= LOCK_MAX_TRIES) {
-      audit("launcher.pin.throttled", { app: app.name }, req);
-      throw Object.assign(new Error("too many tries — wait a minute"), { status: 429 });
-    }
-
-    const given = crypto.scryptSync(pinOf(req.body?.pin), app.lock.salt, 32).toString("hex");
-    if (!crypto.timingSafeEqual(Buffer.from(given, "hex"), Buffer.from(app.lock.hash, "hex"))) {
-      t.n++; lockTries.set(app.id, t);
-      audit("launcher.pin.failed", { app: app.name }, req);
-      throw Object.assign(new Error("that is not the PIN"), { status: 403 });
-    }
-    lockTries.delete(app.id);
+    checkPin(app, req.body?.pin, req);
     res.json({ url: app.url, externalUrl: app.externalUrl });
   });
 
@@ -813,7 +841,7 @@ export default function routes() {
     res.json(db().audit.slice(0, limit));
   });
 
-  /* ---------------- Nexus Expert (Hermes) ----------------
+  /* ---------------- Nexus Expert (Kernel) ----------------
      Everything here is behind requireAuth + requireCsrf like the rest of this
      router. No endpoint returns an API key; `publicConfig()` reports only
      whether one is set and its last four characters. */
@@ -837,13 +865,37 @@ export default function routes() {
     res.json({ keys: agent.keyStatus() });
   });
 
-  r.post("/agent/run", (_req, res) => res.json({ id: agent.newRun() }));
+  r.post("/agent/run", (_req, res) => res.json({ id: agent.newRun(), chats: agent.chats() }));
+
+  /* The tab strip: up to five conversations, newest first. They are on the
+     server rather than in the browser, so the chat you started on a laptop is
+     the chat you find on your phone. */
+  r.get("/agent/chats", (_req, res) => res.json({ chats: agent.chats() }));
+
+  r.get("/agent/run/:id", (req, res) => {
+    const t = agent.transcript(req.params.id);
+    if (!t) throw Object.assign(new Error("that conversation is gone"), { status: 404 });
+    res.json(t);
+  });
+
+  r.delete("/agent/run/:id", (req, res) => res.json({ chats: agent.closeChat(req.params.id) }));
 
   r.post("/agent/run/:id/send", wrap(async (req, res) => {
     const text = String(req.body?.text || "").trim();
-    if (!text) throw Object.assign(new Error("say something first"), { status: 400 });
-    res.json(await agent.send(req.params.id, text, req));
+    const images = Array.isArray(req.body?.images) ? req.body.images : [];
+    if (!text && !images.length) throw Object.assign(new Error("say something first"), { status: 400 });
+    res.json(await agent.send(req.params.id, text, req, images));
   }));
+
+  /* An attached image, back out again — for the thumbnail, the larger view and
+     the download. Served from the run's own folder and nowhere else: the id is
+     pattern-checked in `imagePath`, which returns null for anything that is not
+     one of ours. */
+  r.get("/agent/run/:id/image/:file", (req, res) => {
+    const p = agent.imagePath(req.params.id, req.params.file);
+    if (!p) throw Object.assign(new Error("no such image"), { status: 404 });
+    res.type(path.extname(p)).sendFile(p);
+  });
 
   r.post("/agent/run/:id/approve", wrap(async (req, res) => {
     const decision = req.body?.decision === "allow" ? "allow" : "deny";

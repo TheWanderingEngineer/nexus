@@ -9,9 +9,11 @@ import * as filesvc from "./files.js";
 import * as dockerx from "./dockerx.js";
 import * as skills from "./skills.js";
 import * as automation from "./automation.js";
+import * as pins from "./pins.js";
+import { classifyCommand, atLeast, LEVELS } from "./risk.js";
 
 /**
- * Hermes — the Nexus Expert agent.
+ * Kernel — the Nexus Expert agent.
  *
  * An LLM with a set of tools pointed at this machine. Three things shape every
  * decision in here, and they are all consequences of what this box already is:
@@ -59,11 +61,11 @@ export const PROVIDERS = [
     pricingUrl: "https://platform.claude.com/docs/en/about-claude/pricing",
     // Read off Anthropic's own pricing page, not a third-party tracker.
     models: [
-      { id: "claude-opus-5",    label: "Claude Opus 5",    tier: "Strongest", in: 5, out: 25, priced: true,
+      { id: "claude-opus-5", vision: true,    label: "Claude Opus 5",    tier: "Strongest", in: 5, out: 25, priced: true,
         note: "Best judgement for multi-step work on a live box." },
-      { id: "claude-sonnet-5",  label: "Claude Sonnet 5",  tier: "Balanced",  in: 2, out: 10, priced: true,
+      { id: "claude-sonnet-5", vision: true,  label: "Claude Sonnet 5",  tier: "Balanced",  in: 2, out: 10, priced: true,
         note: "Most everyday jobs. The $2/$10 launch rate is now the standard one." },
-      { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", tier: "Cheapest",  in: 1, out: 5,  priced: true,
+      { id: "claude-haiku-4-5", vision: true, label: "Claude Haiku 4.5", tier: "Cheapest",  in: 1, out: 5,  priced: true,
         note: "Quick lookups and simple edits." }
     ]
   },
@@ -80,9 +82,9 @@ export const PROVIDERS = [
     // Prices are the PEAK rate — off-peak is about half, so quoting peak can
     // only ever over-estimate, which is the right direction to be wrong in.
     models: [
-      { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", tier: "Strongest", in: 1.32, out: 3.96, priced: true,
+      { id: "deepseek-v4-pro", vision: true, label: "DeepSeek V4 Pro", tier: "Strongest", in: 1.32, out: 3.96, priced: true,
         note: "Peak rate. Off-peak (most hours, all weekend) is about half." },
-      { id: "deepseek-flash",  label: "DeepSeek Flash",  tier: "Cheapest",  in: 0.30, out: 1.20, priced: true,
+      { id: "deepseek-flash", vision: true,  label: "DeepSeek Flash",  tier: "Cheapest",  in: 0.30, out: 1.20, priced: true,
         note: "Peak rate. Off-peak is about half. V4.1 Flash." }
     ]
   },
@@ -95,11 +97,11 @@ export const PROVIDERS = [
     keyUrl: "https://aistudio.google.com/apikey",
     pricingUrl: "https://ai.google.dev/gemini-api/docs/pricing",
     models: [
-      { id: "gemini-3.1-pro",        label: "Gemini 3.1 Pro",        tier: "Strongest", in: 2.00, out: 12.00, priced: true,
+      { id: "gemini-3.1-pro", vision: true,        label: "Gemini 3.1 Pro",        tier: "Strongest", in: 2.00, out: 12.00, priced: true,
         note: "Input rate doubles above 200K context." },
-      { id: "gemini-3.8-flash",      label: "Gemini 3.8 Flash",      tier: "Balanced",  in: 0.75, out: 3.75, priced: true,
+      { id: "gemini-3.8-flash", vision: true,      label: "Gemini 3.8 Flash",      tier: "Balanced",  in: 0.75, out: 3.75, priced: true,
         note: "Introductory rate to 31 Dec 2026, then $1.50/$7.50." },
-      { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite", tier: "Cheapest",  in: 0.10, out: 0.40, priced: true,
+      { id: "gemini-2.5-flash-lite", vision: true, label: "Gemini 2.5 Flash-Lite", tier: "Cheapest",  in: 0.10, out: 0.40, priced: true,
         note: "Cheapest of the three; least capable." }
     ]
   },
@@ -112,11 +114,11 @@ export const PROVIDERS = [
     keyUrl: "https://platform.openai.com/api-keys",
     pricingUrl: "https://openai.com/api/pricing/",
     models: [
-      { id: "gpt-6-astra",   label: "GPT-6 Astra",   tier: "Strongest", in: 10, out: 50, priced: true,
+      { id: "gpt-6-astra", vision: true,   label: "GPT-6 Astra",   tier: "Strongest", in: 10, out: 50, priced: true,
         note: "Current flagship." },
-      { id: "gpt-5.6-sol",   label: "GPT-5.6 Sol",   tier: "Balanced",  priced: false,
+      { id: "gpt-5.6-sol", vision: true,   label: "GPT-5.6 Sol",   tier: "Balanced",  priced: false,
         note: "On promotional pricing that sources disagree about — check OpenAI's page." },
-      { id: "gpt-5.6-luna",  label: "GPT-5.6 Luna",  tier: "Cheapest",  in: 0.20, out: 1.20, priced: true,
+      { id: "gpt-5.6-luna", vision: true,  label: "GPT-5.6 Luna",  tier: "Cheapest",  in: 0.20, out: 1.20, priced: true,
         note: "Budget tier of the 5.6 family." }
     ]
   },
@@ -132,14 +134,14 @@ export const PROVIDERS = [
     keyHint: "optional for a local server",
     pricingUrl: null,
     models: [
-      { id: "", label: "Whatever your server runs", tier: "Your model", priced: false,
+      { id: "", label: "Whatever your server runs", tier: "Your model", priced: false, vision: true,
         note: "Type the model id your endpoint expects, below." }
     ]
   }
 ];
 
 // Put the starter library on disk the first time the agent is touched, so a
-// fresh install has a Hermes that already knows where it is.
+// fresh install has an agent that already knows where it is.
 try { skills.seed(); } catch (e) { console.error("[agent] could not seed skills:", e.message); }
 
 const providerById = id => PROVIDERS.find(p => p.id === id) || PROVIDERS[0];
@@ -156,6 +158,7 @@ export const DEFAULTS = {
   customModel: "",
   baseUrl: "",
   approval: "ask",          // "ask" — a human sees every write and command
+  askAt: "medium",          // the lowest level worth interrupting for
   maxSteps: 12,
   roots: [],                // paths the agent may touch; empty means none
   sendHostFacts: true,
@@ -192,6 +195,7 @@ export function saveSettings(patch) {
     customModel: typeof patch.customModel === "string" ? patch.customModel.slice(0, 120) : cur.customModel,
     baseUrl: typeof patch.baseUrl === "string" ? patch.baseUrl.slice(0, 300) : cur.baseUrl,
     approval: patch.approval === "auto" ? "auto" : "ask",
+    askAt: LEVELS.includes(patch.askAt) ? patch.askAt : cur.askAt,
     maxSteps: Math.max(1, Math.min(40, Number(patch.maxSteps) || cur.maxSteps)),
     sendHostFacts: patch.sendHostFacts !== false,
     roots: Array.isArray(patch.roots) ? patch.roots.slice(0, 32).map(String) : cur.roots,
@@ -293,7 +297,7 @@ const clip = (s, n = MAX_OUT) => {
 
 /** The agent's own jail: inside the file manager's roots AND inside the subset
  *  of them ticked for the agent. Two gates, because they answer different
- *  questions — "can Nexus touch this" and "may Hermes touch this". */
+ *  questions — "can Nexus touch this" and "may Kernel touch this". */
 async function agentPath(p, s, { create = false } = {}) {
   const safe = create ? await filesvc.resolveForCreate(p) : await filesvc.resolveSafe(p);
   const roots = allowedRoots(s);
@@ -327,7 +331,7 @@ const TOOLS = [
      * What Nexus itself is set to do.
      *
      * The briefing says what the machine is doing; this says what its owner has
-     * already told it to do about that. Without it Hermes proposes a watch rule
+     * already told it to do about that. Without it Kernel proposes a watch rule
      * that already exists, or explains an alert it has no way of knowing fired.
      *
      * Read-only and redacted. A webhook URL is a credential — an ntfy topic or
@@ -373,6 +377,33 @@ const TOOLS = [
     }
   },
   {
+    /**
+     * The forgotten-PIN path the owner asked for.
+     *
+     * Deliberately not part of `nexus_config`: that runs on almost every
+     * question and its whole output goes into the model's context. This is one
+     * app at a time, it needs approval like a write does, and it is in the
+     * audit log — so a PIN reaching a provider is always something the owner
+     * pressed ALLOW on.
+     */
+    name: "recall_app_pin", cap: "metrics", risk: "high",
+    riskWhy: "reads back the PIN on an app tile",
+    description: "Read back the four-digit PIN set on one app on the Apps page, for when the owner has forgotten it. Name the app exactly as it appears on the board.",
+    schema: { type: "object", properties: { name: { type: "string", description: "The app's name" } }, required: ["name"], additionalProperties: false },
+    preview: a => `Read back the PIN for "${a.name}"`,
+    async run(args) {
+      const L = db().settings?.launcher;
+      const list = Array.isArray(L) ? L : (L?.apps || []);
+      const want = String(args.name || "").toLowerCase().trim();
+      const app = list.find(a => a.name.toLowerCase() === want)
+               || list.find(a => a.name.toLowerCase().includes(want));
+      if (!app) return `No app called "${args.name}" is on the board. Names on it now: ${list.map(a => a.name).join(", ") || "none"}.`;
+      const pin = pins.get(app.id);
+      if (!pin) return `"${app.name}" does not have a PIN set.`;
+      return `The PIN for "${app.name}" is ${pin}.`;
+    }
+  },
+  {
     name: "list_dir", cap: "readFiles", risk: "read",
     description: "List the files and folders at an absolute path inside a shared folder.",
     schema: { type: "object", properties: { path: { type: "string", description: "Absolute path" } }, required: ["path"], additionalProperties: false },
@@ -394,7 +425,7 @@ const TOOLS = [
     }
   },
   {
-    name: "write_file", cap: "writeFiles", risk: "write",
+    name: "write_file", cap: "writeFiles", risk: "medium",
     description: "Create or replace a text file inside a shared folder. Overwrites without warning.",
     schema: {
       type: "object",
@@ -410,7 +441,7 @@ const TOOLS = [
     }
   },
   {
-    name: "make_dir", cap: "writeFiles", risk: "write",
+    name: "make_dir", cap: "writeFiles", risk: "medium",
     description: "Create a folder (and any missing parents) inside a shared folder.",
     schema: { type: "object", properties: { path: { type: "string" } }, required: ["path"], additionalProperties: false },
     async run(args, s) {
@@ -420,7 +451,7 @@ const TOOLS = [
     }
   },
   {
-    name: "delete_path", cap: "writeFiles", risk: "write",
+    name: "delete_path", cap: "writeFiles", risk: "high",
     description: "Delete a file or folder inside a shared folder. Recursive and permanent.",
     schema: { type: "object", properties: { path: { type: "string" } }, required: ["path"], additionalProperties: false },
     preview: a => `DELETE ${a.path} — recursive and permanent`,
@@ -431,7 +462,7 @@ const TOOLS = [
     }
   },
   {
-    name: "run_command", cap: "shell", risk: "exec",
+    name: "run_command", cap: "shell", risk: "classify",
     description:
       "Run a shell command on this machine as root and return its output. Use this for " +
       "installing packages, managing services, and anything the other tools cannot express.",
@@ -488,7 +519,7 @@ const TOOLS = [
     }
   },
   {
-    name: "docker_action", cap: "docker", risk: "write",
+    name: "docker_action", cap: "docker", risk: "high",
     description: "Start, stop or restart a container by name or id.",
     schema: {
       type: "object",
@@ -634,7 +665,7 @@ const kb = n => !Number.isFinite(n) ? "?" : n >= 1e6 ? (n / 1e6).toFixed(1) + " 
 function systemPrompt(s, brief) {
   const tools = toolsFor(s);
   const lines = [
-    "You are Hermes, the resident expert inside Nexus, a homelab dashboard running on a single Linux machine.",
+    "You are Kernel, the resident expert inside Nexus, a homelab dashboard running on a single Linux machine.",
     "You are talking to that machine's owner and administrator, in their own dashboard."
   ];
 
@@ -677,7 +708,7 @@ function systemPrompt(s, brief) {
 
 /** One place that knows each vendor's wire shape. Everything above and below
  *  this function speaks the same normalised `{text, calls, usage}`. */
-async function callModel(s, messages, brief) {
+async function callModel(s, messages, brief, runId) {
   const prov = providerById(s.provider);
   const model = (s.provider === "custom" || !prov.models.some(m => m.id === s.model))
     ? (s.customModel || s.model) : s.model;
@@ -693,11 +724,11 @@ async function callModel(s, messages, brief) {
   // One place seals the history, so no adapter can be the one that forgets.
   const wire = sealed(messages);
 
-  if (prov.kind === "anthropic") return anthropicCall({ prov, model, key, tools, messages: wire, system: systemPrompt(s, brief) });
-  if (prov.kind === "google")    return googleCall({ prov, model, key, tools, messages: wire, system: systemPrompt(s, brief) });
+  if (prov.kind === "anthropic") return anthropicCall({ prov, model, key, tools, messages: wire, system: systemPrompt(s, brief), runId });
+  if (prov.kind === "google")    return googleCall({ prov, model, key, tools, messages: wire, system: systemPrompt(s, brief), runId });
   return openaiCall({
     endpoint: base ? base + "/chat/completions" : prov.endpoint,
-    model, key, tools, messages: wire, system: systemPrompt(s, brief)
+    model, key, tools, messages: wire, system: systemPrompt(s, brief), runId
   });
 }
 
@@ -766,11 +797,19 @@ export function sealed(messages) {
 /** Anthropic has no `tool` role — results are user turns — and it rejects keys
  *  its schema does not name, so blocks are rebuilt rather than passed through.
  *  Same-role turns are merged because roles have to alternate. */
-export function anthropicMessages(messages) {
+export function anthropicMessages(messages, runId) {
   const block = b =>
     b.type === "tool_use"    ? { type: "tool_use", id: b.id, name: b.name, input: b.input || {} }
   : b.type === "tool_result" ? { type: "tool_result", tool_use_id: b.tool_use_id, content: b.content }
+  : b.type === "image"       ? imageBlock(b)
   :                            { type: "text", text: b.text };
+
+  const imageBlock = b => {
+    const data = runId && imageB64(runId, b.att);
+    return data
+      ? { type: "image", source: { type: "base64", media_type: b.att.mime, data } }
+      : { type: "text", text: "[an image the owner attached is no longer on disk]" };
+  };
 
   const out = [];
   for (const m of messages) {
@@ -784,10 +823,10 @@ export function anthropicMessages(messages) {
   return out;
 }
 
-async function anthropicCall({ prov, model, key, tools, messages, system }) {
+async function anthropicCall({ prov, model, key, tools, messages, system, runId }) {
   const body = {
     model, max_tokens: 8000, system,
-    messages: anthropicMessages(messages),
+    messages: anthropicMessages(messages, runId),
     ...(tools.length ? { tools: tools.map(t => ({ name: t.name, description: t.description, input_schema: t.schema })) } : {})
   };
   const headers = { "x-api-key": key, "anthropic-version": "2023-06-01" };
@@ -812,10 +851,19 @@ async function anthropicCall({ prov, model, key, tools, messages, system }) {
 }
 
 /* ---- OpenAI-compatible (OpenAI, DeepSeek, Ollama, vLLM, OpenRouter…) ---- */
-async function openaiCall({ endpoint, model, key, tools, messages, system }) {
+async function openaiCall({ endpoint, model, key, tools, messages, system, runId }) {
   const msgs = [{ role: "system", content: system }];
   for (const m of messages) {
-    if (m.role === "user") msgs.push({ role: "user", content: textOf(m.content) });
+    if (m.role === "user") {
+      const imgs = (m.content || []).filter(b => b.type === "image");
+      if (!imgs.length) { msgs.push({ role: "user", content: textOf(m.content) }); continue; }
+      const parts = [{ type: "text", text: textOf(m.content) }];
+      for (const b of imgs) {
+        const data = runId && imageB64(runId, b.att);
+        if (data) parts.push({ type: "image_url", image_url: { url: `data:${b.att.mime};base64,${data}` } });
+      }
+      msgs.push({ role: "user", content: parts });
+    }
     else if (m.role === "assistant") {
       const calls = m.content.filter(b => b.type === "tool_use");
       msgs.push({
@@ -853,10 +901,17 @@ async function openaiCall({ endpoint, model, key, tools, messages, system }) {
 }
 
 /* ---- Google Gemini ---- */
-async function googleCall({ prov, model, key, tools, messages, system }) {
+async function googleCall({ prov, model, key, tools, messages, system, runId }) {
   const contents = [];
   for (const m of messages) {
-    if (m.role === "user") contents.push({ role: "user", parts: [{ text: textOf(m.content) }] });
+    if (m.role === "user") {
+      const parts = [{ text: textOf(m.content) }];
+      for (const b of (m.content || []).filter(x => x.type === "image")) {
+        const data = runId && imageB64(runId, b.att);
+        if (data) parts.push({ inlineData: { mimeType: b.att.mime, data } });
+      }
+      contents.push({ role: "user", parts });
+    }
     else if (m.role === "assistant") {
       const parts = [];
       const t = textOf(m.content);
@@ -907,23 +962,92 @@ const textOf = c => typeof c === "string" ? c
  * the state file would quietly turn a chat into a copy of your machine.
  */
 const runs = new Map();
-const RUN_TTL_MS = 6 * 60 * 60 * 1000;
+const MAX_CHATS = 5;
+const CHATFILE = path.join(cfg.dataDir, "agent-chats.json");
+const UPLOADS = path.join(cfg.dataDir, "agent-uploads");
 
-function sweep() {
-  const now = Date.now();
-  for (const [id, r] of runs) if (now - r.touched > RUN_TTL_MS) runs.delete(id);
+/**
+ * Conversations survive a restart, and follow you between devices.
+ *
+ * This is a deliberate reversal. They used to live only in memory, because a
+ * transcript can hold file contents and command output and writing that to the
+ * state file would quietly turn a chat into a copy of your machine. The owner
+ * asked to start a conversation on a laptop and pick it up on a phone, which
+ * cannot be done without writing it down — so it is written down *carefully*:
+ *
+ *  - its own file, 0600, never `state.json`, which is rewritten constantly and
+ *    ends up in backups;
+ *  - five conversations at most, oldest dropped, so it cannot grow without
+ *    bound;
+ *  - tool output is already clipped to 4 kB a call before it is stored.
+ *
+ * The README says this happens. A feature that writes your command output to
+ * disk should not be a surprise.
+ */
+function persist() {
+  try {
+    const keep = [...runs.values()]
+      .sort((a, b) => b.touched - a.touched)
+      .slice(0, MAX_CHATS)
+      .map(r => ({ id: r.id, title: r.title || "", touched: r.touched,
+                   steps: r.steps, messages: r.messages, usage: r.usage }));
+    // Anything that fell off the end takes its uploads with it.
+    const live = new Set(keep.map(r => r.id));
+    for (const id of [...runs.keys()]) if (!live.has(id)) { runs.delete(id); dropUploads(id); }
+    fs.writeFileSync(CHATFILE, JSON.stringify(keep), { mode: 0o600 });
+    try { fs.chmodSync(CHATFILE, 0o600); } catch {}
+  } catch (e) { console.error("[agent] could not save conversations:", e.message); }
+}
+
+function restore() {
+  try {
+    for (const r of JSON.parse(fs.readFileSync(CHATFILE, "utf8"))) {
+      runs.set(r.id, { ...r, pending: null, touched: r.touched || Date.now() });
+    }
+  } catch { /* no file yet, or it is unreadable — start empty */ }
+}
+restore();
+
+function dropUploads(id) {
+  try { fs.rmSync(path.join(UPLOADS, id), { recursive: true, force: true }); } catch {}
+}
+
+/** Newest first, for the tab strip. */
+export function chats() {
+  return [...runs.values()]
+    .sort((a, b) => b.touched - a.touched)
+    .slice(0, MAX_CHATS)
+    .map(r => ({
+      id: r.id,
+      title: r.title || firstWords(r) || "New chat",
+      at: r.touched,
+      messages: r.steps.filter(s => s.kind === "user").length
+    }));
+}
+
+const firstWords = r => {
+  const first = r.steps.find(s => s.kind === "user");
+  return first ? clip(first.text.replace(/\s+/g, " ").trim(), 32) : "";
+};
+
+export function closeChat(id) {
+  runs.delete(id);
+  dropUploads(id);
+  persist();
+  return chats();
 }
 
 export function newRun() {
-  sweep();
   const id = "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-  runs.set(id, { id, messages: [], steps: [], touched: Date.now(), pending: null, usage: { in: 0, out: 0, cost: 0, priced: true } });
+  runs.set(id, { id, title: "", messages: [], steps: [], touched: Date.now(), pending: null,
+                 usage: { in: 0, out: 0, cost: 0, priced: true } });
+  persist();
   return id;
 }
 
 function run(id) {
   const r = runs.get(id);
-  if (!r) throw httpError(404, "that conversation has expired — start a new one");
+  if (!r) throw httpError(404, "that conversation is gone — start a new one");
   r.touched = Date.now();
   return r;
 }
@@ -934,11 +1058,79 @@ export function transcript(id) {
 }
 
 /** Whether this call has to stop and ask a human first. */
-function needsApproval(tool, s) {
-  return s.approval === "ask" && tool.risk !== "read";
+/**
+ * How dangerous is this particular call, and is it worth interrupting for?
+ *
+ * A shell command is classified from the command itself — `df -h` and
+ * `mkfs.ext4 /dev/sdb1` are not the same event and a gate that treats them
+ * alike teaches the owner to press ALLOW without reading. Everything else
+ * carries a fixed level, because `delete_path` is always a delete.
+ */
+function riskOf(tool, args) {
+  if (!tool) return { level: "high", why: ["unknown tool"] };
+  if (tool.risk === "read") return { level: "read", why: [] };
+  if (tool.risk === "classify") return classifyCommand(args?.command || "");
+  if (tool.name === "docker_action") {
+    const act = String(args?.action || "");
+    return ["stop", "kill", "remove"].includes(act)
+      ? { level: "high", why: [`${act}s a container`] }
+      : { level: "medium", why: [`${act}s a container`] };
+  }
+  return { level: tool.risk, why: [tool.riskWhy || "changes something on this machine"] };
 }
 
-export async function send(runId, text, req) {
+function needsApproval(tool, s, args) {
+  if (s.approval !== "ask") return false;
+  const { level } = riskOf(tool, args);
+  if (level === "read") return false;
+  return atLeast(level, s.askAt || "medium");
+}
+
+/* ---- attachments ----
+ * An image the owner pasted or picked. Written to disk under the run's own
+ * folder and referenced by id, rather than carried as base64 inside the
+ * transcript: the transcript is saved on every turn, and a 3 MB screenshot
+ * re-serialised on every message would make the file unusable. The base64 the
+ * provider needs is read back at call time and thrown away again.
+ */
+const MAX_IMAGES = 4;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const IMAGE_TYPES = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
+
+export function storeImages(runId, list) {
+  const out = [];
+  if (!Array.isArray(list) || !list.length) return out;
+  const dir = path.join(UPLOADS, runId);
+  fs.mkdirSync(dir, { recursive: true });
+
+  for (const img of list.slice(0, MAX_IMAGES)) {
+    const mime = String(img?.mime || "").toLowerCase();
+    const ext = IMAGE_TYPES[mime];
+    if (!ext) throw httpError(400, `${mime || "that file"} is not an image type this accepts (PNG, JPEG, WebP or GIF)`);
+    const buf = Buffer.from(String(img.data || ""), "base64");
+    if (!buf.length) throw httpError(400, "that image arrived empty");
+    if (buf.length > MAX_IMAGE_BYTES) throw httpError(400, `images are limited to ${MAX_IMAGE_BYTES / 1024 / 1024} MB`);
+    const id = "i" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    fs.writeFileSync(path.join(dir, id + "." + ext), buf, { mode: 0o600 });
+    out.push({ id, file: id + "." + ext, mime, size: buf.length,
+               name: String(img.name || "image").slice(0, 80) });
+  }
+  return out;
+}
+
+/** The bytes back, for the one moment the provider needs them. */
+export function imagePath(runId, fileId) {
+  if (!/^[a-z0-9]+\.(png|jpg|webp|gif)$/i.test(String(fileId || ""))) return null;
+  const p = path.join(UPLOADS, runId, fileId);
+  return fs.existsSync(p) ? p : null;
+}
+
+const imageB64 = (runId, att) => {
+  const p = imagePath(runId, att.file);
+  return p ? fs.readFileSync(p).toString("base64") : null;
+};
+
+export async function send(runId, text, req, images) {
   const r = run(runId);
   const s = settings();
 
@@ -956,10 +1148,17 @@ export async function send(runId, text, req) {
     });
   }
 
-  r.messages.push({ role: "user", content: [{ type: "text", text: String(text).slice(0, 20000) }] });
-  r.steps.push({ kind: "user", text: String(text).slice(0, 20000), at: Date.now() });
+  const atts = storeImages(r.id, images);
+  const body = [{ type: "text", text: String(text).slice(0, 20000) }];
+  for (const a of atts) body.push({ type: "image", att: a });
+  r.messages.push({ role: "user", content: body });
+  r.steps.push({ kind: "user", text: String(text).slice(0, 20000), at: Date.now(),
+                 images: atts.map(a => ({ id: a.id, file: a.file, name: a.name, mime: a.mime, size: a.size })) });
+  if (!r.title) r.title = clip(String(text).replace(/\s+/g, " ").trim(), 32) || "New chat";
   const u = db().settings?.agentUsage; if (u) { u.runs = (u.runs || 0) + 1; save(); }
-  return await loop(r, s, req);
+  const out = await loop(r, s, req);
+  persist();
+  return out;
 }
 
 export async function resume(runId, decision, req) {
@@ -978,7 +1177,9 @@ export async function resume(runId, decision, req) {
       content: [{ type: "tool_result", tool_use_id: pending.id, name: pending.name,
                   content: [{ type: "text", text: "The owner denied this action. Do not retry it; suggest another approach." }] }]
     });
-    return await loop(r, s, req);
+    const denied = await loop(r, s, req);
+    persist();
+    return denied;
   }
 
   const out = await execute(pending, s, req);
@@ -987,7 +1188,9 @@ export async function resume(runId, decision, req) {
     role: "tool",
     content: [{ type: "tool_result", tool_use_id: pending.id, name: pending.name, content: [{ type: "text", text: out.text }] }]
   });
-  return await loop(r, s, req);
+  const after = await loop(r, s, req);
+  persist();
+  return after;
 }
 
 async function execute(call, s, req) {
@@ -1020,7 +1223,7 @@ async function loop(r, s, req) {
   const brief = await briefing(s).catch(() => "");
 
   for (let step = 0; step < s.maxSteps; step++) {
-    const res = await callModel(s, r.messages, brief);
+    const res = await callModel(s, r.messages, brief, r.id);
 
     const spend = noteUsage(s.provider, s.model, res.usage.in, res.usage.out);
     r.usage.in += spend.inTok; r.usage.out += spend.outTok; r.usage.cost += spend.cost;
@@ -1045,9 +1248,11 @@ async function loop(r, s, req) {
     const results = [];
     for (const call of res.calls) {
       const tool = allTools().find(t => t.name === call.name);
-      if (tool && needsApproval(tool, s)) {
+      if (tool && needsApproval(tool, s, call.args)) {
+        const risk = riskOf(tool, call.args);
         r.pending = {
-          id: call.id, name: call.name, args: call.args, risk: tool.risk,
+          id: call.id, name: call.name, args: call.args,
+          risk: risk.level, why: risk.why.slice(0, 3),
           preview: tool.preview ? tool.preview(call.args || {}) : JSON.stringify(call.args, null, 1)
         };
         // Anything already run this turn still has to be reported back, so the

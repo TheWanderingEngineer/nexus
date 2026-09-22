@@ -102,24 +102,24 @@ try{
 
   /* 3. A write pauses for approval; denying it stops the write happening. */
   const target=path.join(share,'created.txt');
-  script=[ { tool:'write_file', args:{ path:target, content:'written by hermes' } },
+  script=[ { tool:'write_file', args:{ path:target, content:'written by kernel' } },
            { content:'Understood, I will leave it alone.' } ];
   run=(await A('/agent/run',{method:'POST'})).body;
   t=(await A(`/agent/run/${run.id}/send`,{method:'POST',body:JSON.stringify({text:'make a file'})})).body;
   ok('a write pauses for approval', !!t.pending && t.pending.name==='write_file');
-  ok('the approval shows what will happen', (t.pending?.preview||'').includes('written by hermes'));
+  ok('the approval shows what will happen', (t.pending?.preview||'').includes('written by kernel'));
   ok('nothing is written while it waits', !fs.existsSync(target));
   t=(await A(`/agent/run/${run.id}/approve`,{method:'POST',body:JSON.stringify({decision:'deny'})})).body;
   ok('denying leaves the file alone', !fs.existsSync(target));
   ok('the denial is recorded in the transcript', t.steps.some(x=>x.denied));
 
   /* 4. Approving it performs the write. */
-  script=[ { tool:'write_file', args:{ path:target, content:'written by hermes' } },
+  script=[ { tool:'write_file', args:{ path:target, content:'written by kernel' } },
            { content:'Done.' } ];
   run=(await A('/agent/run',{method:'POST'})).body;
   t=(await A(`/agent/run/${run.id}/send`,{method:'POST',body:JSON.stringify({text:'make it for real'})})).body;
   t=(await A(`/agent/run/${run.id}/approve`,{method:'POST',body:JSON.stringify({decision:'allow'})})).body;
-  ok('approving performs the write', fs.existsSync(target) && fs.readFileSync(target,'utf8')==='written by hermes');
+  ok('approving performs the write', fs.existsSync(target) && fs.readFileSync(target,'utf8')==='written by kernel');
 
   /* 4b. A half-answered turn must never reach the provider.
 
@@ -159,11 +159,11 @@ try{
 
   /* 5. Full access runs a real command with no gate. */
   await A('/agent/config',{method:'PUT',body:JSON.stringify({approval:'auto'})});
-  script=[ { tool:'run_command', args:{ command:'echo hermes-was-here' } }, { content:'It printed it.' } ];
+  script=[ { tool:'run_command', args:{ command:'echo kernel-was-here' } }, { content:'It printed it.' } ];
   run=(await A('/agent/run',{method:'POST'})).body;
   t=(await A(`/agent/run/${run.id}/send`,{method:'POST',body:JSON.stringify({text:'run echo'})})).body;
   const cmd=t.steps.find(x=>x.kind==='tool'&&x.name==='run_command');
-  ok('full access runs a command with no gate', !t.pending && cmd && cmd.result.includes('hermes-was-here'), JSON.stringify(cmd?.result));
+  ok('full access runs a command with no gate', !t.pending && cmd && cmd.result.includes('kernel-was-here'), JSON.stringify(cmd?.result));
 
   /* 6. Turning the capability off makes the tool disappear entirely. */
   await A('/agent/config',{method:'PUT',body:JSON.stringify({caps:{metrics:true,readFiles:true,writeFiles:true,shell:false,docker:false}})});
@@ -282,6 +282,100 @@ try{
   ok('a skill can be deleted permanently', !del.list.some(k=>k.id==='media-stack'));
   const rest=(await A('/agent/skills/restore',{method:'POST'})).body;
   ok('restore defaults brings a stock skill back', rest.added===1 && rest.list.some(k=>k.id==='media-stack'));
+
+  /* 8c. Risk: a command is classified from what it does, and the owner says
+     which levels are worth interrupting them for. */
+  const { classifyCommand } = await import('../server/risk.js');
+  const lvl = c => classifyCommand(c).level;
+  ok('a read-only command is low', ['ls -la /etc', 'df -h', 'docker ps', 'systemctl status nexus']
+     .every(c => lvl(c) === 'low'), ['ls -la /etc','df -h','docker ps','systemctl status nexus'].map(c=>c+'='+lvl(c)).join(' '));
+  ok('installing something is medium', lvl('apt install htop') === 'medium', lvl('apt install htop'));
+  ok('stopping a service is high', lvl('systemctl restart nexus') === 'high' && lvl('docker stop jellyfin') === 'high');
+  ok('wiping a disk is critical', lvl('mkfs.ext4 /dev/sdb1') === 'critical' && lvl('rm -rf /') === 'critical');
+  ok('the internet piped into a shell is critical', lvl('curl -sL https://get.docker.com | sh') === 'critical');
+  ok('a pipeline is as bad as its worst part', lvl('ls | xargs rm -rf') === 'high', lvl('ls | xargs rm -rf'));
+  ok('an unknown command is not assumed harmless', lvl('frobnicate --all') === 'medium', lvl('frobnicate --all'));
+  ok('deleting a folder of your own is not the same as deleting /home',
+     lvl('rm -rf /home/me/tmp') === 'high' && lvl('rm -rf /home') === 'critical');
+  ok('the level always comes with a reason', classifyCommand('rm -rf /etc').why.length > 0,
+     JSON.stringify(classifyCommand('rm -rf /etc')));
+
+  await A('/agent/config', { method: 'PUT', body: JSON.stringify({ approval: 'ask', askAt: 'high',
+    caps: { metrics: true, readFiles: true, writeFiles: true, shell: true, docker: false } }) });
+  seen = [];
+  script = [{ tool: 'run_command', args: { command: 'df -h' } }, { content: 'Plenty of room.' }];
+  run = (await A('/agent/run', { method: 'POST' })).body;
+  t = (await A(`/agent/run/${run.id}/send`, { method: 'POST', body: JSON.stringify({ text: 'how full is the disk' }) })).body;
+  ok('a low-risk command runs without asking at the high threshold',
+     !t.pending && t.steps.some(x => x.kind === 'tool' && !x.error), JSON.stringify(t.pending));
+
+  script = [{ tool: 'run_command', args: { command: 'rm -rf /var/lib/docker' } }, { content: 'Stopped.' }];
+  run = (await A('/agent/run', { method: 'POST' })).body;
+  t = (await A(`/agent/run/${run.id}/send`, { method: 'POST', body: JSON.stringify({ text: 'clean up docker' }) })).body;
+  ok('a critical one still stops and asks', t.pending?.risk === 'critical', JSON.stringify(t.pending?.risk));
+  ok('and the card says why', (t.pending?.why || []).join(' ').includes('system path'), JSON.stringify(t.pending?.why));
+  await A(`/agent/run/${run.id}/approve`, { method: 'POST', body: JSON.stringify({ decision: 'deny' }) });
+
+  await A('/agent/config', { method: 'PUT', body: JSON.stringify({ askAt: 'low' }) });
+  script = [{ tool: 'run_command', args: { command: 'df -h' } }, { content: 'ok' }];
+  run = (await A('/agent/run', { method: 'POST' })).body;
+  t = (await A(`/agent/run/${run.id}/send`, { method: 'POST', body: JSON.stringify({ text: 'disk' }) })).body;
+  ok('at the lowest threshold even a read-only command asks', t.pending?.risk === 'low', JSON.stringify(t.pending?.risk));
+  await A(`/agent/run/${run.id}/approve`, { method: 'POST', body: JSON.stringify({ decision: 'deny' }) });
+  await A('/agent/config', { method: 'PUT', body: JSON.stringify({ approval: 'auto', askAt: 'medium' }) });
+
+  /* 8d. Conversations: five of them, kept on the server so another device
+     finds the one you started here. */
+  const before = (await A('/agent/chats')).body.chats.length;
+  const fresh = (await A('/agent/run', { method: 'POST' })).body;
+  script = [{ content: 'noted' }];
+  await A(`/agent/run/${fresh.id}/send`, { method: 'POST', body: JSON.stringify({ text: 'remember the number 4242' }) });
+  const listed = (await A('/agent/chats')).body.chats;
+  ok('a conversation appears in the tab strip', listed.some(c => c.id === fresh.id), JSON.stringify(listed.map(c => c.title)));
+  ok('and is titled after what was asked',
+     listed.find(c => c.id === fresh.id).title.includes('4242'), listed.find(c => c.id === fresh.id)?.title);
+  ok('it can be fetched back whole',
+     (await A(`/agent/run/${fresh.id}`)).body.steps.some(x => x.text?.includes('4242')));
+  ok('the transcript is on disk, not only in memory',
+     fs.readFileSync(path.join(dataDir, 'agent-chats.json'), 'utf8').includes('4242'));
+  ok('and that file is root-only',
+     (fs.statSync(path.join(dataDir, 'agent-chats.json')).mode & 0o077) === 0);
+
+  for (let i = 0; i < 6; i++) {
+    const r2 = (await A('/agent/run', { method: 'POST' })).body;
+    script = [{ content: 'ok' }];
+    await A(`/agent/run/${r2.id}/send`, { method: 'POST', body: JSON.stringify({ text: 'chat number ' + i }) });
+  }
+  ok('at most five conversations are kept', (await A('/agent/chats')).body.chats.length === 5,
+     String((await A('/agent/chats')).body.chats.length));
+
+  const keep = (await A('/agent/chats')).body.chats;
+  const shut = (await A(`/agent/run/${keep[0].id}`, { method: 'DELETE' })).body.chats;
+  ok('one can be closed', !shut.some(c => c.id === keep[0].id) && shut.length === 4, String(shut.length));
+
+  /* 8e. An image goes to the model in the provider's own shape, and comes back
+     out again for the chat to show. */
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const shot = (await A('/agent/run', { method: 'POST' })).body;
+  script = [{ content: 'I can see it.' }];
+  seen = [];
+  const withImg = await A(`/agent/run/${shot.id}/send`, { method: 'POST', body: JSON.stringify({
+    text: 'what is this', images: [{ name: 'shot.png', mime: 'image/png', data: png.toString('base64') }] }) });
+  ok('a message can carry an image', withImg.status === 200 && withImg.body.steps.some(x => x.images?.length),
+     JSON.stringify(withImg.body.steps?.find(x => x.kind === 'user')));
+  const sentMsg = (seen[0]?.messages || []).find(m => Array.isArray(m.content));
+  ok('and it reaches the provider as an image part',
+     !!sentMsg && sentMsg.content.some(p => p.type === 'image_url' && p.image_url.url.startsWith('data:image/png;base64,')),
+     JSON.stringify(sentMsg?.content?.map(p => p.type)));
+  const file = withImg.body.steps.find(x => x.images?.length).images[0].file;
+  const back = await fetch(base + `/api/agent/run/${shot.id}/image/${file}`, { headers: { Cookie: cookie, 'X-CSRF-Token': setup.csrf } });
+  ok('the image can be fetched back for the chat', back.status === 200 && (await back.arrayBuffer()).byteLength === png.length);
+  const escape = await fetch(base + `/api/agent/run/${shot.id}/image/..%2f..%2fstate.json`, { headers: { Cookie: cookie, 'X-CSRF-Token': setup.csrf } });
+  ok('and nothing else can', escape.status === 404, String(escape.status));
+  const bad2 = await A(`/agent/run/${shot.id}/send`, { method: 'POST', body: JSON.stringify({
+    text: 'and this', images: [{ name: 'x.exe', mime: 'application/x-msdownload', data: 'AAAA' }] }) });
+  ok('a file that is not an image is refused', bad2.status === 400, String(bad2.status));
 
   /* 9b. The wire shape each provider actually accepts.
 

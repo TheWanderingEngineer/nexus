@@ -25,6 +25,12 @@ app.disable("x-powered-by");
 // Behind a reverse proxy we only trust forwarded headers from configured hops.
 app.set("trust proxy", cfg.trustedProxies.length ? cfg.trustedProxies : false);
 
+// 1 MB is plenty for every endpoint but one: a pasted screenshot arrives as
+// base64 in the agent's send, and base64 adds a third to an image that may
+// already be a few megabytes. The agent clamps the real limits itself — four
+// images, 5 MB each — so this only has to be large enough not to reject them
+// before that code ever runs.
+app.use("/api/agent", express.json({ limit: "30mb" }));
 app.use(express.json({ limit: "1mb" }));
 app.use(attachUser);
 

@@ -40,8 +40,10 @@ server/
   terminal.js     pty-less shell over a WebSocket
   library.js      app-store catalogue sync + CasaOS adapter
   apps.js         compose install/uninstall, port checks, job bus
-  agent.js        Hermes: providers, tools, approvals, usage, crons
+  agent.js        Kernel: providers, tools, approvals, usage, crons
+  risk.js         how dangerous a shell command is, and why
   skills.js       the agent's Markdown skill library
+  pins.js         the PINs on the Apps page, in their own 0600 file
   netmatch.js     trustedProxies matching (CIDR, exact, prefix, localhost)
   routes.js       the whole REST surface — including the Apps launcher
 web/
@@ -233,7 +235,7 @@ run can be approved after the switch was turned off.
 
 **Two jails, in series.** `agentPath()` calls the file manager's `resolveSafe`
 (or `resolveForCreate`), which answers "may Nexus touch this", and then checks
-the result against the roots ticked for the agent, which answers "may Hermes".
+the result against the roots ticked for the agent, which answers "may Kernel".
 `allowedRoots()` intersects the saved list with the *currently configured* roots
 every time, so editing `config.json` can only ever narrow what a stale saved path
 reaches.
@@ -299,6 +301,26 @@ And it states absences rather than omitting them. The collector starts a moment
 reported" is a real state the first few seconds after boot. An empty line where
 a reading should be is something a model will fill in for you.
 
+### Conversations on disk
+
+They used to live only in memory, deliberately, because a transcript holds file
+contents and command output. The owner asked to start a chat on a laptop and
+finish it on a phone, which cannot be done without writing it down — so it is
+written down carefully, and `agent-chats.json` is the result: its own file,
+0600, five conversations at most, oldest dropped, tool output already clipped to
+4 kB a call. Never `state.json`, which is rewritten constantly and ends up in
+backups.
+
+`persist()` runs at the end of every turn, in `send` and in both arms of
+`resume`. The tests assert the file exists, contains what was said, and is
+root-only — so a refactor that quietly stops saving fails, and so does one that
+starts saving world-readable.
+
+Attachments go beside it in `agent-uploads/<runId>/`, and are deleted with the
+conversation. They are referenced from the transcript by id and read back as
+base64 only at call time: a 3 MB screenshot re-serialised into the transcript on
+every message would make the file unusable within a dozen turns.
+
 ### Adding a tool
 
 One entry in the `TOOLS` array:
@@ -328,6 +350,35 @@ and an app's PIN hash never leaves the server at all. When adding a tool, go
 through what it returns field by field and ask what each one would let someone
 do. `agent-check.js` asserts the redaction with a recognisable secret in the
 URL, so a future refactor that starts returning the whole config fails.
+
+### Classifying a command
+
+`server/risk.js` is a pure function with no dependencies: a command string in,
+`{ level, why[] }` out. It is separate from `agent.js` so it can be tested on
+its own, and it is tested on its own.
+
+Four levels — `low`, `medium`, `high`, `critical` — and three rules that decide
+whether it is worth anything:
+
+1. **Unknown is not safe.** A binary nothing in the tables recognises is
+   `medium`. A classifier that guesses "harmless" is worse than no classifier,
+   because the owner stops reading.
+2. **A pipeline is as dangerous as its worst segment.** The command is split on
+   `;  &&  ||  |  &` and newlines, each segment classified, and the worst wins.
+   `ls | xargs rm -rf` is a delete.
+3. **Every level carries its reasons**, in the owner's words, and the approval
+   card prints them. A level with no argument behind it cannot be disagreed
+   with.
+
+Two path lists, not one: anything *under* `/etc` is the system, but
+`/home/you/tmp` is a folder. Treating everything under `/home` as critical is
+how a classifier becomes noise — that was the first version and it called
+`rm -rf /home/me/tmp` critical.
+
+The owner's threshold lives in `settings.askAt`. `needsApproval` compares the
+call's level against it; a tool whose `risk` is `read` never asks whatever the
+threshold says. This is a *guide*, not a sandbox: it decides how often the owner
+is interrupted, not what is allowed. The approval gate is what stops things.
 
 ### Every tool call must come back answered
 
@@ -520,16 +571,36 @@ box with no outbound access is the normal case, not the error case, so the
 failure path draws a lettered tile — via the delegated `error` listener, because
 `onerror=` would be refused (see the invariants).
 
+### The check box that came in twos
+
+`.ctxcheck .tick` is the box drawn for **button** rows (`role="switch"`), which
+have no input to draw one. A real `<input type=checkbox>` already draws its own,
+so pairing them put two boxes side by side in the Add App form. `.checkrow` is
+the label-wraps-a-real-input pattern; use that, and leave `.tick` to the buttons.
+
 ### The PIN, and what it actually protects
 
 A four-digit PIN is worth almost nothing if it only hides a button, so it does
-not. `POST /launcher/:id/lock` stores a scrypt hash; `GET /launcher` returns
-locked apps with `url` and `externalUrl` blanked and `locked: true`; the address
-is handed over only by `POST /launcher/:id/open` with the right digits, counted
-and throttled at six tries a minute. "View source" and the API are both dead
-ends.
+not. `GET /launcher` returns locked apps with `url` and `externalUrl` blanked
+and `locked: true`; the address is handed over only by
+`POST /launcher/:id/open` with the right digits, counted and throttled at six
+tries a minute. "View source" and the API are both dead ends.
 
-Two consequences worth knowing before changing this code:
+**Taking the PIN off requires the PIN**, and so does changing it. The first
+version let the settings gear flick it off without knowing it, which makes the
+whole thing a decoration. If you touch `DELETE /launcher/:id/lock`, that check
+is the feature.
+
+**It is stored so it can be read back, not hashed** — a deliberate reversal,
+and the reasoning is worth keeping. The owner asked to be able to recover a
+forgotten PIN; Kernel does it with `recall_app_pin`, which needs approval and is
+audited. Against the threat a four-digit PIN actually defends — someone reading
+your dashboard over your shoulder — a root-only file costs nothing, because
+anyone who can read `/var/lib/nexus` is root and already has the addresses, the
+state file and the machine. `server/pins.js` owns that file so `routes.js` and
+`agent.js` cannot disagree about where it lives.
+
+Two more consequences worth knowing before changing this code:
 
 - **`PUT /launcher` must carry the lock and the addresses across.** The browser
   never held either, so it cannot send them back; the merge in the handler is

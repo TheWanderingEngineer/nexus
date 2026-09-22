@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#14101F">
-<script src="/appearance.js?v=0.7.0"></script>
+<script src="/appearance.js?v=0.8.0"></script>
 <title>Nexus</title>
 <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/icons/nexus-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/assets/brand/icons/nexus-16.png">
 <link rel="apple-touch-icon" href="/assets/brand/icons/nexus-128.png">
 <link rel="stylesheet" href="/vendor/xterm.css">
-<link rel="stylesheet" href="/style.css?v=0.7.0">
-<link rel="stylesheet" href="/workstation.css?v=0.7.0">
+<link rel="stylesheet" href="/style.css?v=0.8.0">
+<link rel="stylesheet" href="/workstation.css?v=0.8.0">
 </head>
 <body>
 
@@ -368,7 +368,7 @@
         </div>
         <div class="section" id="agent-section">
           <h2>NEXUS EXPERT</h2>
-          <p class="hint">Hermes is an AI agent with tools pointed at this machine. It starts with no
+          <p class="hint">Kernel is an AI agent with tools pointed at this machine. It starts with no
             access at all &mdash; every capability below is yours to hand over, one at a time.</p>
           <div id="agent-panel"></div>
         </div>
@@ -449,37 +449,46 @@
   </div>
 </div>
 
-<!-- ============ NEXUS EXPERT (HERMES) ============ -->
-<button id="hermes-open" type="button" aria-expanded="false"
-        aria-controls="hermes" data-tip="Nexus Expert &mdash; ask Hermes about this machine">
+<!-- ============ NEXUS EXPERT (KERNEL) ============ -->
+<button id="kernel-open" type="button" aria-expanded="false"
+        aria-controls="kernel" data-tip="Nexus Expert &mdash; ask Kernel about this machine">
   <span class="hbot-art" aria-hidden="true"></span>
   <span class="hbot-label">EXPERT</span>
 </button>
 
-<section id="hermes" hidden aria-label="Nexus Expert">
-  <header class="hx-head">
+<section id="kernel" hidden aria-label="Nexus Expert">
+  <!-- Grips on the two edges that grow the panel into the screen: it is
+       anchored bottom-right, so left and top are where the room is. -->
+  <i class="kx-grip n" data-grip="n" aria-hidden="true"></i>
+  <i class="kx-grip w" data-grip="w" aria-hidden="true"></i>
+  <i class="kx-grip nw" data-grip="nw" aria-hidden="true"></i>
+  <header class="kx-head" id="kx-head">
     <span class="hbot-art sm" aria-hidden="true"></span>
-    <span class="hx-who"><b>HERMES</b><span class="hx-model" id="hx-model">not configured</span></span>
+    <span class="kx-who"><b>KERNEL</b><span class="kx-model" id="kx-model">not configured</span></span>
     <span class="spacer"></span>
-    <button class="hx-ico" id="hx-new" type="button" aria-label="Start a new conversation" data-tip="Start a new conversation">&#8635;</button>
-    <button class="hx-ico" id="hx-close" type="button" aria-label="Close the expert panel" data-tip="Close">&times;</button>
+    <button class="kx-ico" id="kx-reset" type="button" aria-label="Put the panel back in the corner" data-tip="Back to the corner">&#9737;</button>
+    <button class="kx-ico" id="kx-close" type="button" aria-label="Close the expert panel" data-tip="Close">&times;</button>
   </header>
-  <div class="hx-body" id="hx-body" role="log" aria-live="polite"></div>
-  <div class="hx-ask" id="hx-ask" hidden></div>
-  <form class="hx-compose" id="hx-compose">
-    <textarea id="hx-input" rows="1" placeholder="Ask about this machine…" aria-label="Message for Hermes"></textarea>
-    <button class="btn primary sm" id="hx-send" type="submit">SEND</button>
+  <div class="kx-tabs" id="kx-tabs" role="tablist" aria-label="Conversations"></div>
+  <div class="kx-body" id="kx-body" role="log" aria-live="polite"></div>
+  <div class="kx-ask" id="kx-ask" hidden></div>
+  <div class="kx-atts" id="kx-atts" hidden></div>
+  <form class="kx-compose" id="kx-compose">
+    <button class="kx-attach" id="kx-attach" type="button" aria-label="Attach an image" data-tip="Attach an image — or just paste one">+</button>
+    <input type="file" id="kx-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+    <textarea id="kx-input" rows="1" placeholder="Ask about this machine…" aria-label="Message for Kernel"></textarea>
+    <button class="btn primary sm" id="kx-send" type="submit">SEND</button>
   </form>
-  <footer class="hx-foot">
-    <span id="hx-usage" data-tip="Tokens this conversation, and the running total since you last reset it">&mdash;</span>
+  <footer class="kx-foot">
+    <span id="kx-usage" data-tip="Tokens this conversation, and the running total since you last reset it">&mdash;</span>
     <span class="spacer"></span>
-    <button class="hx-link" id="hx-config" type="button">SETTINGS</button>
+    <button class="kx-link" id="kx-config" type="button">SETTINGS</button>
   </footer>
 </section>
 
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/xterm-addon-fit.js"></script>
 <script src="/vendor/xterm-addon-web-links.js"></script>
-<script src="/app.js?v=0.7.0"></script>
+<script src="/app.js?v=0.8.0"></script>
 </body>
 </html>

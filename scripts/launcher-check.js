@@ -93,14 +93,45 @@ try {
      after.body.url === 'http://192.168.1.50:8096/' &&
      (await A('/launcher')).body.apps.find(a => a.id === 'x2').locked === true, JSON.stringify(after.body));
 
-  for (let i = 0; i < 6; i++) await A('/launcher/x2/open', { method: 'POST', body: JSON.stringify({ pin: '0000' }) });
-  const flood = await A('/launcher/x2/open', { method: 'POST', body: JSON.stringify({ pin: '2468' }) });
-  ok('guessing is throttled', flood.status === 429, String(flood.status));
 
-  await A('/launcher/x2/lock', { method: 'DELETE' });
+  // A lock anyone can flick off from the settings gear is not a lock.
+  const noPin = await A('/launcher/x2/lock', { method: 'DELETE' });
+  ok('the PIN cannot be removed without giving it', noPin.status === 403, String(noPin.status));
+  ok('and it is still locked after that attempt',
+     (await A('/launcher')).body.apps.find(a => a.id === 'x2').locked === true);
+  const wrongOff = await A('/launcher/x2/lock', { method: 'DELETE', body: JSON.stringify({ pin: '9999' }) });
+  ok('nor with the wrong one', wrongOff.status === 403, String(wrongOff.status));
+
+  // Changing it needs the one it replaces.
+  const blindChange = await A('/launcher/x2/lock', { method: 'POST', body: JSON.stringify({ pin: '5555' }) });
+  ok('changing it needs the PIN it replaces', blindChange.status === 403, String(blindChange.status));
+  const changed = await A('/launcher/x2/lock', { method: 'POST', body: JSON.stringify({ current: '2468', pin: '5555' }) });
+  ok('with the right one, it changes', changed.status === 200, String(changed.status));
+  ok('and the new PIN is the one that opens it',
+     (await A('/launcher/x2/open', { method: 'POST', body: JSON.stringify({ pin: '5555' }) })).status === 200);
+
+  await A('/launcher/x2/lock', { method: 'DELETE', body: JSON.stringify({ pin: '5555' }) });
   const unlocked = (await A('/launcher')).body.apps.find(a => a.id === 'x2');
-  ok('taking the PIN off brings the address back',
+  ok('taking the PIN off with the PIN brings the address back',
      unlocked.locked === false && unlocked.url === 'http://192.168.1.50:8096/', JSON.stringify(unlocked));
+
+  // The vault: its own file, not the state file, and readable only by root.
+  const stateTxt = fs.readFileSync(path.join(dataDir, 'state.json'), 'utf8');
+  ok('a PIN is never written into the state file', !stateTxt.includes('2468') && !stateTxt.includes('5555'));
+  await A('/launcher/x2/lock', { method: 'POST', body: JSON.stringify({ pin: '4321' }) });
+  const vault = path.join(dataDir, 'launcher-pins.json');
+  ok('it lives in its own file', fs.existsSync(vault) && fs.readFileSync(vault, 'utf8').includes('4321'));
+  ok('which only root can read', (fs.statSync(vault).mode & 0o077) === 0,
+     '0' + (fs.statSync(vault).mode & 0o777).toString(8));
+  await A('/launcher/x2/lock', { method: 'DELETE', body: JSON.stringify({ pin: '4321' }) });
+
+  /* Guessing is counted. Last, because the throttle is per app and per minute:
+     a lockout here would make every check after it fail for the wrong reason. */
+  await A('/launcher/x1/lock', { method: 'POST', body: JSON.stringify({ pin: '1357' }) });
+  for (let i = 0; i < 6; i++) await A('/launcher/x1/open', { method: 'POST', body: JSON.stringify({ pin: '0000' }) });
+  const flood = await A('/launcher/x1/open', { method: 'POST', body: JSON.stringify({ pin: '1357' }) });
+  ok('guessing is throttled, even with the right PIN once the count is spent',
+     flood.status === 429, String(flood.status));
 
   const disc = await A('/launcher/discover');
   ok('discover reports Docker honestly when it is absent',

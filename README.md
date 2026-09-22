@@ -229,12 +229,12 @@ can be switched off with `terminal.enabled: false`.
 
 ## Nexus Expert
 
-A robot sits in the corner of every page. Click it and you get Hermes: a language
+A robot sits in the corner of every page. Click it and you get Kernel: a language
 model with tools pointed at this machine, in a panel that stays out of the way.
 Its replies are rendered — headings, **bold**, lists, tables and fenced code — so
 a `docker ps` table arrives as a table instead of a wall of pipes.
 
-**It starts with nothing.** On a fresh install Hermes can read the metrics you
+**It starts with nothing.** On a fresh install Kernel can read the metrics you
 can already see on the dashboard, and that is all. Every other capability is a
 switch in **Settings → Nexus Expert**, off until you turn it on:
 
@@ -250,25 +250,60 @@ The last one is the whole machine, and the page says so where the switch is. It
 is what makes "install Jellyfin and point it at /DATA/media" a sentence you can
 type, and it is the reason the other rails exist.
 
-**Before it acts**, Hermes is on *ask me first*: every write and every command
+**Before it acts**, Kernel is on *ask me first*: every write and every command
 stops and shows you exactly what it is about to do, with ALLOW and DENY. Switch
-to **full access** and it stops asking. That is offered because it is your
-machine — with one thing worth knowing first: everything Hermes reads, including
+to **full access** and it stops asking.
+
+**Not every command deserves the same interruption.** Each one is classified
+from what it actually does, and the approval card shows the level and the
+reasons it was given:
+
+| | |
+|---|---|
+| **LOW** | Reads something and changes nothing — `df -h`, `docker ps` |
+| **MEDIUM** | Changes something you can put back — `apt install`, writing a file, `docker compose up` |
+| **HIGH** | Deletes a file, stops a service, changes permissions or the firewall |
+| **CRITICAL** | Destroys data, repartitions, powers the machine off, or pipes the internet into a shell |
+
+Under *ask me first* you choose where the line is: everything, medium and up,
+high and up, or critical only. Two rules keep it honest — a pipeline is judged
+by its worst part (`ls | xargs rm -rf` is a delete, not a listing), and a
+command nothing recognises is never assumed harmless. Whatever the setting, a
+tool that only reads never asks, and every call is in the audit log. That is offered because it is your
+machine — with one thing worth knowing first: everything Kernel reads, including
 file contents and command output, comes back into its context, and text in a file
 can be written to look like an instruction. Ask-me-first is what stands between
 that and an action.
 
 If you ignore the approval and ask something else instead, that is taken as a
-no: the waiting action is closed off, Hermes is told it was not run, and the
+no: the waiting action is closed off, Kernel is told it was not run, and the
 conversation carries on. Nothing is left half-answered — a tool call with no
 result in the history is a conversation every provider refuses from then on.
 
 Every tool call it makes lands in the audit log on the Settings page, whichever
 mode you are in.
 
+### The panel
+
+It floats over whatever page you are on. **Drag it by its header** anywhere on
+the screen and **pull its top or left edge** to make it bigger — useful when it
+answers with a wide table. Both are remembered in this browser; the ◉ in the
+header puts it back in the corner.
+
+**Conversations are tabs**, up to five, with **+** for a new one and **×** to
+close one. They live on the server, not in the browser, so a conversation you
+start on your laptop is waiting on your phone — which means transcripts are
+written to disk. They go in their own root-only file, never the state file, and
+only the last five are kept.
+
+Every reply has a **COPY** button. Where the chosen model takes images, a **+**
+appears next to the box: attach a screenshot, or just paste one straight in.
+Images appear in the conversation, open full size when clicked, and can be
+downloaded from there.
+
 ### What it already knows
 
-**Your own settings, not just the machine's.** Hermes can read the Control
+**Your own settings, not just the machine's.** Kernel can read the Control
 Panel: which watch rules exist and what they are set to, what restarts on a
 clock, what has tripped recently, whether power actions are armed, and what is
 on the Apps page. So "do I already have a rule for this?" is a question it can
@@ -277,12 +312,12 @@ rule comes back written out the way the Control Panel asks for it, for you to
 type in. Credentials are left behind: a notification webhook is reported as its
 host only, and an app's PIN never leaves the server.
 
-Hermes does not have to go looking for the machine it is running on. Every
+Kernel does not have to go looking for the machine it is running on. Every
 message you send carries a **Right now** block: hostname, OS, kernel, uptime,
 CPU and memory load, every filesystem with its usage, the containers and their
 states, and the folders shared with it. It respects the capability switches — no
 container list without the Docker capability — and it is stamped with the moment
-it was taken, because after Hermes restarts something the block describes the
+it was taken, because after Kernel restarts something the block describes the
 past. Readings that have not been taken yet say so rather than going quiet.
 
 ### Skills
@@ -290,10 +325,10 @@ past. Readings that have not been taken yet say so rather than going quiet.
 **Settings → Nexus Expert → Skills** is a library of Markdown files. Drag `.md`
 files in, switch them on and off, or delete them for good. Each one is either:
 
-- **Memory** — pasted into every message. Who Hermes is, what this machine is,
+- **Memory** — pasted into every message. Who Kernel is, what this machine is,
   what Nexus is. You pay for it every turn, so there is a budget bar and the page
   tells you when you are over it.
-- **On demand** — only its name and one-line description cost anything. Hermes
+- **On demand** — only its name and one-line description cost anything. Kernel
   loads the body himself when a question lands in its territory.
 
 Nexus ships thirteen to start with.
@@ -319,7 +354,7 @@ Skills carry **tags** — search the library, or filter it down to `docker`,
 `media`, `networking`. Tags are a line in the file's front matter, so they travel
 with it.
 
-The editor opens on **PREVIEW** — rendered, the way Hermes will be handed it —
+The editor opens on **PREVIEW** — rendered, the way Kernel will be handed it —
 with **WRITE** next to it for the source.
 
 They are ordinary files in `/var/lib/nexus/agent-skills`, so you can edit them in
@@ -335,7 +370,7 @@ run a command will stop and wait with nobody there to answer, and it records tha
 it was waiting rather than pretending it finished.
 
 Also here: whether the live briefing is sent at all, and how many tool calls one
-message may make before Hermes stops and asks you to say "carry on".
+message may make before Kernel stops and asks you to say "carry on".
 
 ### Provider, model and what it costs
 
@@ -546,10 +581,22 @@ Any app can be given a four-digit PIN in Edit App; the tile then shows a lock an
 asks for the digits before it opens.
 
 What it does, said plainly: it keeps that app off the board and **its address out
-of the page** for whoever is looking at Nexus over your shoulder. The PIN is
-stored as a scrypt hash, is never returned by any endpoint, and the server
-withholds the app's addresses until the digits are given — so "view source" does
-not defeat it and neither does the API. Guesses are counted and throttled.
+of the page** for whoever is looking at Nexus over your shoulder. The server
+withholds both of the app's addresses until the digits are given, so "view
+source" does not defeat it and neither does the API. Guesses are counted: six a
+minute, which makes ten thousand combinations take a fortnight.
+
+**Taking the PIN off needs the PIN**, and so does changing it. A lock anyone can
+flick open from the settings gear is not a lock, which is what it was before.
+
+**Forgotten it?** Ask Kernel — it can read the PIN back for one named app. That
+request needs your approval like a write does and lands in the audit log. This
+is why the PIN is stored so it can be read rather than hashed: it lives in its
+own root-only file in the data directory, and anyone who can read that file is
+already root on the box and already has the addresses, the state file and
+everything else. Against the thing a four-digit PIN actually defends — someone
+looking at your dashboard — it costs nothing, and it means a forgotten PIN is
+not a dead tile.
 
 What it is not: access control on the app itself. That app has its own login, and
 anyone who knows its address can still type it into a browser. It is a screen, a

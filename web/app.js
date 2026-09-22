@@ -3389,6 +3389,48 @@ async function openApp(a, external) {
   window.open(url, "_blank", "noopener");
 }
 
+/**
+ * Ask for a PIN, then do the thing.
+ *
+ * One dialog for both of the operations that must prove the owner knows it —
+ * changing it and taking it off. `run` is given the digits and returns the
+ * server's answer; `then` gets it if the server was satisfied. Anything the
+ * server says (wrong PIN, throttled) is shown in the dialog rather than as a
+ * toast that appears behind it.
+ */
+function askForPin(opts, then) {
+  const form = document.createElement("div");
+  form.className = "lpin";
+  form.innerHTML = `
+    <p class="hint">${esc(opts.lead)}</p>
+    <input id="lp-a" type="password" inputmode="numeric" autocomplete="off"
+           maxlength="4" placeholder="\u2022\u2022\u2022\u2022" aria-label="Current PIN">
+    ${opts.second ? `<p class="hint">${esc(opts.second)}</p>
+      <input id="lp-b" type="password" inputmode="numeric" autocomplete="off"
+             maxlength="4" placeholder="\u2022\u2022\u2022\u2022" aria-label="New PIN">` : ""}
+    <p class="lpin-err" id="lp-err" hidden></p>`;
+
+  openModal({
+    title: opts.title, icon: "/assets/brand/icons/ui-launcher.png", body: form,
+    foot: `<span class="spacer"></span>
+           <button class="btn primary sm" id="lp-go" type="button">${esc(opts.action)}</button>`
+  });
+  const a = $("#lp-a", form), b = $("#lp-b", form), err = $("#lp-err", form);
+  setTimeout(() => a.focus(), 50);
+
+  const go = async () => {
+    const one = a.value.trim(), two = b ? b.value.trim() : null;
+    const bad = t => { err.hidden = false; err.textContent = t; };
+    if (!/^\d{4}$/.test(one)) return bad("Four digits.");
+    if (b && !/^\d{4}$/.test(two)) return bad("The new PIN is four digits too.");
+    try {
+      then(await opts.run(one, two));
+    } catch (e) { bad(e.message || "that did not work"); a.select(); }
+  };
+  on("#lp-go", "click", go);
+  for (const el of [a, b]) el?.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+}
+
 function askPin(a, external) {
   // Opened now, while we are still inside the click, and pointed at the real
   // address once the server hands it over: a window.open after an await is a
@@ -3789,16 +3831,19 @@ function editApp(app) {
         ${L_SIZES.map(s => `<button type="button" class="lsize${(a.size || "m") === s.key ? " on" : ""}"
            data-s="${s.key}" data-tip="${esc(s.hint)}">${s.label}</button>`).join("")}
       </div></div>
-    <label class="ctxcheck lf-check"><input type="checkbox" id="lf-pin"${a.pinned ? " checked" : ""}>
-      <span class="tick"></span><span>Pinned — keep it in the band at the top</span></label>
+    <label class="checkrow"><input type="checkbox" id="lf-pin"${a.pinned ? " checked" : ""}>
+      <span>Pinned &mdash; keep it in the band at the top</span></label>
     <div class="ag-row"><label>PIN</label>
       ${a.locked
         ? `<div class="lockrow"><span class="lockon">${SVG_LOCK} This app opens with a PIN</span>
-             <button class="btn sm" id="lf-unlock" type="button">TAKE IT OFF</button></div>`
+             <button class="btn sm" id="lf-repin" type="button">CHANGE IT</button>
+             <button class="btn sm danger" id="lf-unlock" type="button">TAKE IT OFF</button></div>`
         : `<input id="lf-lock" type="password" inputmode="numeric" maxlength="4" placeholder="four digits" autocomplete="off">`}
       <span class="hint">Keeps the tile's address out of this page and asks for four digits before
-        opening it. It is a screen for whoever is looking at Nexus, not a lock on the app itself —
-        that app still has its own login, and anyone who knows its address can type it in.</span></div>`;
+        opening it. ${a.locked ? "Changing it or taking it off needs the PIN you set. " : ""}It is a screen
+        for whoever is looking at Nexus, not a lock on the app itself — that app still has its own
+        login, and anyone who knows its address can type it in.
+        ${a.locked ? "Forgotten it? Kernel can read it back — ask him, and approve the request." : ""}</span></div>`;
 
   let size = a.size || "m";
   openModal({
@@ -3828,14 +3873,30 @@ function editApp(app) {
     box.value = [...have, b.dataset.sug].join(", ");
   }));
 
-  on("#lf-unlock", "click", async () => {
-    try {
-      const out = await api(`/launcher/${encodeURIComponent(a.id)}/lock`, { method: "DELETE" });
-      LP.apps = out.apps; LP.groups = out.groups;
-      closeModal(); paintLauncher();
-      toast("PIN REMOVED", "ok");
-    } catch (e) { toast(e.message || "could not do that", "err"); }
-  });
+  // A lock anyone can flick open from the settings gear is not a lock. Both
+  // taking it off and changing it are proved with the PIN itself.
+  on("#lf-unlock", "click", () => askForPin({
+    title: "TAKE THE PIN OFF",
+    lead: `Type the PIN on "${a.name}" to remove it.`,
+    action: "TAKE IT OFF",
+    run: pin => api(`/launcher/${encodeURIComponent(a.id)}/lock`, { method: "DELETE", body: { pin } })
+  }, out => {
+    LP.apps = out.apps; LP.groups = out.groups;
+    closeModal(); paintLauncher();
+    toast("PIN REMOVED", "ok");
+  }));
+
+  on("#lf-repin", "click", () => askForPin({
+    title: "CHANGE THE PIN",
+    lead: `Type the PIN on "${a.name}", then the new one.`,
+    action: "CHANGE IT",
+    second: "New PIN",
+    run: (pin, next) => api(`/launcher/${encodeURIComponent(a.id)}/lock`, { method: "POST", body: { current: pin, pin: next } })
+  }, out => {
+    LP.apps = out.apps; LP.groups = out.groups;
+    closeModal(); paintLauncher();
+    toast("PIN CHANGED", "ok");
+  }));
 
   on("#lf-del", "click", () => { closeModal(); removeApps([a]); });
 
@@ -3918,7 +3979,6 @@ async function pullApps() {
     <div class="lpull">${out.found.map((f, i) => `
       <label class="lpullrow">
         <input type="checkbox" data-pick="${i}" checked>
-        <span class="tick"></span>
         <span class="lico sm">${appIconHTML({ name: f.name, icon: f.slug })}</span>
         <span class="lpullmain"><b>${esc(f.name)}</b>
           <span>http://${esc(host)}:${f.ports[0]}${f.ports.length > 1 ? ` · also ${f.ports.slice(1).map(p => ":" + p).join(" ")}` : ""}</span></span>
@@ -6497,12 +6557,12 @@ async function start() {
   connectWS();
   connectEvents();
   refreshInstalled();
-  mountHermes();
+  mountKernel();
   setInterval(renderWidgets, 1000);
 }
 
 
-/* ==================== Nexus Expert — Hermes ====================
+/* ==================== Nexus Expert — Kernel ====================
  * A floating panel on every page, an agent behind it, and a settings section
  * that decides what that agent is allowed to touch.
  *
@@ -6511,32 +6571,34 @@ async function start() {
  * than a sprite so it takes its colours from the palette tokens — a PNG would
  * need three versions and would still be wrong on a custom widget tint.
  */
-const HBOT = `
+const KBOT = `
 <svg class="hbot" viewBox="0 0 16 16" role="img" aria-hidden="true">
-  <g class="hb-body">
-    <rect class="hb-bulb" x="7" y="0" width="2" height="2"/>
-    <rect class="hb-stalk" x="7.5" y="1.6" width="1" height="2.2"/>
-    <rect class="hb-ear" x="0.4" y="6.2" width="1.6" height="3.2"/>
-    <rect class="hb-ear" x="14" y="6.2" width="1.6" height="3.2"/>
-    <rect class="hb-head" x="2" y="3.6" width="12" height="9" rx="1.6"/>
-    <rect class="hb-visor" x="3.4" y="5.4" width="9.2" height="4.2" rx="1.1"/>
-    <g class="hb-eyes">
-      <rect class="hb-eye" x="4.9" y="6.9" width="2.1" height="1.6" rx="0.5"/>
-      <rect class="hb-eye" x="9" y="6.9" width="2.1" height="1.6" rx="0.5"/>
+  <g class="kb-body">
+    <rect class="kb-bulb" x="7" y="0" width="2" height="2"/>
+    <rect class="kb-stalk" x="7.5" y="1.6" width="1" height="2.2"/>
+    <rect class="kb-ear" x="0.4" y="6.2" width="1.6" height="3.2"/>
+    <rect class="kb-ear" x="14" y="6.2" width="1.6" height="3.2"/>
+    <rect class="kb-head" x="2" y="3.6" width="12" height="9" rx="1.6"/>
+    <rect class="kb-visor" x="3.4" y="5.4" width="9.2" height="4.2" rx="1.1"/>
+    <g class="kb-eyes">
+      <rect class="kb-eye" x="4.9" y="6.9" width="2.1" height="1.6" rx="0.5"/>
+      <rect class="kb-eye" x="9" y="6.9" width="2.1" height="1.6" rx="0.5"/>
     </g>
-    <rect class="hb-scan" x="3.4" y="5.4" width="9.2" height="1.1"/>
-    <rect class="hb-tooth" x="5.2" y="10.5" width="1.3" height="1.2"/>
-    <rect class="hb-tooth" x="7.3" y="10.5" width="1.3" height="1.2"/>
-    <rect class="hb-tooth" x="9.4" y="10.5" width="1.3" height="1.2"/>
+    <rect class="kb-scan" x="3.4" y="5.4" width="9.2" height="1.1"/>
+    <rect class="kb-tooth" x="5.2" y="10.5" width="1.3" height="1.2"/>
+    <rect class="kb-tooth" x="7.3" y="10.5" width="1.3" height="1.2"/>
+    <rect class="kb-tooth" x="9.4" y="10.5" width="1.3" height="1.2"/>
   </g>
 </svg>`;
 
-const HX = {
+const KX = {
   run: null,          // current conversation id
+  chats: [],          // the tab strip, newest first
   busy: false,
   cfg: null,          // last /agent/config payload
   steps: [],
   pending: null,
+  atts: [],           // images picked or pasted but not sent yet
   usage: { in: 0, out: 0, cost: 0 }
 };
 
@@ -6547,196 +6609,525 @@ const tok = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1000 ? (n / 1000).
 const money = (n, priced = true) =>
   priced === false ? "no rate" : n >= 1 ? "$" + n.toFixed(2) : n > 0 ? "$" + n.toFixed(4) : "$0.00";
 
-function hxEl(id) { return $("#" + id); }
-
 /* ---------------- the dock ---------------- */
 
-function mountHermes() {
-  $$(".hbot-art").forEach(el => { el.innerHTML = HBOT; });
+function mountKernel() {
+  $$(".hbot-art").forEach(el => { el.innerHTML = KBOT; });
 
-  on("#hermes-open", "click", () => toggleHermes());
-  on("#hx-close", "click", () => toggleHermes(false));
-  on("#hx-new", "click", () => { HX.run = null; HX.steps = []; HX.pending = null; HX.usage = { in: 0, out: 0, cost: 0 }; paintHermes(); });
-  on("#hx-config", "click", () => { toggleHermes(false); go("settings"); });
+  on("#kernel-open", "click", () => toggleKernel());
+  on("#kx-close", "click", () => toggleKernel(false));
+  on("#kx-config", "click", () => { toggleKernel(false); go("settings"); });
+  on("#kx-reset", "click", () => resetPanel());
 
-  const input = $("#hx-input");
-  on("#hx-compose", "submit", e => { e.preventDefault(); hermesSend(); });
+  const input = $("#kx-input");
+  on("#kx-compose", "submit", e => { e.preventDefault(); kernelSend(); });
   if (input) {
     // Enter sends, Shift+Enter is a newline. A chat box that needs a mouse to
     // send is a chat box nobody uses twice.
     input.addEventListener("keydown", e => {
-      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); hermesSend(); }
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); kernelSend(); }
     });
     // Grow with the message, up to a point, then scroll.
     input.addEventListener("input", () => {
       input.style.height = "auto";
-      input.style.height = Math.min(120, input.scrollHeight) + "px";
+      input.style.height = Math.min(140, input.scrollHeight) + "px";
+    });
+    // A screenshot in the clipboard is the common case, so it needs no button.
+    input.addEventListener("paste", e => {
+      const files = [...(e.clipboardData?.items || [])]
+        .filter(i => i.kind === "file" && i.type.startsWith("image/"))
+        .map(i => i.getAsFile()).filter(Boolean);
+      if (!files.length) return;
+      e.preventDefault();
+      addAttachments(files);
     });
   }
 
+  on("#kx-attach", "click", () => $("#kx-file")?.click());
+  on("#kx-file", "change", e => { addAttachments([...e.target.files]); e.target.value = ""; });
+  on("#kx-atts", "click", e => {
+    const b = e.target.closest("[data-drop]");
+    if (!b) return;
+    KX.atts.splice(Number(b.dataset.drop), 1);
+    paintAttachments();
+  });
+
+  // Dropping an image on the panel is the same gesture as pasting one.
+  const panel = $("#kernel");
+  if (panel) {
+    panel.addEventListener("dragover", e => { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); panel.classList.add("dropping"); } });
+    panel.addEventListener("dragleave", e => { if (e.target === panel) panel.classList.remove("dropping"); });
+    panel.addEventListener("drop", e => {
+      if (!e.dataTransfer?.files?.length) return;
+      e.preventDefault();
+      panel.classList.remove("dropping");
+      addAttachments([...e.dataTransfer.files].filter(f => f.type.startsWith("image/")));
+    });
+  }
+
+  on("#kx-tabs", "click", e => {
+    const close = e.target.closest("[data-shut]");
+    if (close) { e.stopPropagation(); return shutChat(close.dataset.shut); }
+    if (e.target.closest("#kx-add")) return newChat();
+    const tab = e.target.closest("[data-chat]");
+    if (tab) switchChat(tab.dataset.chat);
+  });
+
+  // Copy a reply. The button is on the message, because "which one" is a
+  // question a single copy button at the bottom cannot answer.
+  on("#kx-body", "click", async e => {
+    const b = e.target.closest("[data-copy]");
+    if (b) {
+      const src = KX.steps[Number(b.dataset.copy)];
+      try {
+        await navigator.clipboard.writeText(src?.text || "");
+        b.classList.add("done");
+        b.textContent = "COPIED";
+        setTimeout(() => { b.classList.remove("done"); b.textContent = "COPY"; }, 1400);
+      } catch { toast("this browser would not let me copy", "err"); }
+      return;
+    }
+    const img = e.target.closest("[data-shot]");
+    if (img) openShot(img.dataset.shot, img.dataset.name);
+  });
+
+  wirePanelGeometry();
+
   // Remembered per browser, like every other display preference here.
-  try { if (localStorage.getItem("nexus.hermes.open") === "1") toggleHermes(true); } catch {}
+  try { if (localStorage.getItem("nexus.kernel.open") === "1") toggleKernel(true); } catch {}
   refreshAgentConfig();
+  loadChats();
 }
 
-function toggleHermes(want) {
-  const panel = $("#hermes"), btn = $("#hermes-open");
+/* ---- where the panel sits, and how big it is ----
+ * Both are the owner's, both are remembered per browser, and both are ignored
+ * on a small screen where the panel is the page rather than a card on it.
+ */
+const PANEL_MIN = { w: 320, h: 360 };
+const floating = () => innerWidth > 560;
+
+function panelGeom() {
+  try { return JSON.parse(localStorage.getItem("nexus.kernel.geom") || "{}"); } catch { return {}; }
+}
+function saveGeom(g) {
+  try { localStorage.setItem("nexus.kernel.geom", JSON.stringify(g)); } catch {}
+}
+
+function applyGeom() {
+  const panel = $("#kernel");
+  if (!panel) return;
+  if (!floating()) { panel.style.cssText = ""; return; }
+  const g = panelGeom();
+  const w = Math.max(PANEL_MIN.w, Math.min(g.w || 410, innerWidth - 16));
+  const h = Math.max(PANEL_MIN.h, Math.min(g.h || 620, innerHeight - 16));
+  panel.style.width = w + "px";
+  panel.style.height = h + "px";
+  if (g.x != null && g.y != null) {
+    // Clamped on every apply, so a panel parked off the edge of a big monitor
+    // comes back when the window is small.
+    panel.style.left = Math.max(8, Math.min(g.x, innerWidth - w - 8)) + "px";
+    panel.style.top = Math.max(8, Math.min(g.y, innerHeight - h - 8)) + "px";
+    panel.style.right = "auto"; panel.style.bottom = "auto";
+  } else {
+    panel.style.left = "auto"; panel.style.top = "auto";
+    panel.style.right = ""; panel.style.bottom = "";
+  }
+}
+
+function resetPanel() {
+  saveGeom({});
+  applyGeom();
+  toast("PANEL RESET", "ok");
+}
+
+function wirePanelGeometry() {
+  const panel = $("#kernel"), head = $("#kx-head");
+  if (!panel || !head) return;
+  applyGeom();
+  addEventListener("resize", applyGeom);
+
+  // Dragging by the header. Buttons in it are still buttons.
+  head.addEventListener("pointerdown", e => {
+    if (!floating() || e.button !== 0 || e.target.closest("button")) return;
+    const r = panel.getBoundingClientRect();
+    const dx = e.clientX - r.left, dy = e.clientY - r.top;
+    let moved = false;
+    const mv = ev => {
+      if (!moved && Math.abs(ev.clientX - e.clientX) < 3 && Math.abs(ev.clientY - e.clientY) < 3) return;
+      moved = true;
+      panel.classList.add("moving");
+      const g = { ...panelGeom(), w: r.width, h: r.height, x: ev.clientX - dx, y: ev.clientY - dy };
+      saveGeom(g); applyGeom();
+    };
+    const up = () => {
+      head.removeEventListener("pointermove", mv);
+      removeEventListener("pointerup", up);
+      panel.classList.remove("moving");
+      try { head.releasePointerCapture(e.pointerId); } catch {}
+    };
+    try { head.setPointerCapture(e.pointerId); } catch {}
+    head.addEventListener("pointermove", mv);
+    addEventListener("pointerup", up);
+  });
+
+  // Resizing from the top and left edges — the panel sits in the bottom-right
+  // corner, so those are the two edges with room in front of them.
+  $$(".kx-grip", panel).forEach(grip => {
+    grip.addEventListener("pointerdown", e => {
+      if (!floating() || e.button !== 0) return;
+      e.preventDefault();
+      const r = panel.getBoundingClientRect();
+      const dir = grip.dataset.grip;
+      const mv = ev => {
+        const g = { ...panelGeom() };
+        if (dir.includes("w")) {
+          g.w = Math.max(PANEL_MIN.w, Math.min(r.right - ev.clientX, innerWidth - 16));
+          g.x = r.right - g.w;
+        } else g.w = r.width;
+        if (dir.includes("n")) {
+          g.h = Math.max(PANEL_MIN.h, Math.min(r.bottom - ev.clientY, innerHeight - 16));
+          g.y = r.bottom - g.h;
+        } else g.h = r.height;
+        if (g.x == null) g.x = r.left;
+        if (g.y == null) g.y = r.top;
+        panel.classList.add("moving");
+        saveGeom(g); applyGeom();
+      };
+      const up = () => {
+        grip.removeEventListener("pointermove", mv);
+        removeEventListener("pointerup", up);
+        panel.classList.remove("moving");
+        try { grip.releasePointerCapture(e.pointerId); } catch {}
+      };
+      try { grip.setPointerCapture(e.pointerId); } catch {}
+      grip.addEventListener("pointermove", mv);
+      addEventListener("pointerup", up);
+    });
+  });
+}
+
+function toggleKernel(want) {
+  const panel = $("#kernel"), btn = $("#kernel-open");
   if (!panel) return;
   const open = want === undefined ? panel.hasAttribute("hidden") : want;
   panel.toggleAttribute("hidden", !open);
   btn?.setAttribute("aria-expanded", String(open));
   btn?.classList.toggle("tucked", open);
-  try { localStorage.setItem("nexus.hermes.open", open ? "1" : "0"); } catch {}
+  try { localStorage.setItem("nexus.kernel.open", open ? "1" : "0"); } catch {}
   if (open) {
-    paintHermes();
-    requestAnimationFrame(() => $("#hx-input")?.focus());
+    applyGeom();
+    paintKernel();
+    requestAnimationFrame(() => $("#kx-input")?.focus());
   }
 }
 
 async function refreshAgentConfig() {
   try {
-    HX.cfg = await api("/agent/config");
-    const s = HX.cfg.settings;
-    const label = (HX.cfg.providers.find(p => p.id === s.provider)?.models || [])
-      .find(m => m.id === s.model)?.label || s.customModel || s.model || "no model";
-    const el = $("#hx-model");
-    if (el) el.textContent = HX.cfg.ready ? label : "needs an API key";
-    $("#hermes-open")?.classList.toggle("unconfigured", !HX.cfg.ready);
+    KX.cfg = await api("/agent/config");
+    const s = KX.cfg.settings;
+    const model = (KX.cfg.providers.find(p => p.id === s.provider)?.models || []).find(m => m.id === s.model);
+    const label = model?.label || s.customModel || s.model || "no model";
+    const el = $("#kx-model");
+    if (el) el.textContent = KX.cfg.ready ? label : "needs an API key";
+    $("#kernel-open")?.classList.toggle("unconfigured", !KX.cfg.ready);
+    // The attach button appears only where the chosen model takes images.
+    const att = $("#kx-attach");
+    if (att) att.hidden = !(s.provider === "custom" || model?.vision);
     paintUsage();
   } catch { /* not fatal: the panel says so when you try to send */ }
 }
 
-/* ---------------- the conversation ---------------- */
+/* ---------------- conversations ---------------- */
 
-async function hermesSend() {
-  const input = $("#hx-input");
+async function loadChats() {
+  try {
+    KX.chats = (await api("/agent/chats")).chats || [];
+  } catch { KX.chats = []; }
+  // Pick up where this browser left off, or the most recent conversation —
+  // which is how a chat started on a laptop is waiting on the phone.
+  let want = null;
+  try { want = localStorage.getItem("nexus.kernel.chat"); } catch {}
+  const pick = KX.chats.find(c => c.id === want) || KX.chats[0];
+  if (pick) await switchChat(pick.id, { quiet: true });
+  else paintKernel();
+}
+
+async function switchChat(id, opts = {}) {
+  if (KX.busy) return;
+  if (KX.run === id && !opts.force) { paintTabs(); return; }
+  try {
+    const t = await api(`/agent/run/${id}`);
+    KX.run = id;
+    KX.steps = t.steps || [];
+    KX.pending = t.pending || null;
+    KX.usage = t.usage || { in: 0, out: 0, cost: 0 };
+    KX.atts = [];
+    try { localStorage.setItem("nexus.kernel.chat", id); } catch {}
+  } catch {
+    // Gone on the server: drop it from the strip rather than showing a tab
+    // that does nothing.
+    KX.chats = KX.chats.filter(c => c.id !== id);
+    if (KX.run === id) { KX.run = null; KX.steps = []; }
+  }
+  paintKernel();
+}
+
+async function newChat() {
+  if (KX.busy) return;
+  try {
+    const out = await api("/agent/run", { method: "POST" });
+    KX.run = out.id;
+    KX.chats = out.chats || KX.chats;
+    KX.steps = []; KX.pending = null; KX.atts = [];
+    KX.usage = { in: 0, out: 0, cost: 0 };
+    try { localStorage.setItem("nexus.kernel.chat", out.id); } catch {}
+  } catch (e) { toast(e.message || "could not start one", "err"); }
+  paintKernel();
+  $("#kx-input")?.focus();
+}
+
+async function shutChat(id) {
+  try {
+    KX.chats = (await api(`/agent/run/${id}`, { method: "DELETE" })).chats || [];
+  } catch { KX.chats = KX.chats.filter(c => c.id !== id); }
+  if (KX.run === id) {
+    KX.run = null; KX.steps = []; KX.pending = null; KX.usage = { in: 0, out: 0, cost: 0 };
+    const next = KX.chats[0];
+    if (next) return switchChat(next.id);
+  }
+  paintKernel();
+}
+
+/* ---------------- attachments ---------------- */
+
+const MAX_ATTS = 4, MAX_ATT_BYTES = 5 * 1024 * 1024;
+
+async function addAttachments(files) {
+  for (const f of files) {
+    if (KX.atts.length >= MAX_ATTS) { toast(`${MAX_ATTS} images at a time`, "err"); break; }
+    if (!/^image\/(png|jpeg|webp|gif)$/.test(f.type)) { toast("PNG, JPEG, WebP or GIF", "err"); continue; }
+    if (f.size > MAX_ATT_BYTES) { toast(`${f.name || "that image"} is over 5 MB`, "err"); continue; }
+    try {
+      const data = await new Promise((res, rej) => {
+        const fr = new FileReader();
+        fr.onload = () => res(String(fr.result).split(",")[1] || "");
+        fr.onerror = () => rej(new Error("could not read it"));
+        fr.readAsDataURL(f);
+      });
+      KX.atts.push({ name: f.name || "pasted image", mime: f.type, size: f.size, data,
+                     url: URL.createObjectURL(f) });
+    } catch { toast("could not read that image", "err"); }
+  }
+  paintAttachments();
+}
+
+function paintAttachments() {
+  const box = $("#kx-atts");
+  if (!box) return;
+  box.toggleAttribute("hidden", !KX.atts.length);
+  box.innerHTML = KX.atts.map((a, i) => `
+    <span class="kx-att">
+      <img src="${esc(a.url)}" alt="">
+      <span class="kx-attname">${esc(a.name)}</span>
+      <button type="button" class="kx-attx" data-drop="${i}" aria-label="Remove">&times;</button>
+    </span>`).join("");
+}
+
+/* ---------------- sending ---------------- */
+
+async function kernelSend() {
+  const input = $("#kx-input");
   const text = (input?.value || "").trim();
-  if (!text || HX.busy) return;
+  if ((!text && !KX.atts.length) || KX.busy) return;
 
+  const images = KX.atts.map(a => ({ name: a.name, mime: a.mime, data: a.data }));
+  const shown = KX.atts.map(a => ({ url: a.url, name: a.name, local: true }));
   input.value = "";
   input.style.height = "auto";
+  KX.atts = [];
+  paintAttachments();
 
-  HX.busy = true;
-  HX.steps.push({ kind: "user", text });
-  paintHermes();
+  KX.busy = true;
+  KX.steps.push({ kind: "user", text, images: shown });
+  paintKernel();
 
   try {
-    if (!HX.run) HX.run = (await api("/agent/run", { method: "POST" })).id;
-    const out = await api(`/agent/run/${HX.run}/send`, { method: "POST", body: { text } });
+    if (!KX.run) {
+      const out = await api("/agent/run", { method: "POST" });
+      KX.run = out.id;
+      KX.chats = out.chats || KX.chats;
+      try { localStorage.setItem("nexus.kernel.chat", out.id); } catch {}
+    }
+    const out = await api(`/agent/run/${KX.run}/send`, { method: "POST", body: { text, images } });
     applyTurn(out);
+    loadChats();
   } catch (e) {
-    // A run that expired server-side is recoverable: drop the id so the next
+    // A run that is gone server-side is recoverable: drop the id so the next
     // message starts a fresh conversation rather than failing forever.
-    if (e.status === 404) HX.run = null;
-    HX.steps.push({ kind: "error", text: e.message || "that did not work" });
+    if (e.status === 404) KX.run = null;
+    KX.steps.push({ kind: "error", text: e.message || "that did not work" });
   } finally {
-    HX.busy = false;
-    paintHermes();
+    KX.busy = false;
+    paintKernel();
     refreshAgentConfig();
   }
 }
 
 function applyTurn(out) {
   if (!out) return;
-  HX.steps = out.steps || HX.steps;
-  HX.pending = out.pending || null;
-  HX.usage = out.usage || HX.usage;
+  KX.steps = out.steps || KX.steps;
+  KX.pending = out.pending || null;
+  KX.usage = out.usage || KX.usage;
 }
 
-async function hermesDecide(decision) {
-  if (!HX.run || HX.busy) return;
-  HX.busy = true;
-  HX.pending = null;
-  paintHermes();
+async function kernelDecide(decision) {
+  if (!KX.run || KX.busy) return;
+  KX.busy = true;
+  KX.pending = null;
+  paintKernel();
   try {
-    applyTurn(await api(`/agent/run/${HX.run}/approve`, { method: "POST", body: { decision } }));
+    applyTurn(await api(`/agent/run/${KX.run}/approve`, { method: "POST", body: { decision } }));
   } catch (e) {
-    HX.steps.push({ kind: "error", text: e.message || "that did not work" });
+    KX.steps.push({ kind: "error", text: e.message || "that did not work" });
   } finally {
-    HX.busy = false;
-    paintHermes();
+    KX.busy = false;
+    paintKernel();
     refreshAgentConfig();
   }
 }
 
 /* Two tenses, because the same tool is described at two different moments: the
    log says what happened, the approval asks about what has not happened yet.
-   One map produced "Hermes wants to ran a command". */
+   One map produced "Kernel wants to ran a command". */
 const TOOL_WORDS = {
-  system_metrics: ["read the machine's readings", "read the machine's readings"],
-  nexus_config:   ["read the Nexus settings",       "read the Nexus settings"],
-  list_dir:       ["listed a folder",             "list a folder"],
-  read_file:      ["read a file",                 "read a file"],
-  write_file:     ["wrote a file",                "write a file"],
-  make_dir:       ["created a folder",            "create a folder"],
-  delete_path:    ["deleted a path",              "delete a path"],
-  run_command:    ["ran a command",               "run a command"],
-  docker_list:    ["listed containers",           "list the containers"],
-  docker_action:  ["controlled a container",      "start, stop or restart a container"]
+  system_metrics:  ["read the machine's readings", "read the machine's readings"],
+  nexus_config:    ["read the Nexus settings",     "read the Nexus settings"],
+  recall_app_pin:  ["read back an app's PIN",      "read back an app's PIN"],
+  list_dir:        ["listed a folder",             "list a folder"],
+  read_file:       ["read a file",                 "read a file"],
+  write_file:      ["wrote a file",                "write a file"],
+  make_dir:        ["created a folder",            "create a folder"],
+  delete_path:     ["deleted a path",              "delete a path"],
+  run_command:     ["ran a command",               "run a command"],
+  docker_list:     ["listed containers",           "list the containers"],
+  docker_action:   ["controlled a container",      "start, stop or restart a container"]
 };
 const toolPast = n => TOOL_WORDS[n]?.[0] || n;
 const toolNow  = n => TOOL_WORDS[n]?.[1] || n;
 
-function paintHermes() {
-  const body = $("#hx-body");
+function paintTabs() {
+  const bar = $("#kx-tabs");
+  if (!bar) return;
+  bar.innerHTML = KX.chats.map(c => `
+    <button type="button" role="tab" class="kx-tab${c.id === KX.run ? " on" : ""}"
+            data-chat="${esc(c.id)}" aria-selected="${c.id === KX.run}" title="${esc(c.title)}">
+      <span>${esc(c.title)}</span>
+      <i class="kx-tabx" data-shut="${esc(c.id)}" role="button" aria-label="Close this conversation">&times;</i>
+    </button>`).join("") +
+    `<button type="button" class="kx-tab add" id="kx-add" aria-label="Start a new conversation"
+             data-tip="Start a new conversation. Five are kept.">+</button>`;
+}
+
+function paintKernel() {
+  const body = $("#kx-body");
   if (!body) return;
   const stick = body.scrollTop + body.clientHeight >= body.scrollHeight - 40;
 
-  if (!HX.steps.length) {
-    const ready = HX.cfg?.ready;
-    const tools = HX.cfg?.capabilities?.tools?.length || 0;
+  paintTabs();
+
+  if (!KX.steps.length) {
+    const ready = KX.cfg?.ready;
+    const tools = KX.cfg?.capabilities?.tools?.length || 0;
     body.innerHTML =
-      `<div class="hx-hello">
-         <span class="hbot-art lg">${HBOT}</span>
-         <p class="hx-hi">I'm Hermes.</p>
-         <p class="hx-sub">${ready
+      `<div class="kx-hello">
+         <span class="hbot-art lg">${KBOT}</span>
+         <p class="kx-hi">I'm Kernel.</p>
+         <p class="kx-sub">${ready
             ? (tools ? `I can use ${tools} tool${tools === 1 ? "" : "s"} on this machine. Ask me something.`
                      : "No capabilities are switched on yet, so I can only talk. Open Settings to hand me some.")
             : "Add an API key in Settings &rarr; Nexus Expert and I'll wake up."}</p>
        </div>`;
   } else {
-    body.innerHTML = HX.steps.map(stepHTML).join("") +
-      (HX.busy ? `<div class="hx-row bot"><div class="hx-think"><i></i><i></i><i></i></div></div>` : "");
+    body.innerHTML = KX.steps.map(stepHTML).join("") +
+      (KX.busy ? `<div class="kx-row bot"><div class="kx-think"><i></i><i></i><i></i></div></div>` : "");
   }
 
-  const ask = $("#hx-ask");
+  const ask = $("#kx-ask");
   if (ask) {
-    ask.toggleAttribute("hidden", !HX.pending);
-    if (HX.pending) {
-      const p = HX.pending;
+    ask.toggleAttribute("hidden", !KX.pending);
+    if (KX.pending) {
+      const p = KX.pending;
+      const level = RISK_WORDS[p.risk] ? p.risk : "high";
       ask.innerHTML =
-        `<div class="hx-askhead"><span class="hx-risk ${esc(p.risk)}">${p.risk === "exec" ? "RUN" : "CHANGE"}</span>
-           <span>Hermes wants to ${esc(toolNow(p.name))}</span></div>
-         <pre class="hx-preview">${esc(p.preview || "")}</pre>
-         <div class="hx-askrow">
-           <button class="btn sm" id="hx-deny" type="button">DENY</button>
-           <button class="btn primary sm" id="hx-allow" type="button">ALLOW</button>
+        `<div class="kx-askhead">
+           <span class="kx-risk ${esc(level)}">${RISK_WORDS[level]}</span>
+           <span>Kernel wants to ${esc(toolNow(p.name))}</span>
+         </div>
+         ${p.why?.length ? `<ul class="kx-why">${p.why.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+         <pre class="kx-preview">${esc(p.preview || "")}</pre>
+         <div class="kx-askrow">
+           <button class="btn sm" id="kx-deny" type="button">DENY</button>
+           <button class="btn primary sm" id="kx-allow" type="button">ALLOW</button>
          </div>`;
-      on("#hx-allow", "click", () => hermesDecide("allow"));
-      on("#hx-deny", "click", () => hermesDecide("deny"));
+      on("#kx-allow", "click", () => kernelDecide("allow"));
+      on("#kx-deny", "click", () => kernelDecide("deny"));
     }
   }
 
-  const send = $("#hx-send");
-  if (send) send.disabled = HX.busy;
+  const send = $("#kx-send");
+  if (send) send.disabled = KX.busy;
   if (stick) body.scrollTop = body.scrollHeight;
   paintUsage();
 }
 
-function stepHTML(s) {
-  if (s.kind === "user") return `<div class="hx-row me"><div class="hx-bub">${esc(s.text)}</div></div>`;
-  if (s.kind === "assistant") return `<div class="hx-row bot"><div class="hx-bub md">${md(s.text)}</div></div>`;
-  if (s.kind === "error") return `<div class="hx-row"><div class="hx-err">${esc(s.text)}</div></div>`;
+/* Four words for four levels. The colour carries the same meaning as it does
+   everywhere else in Nexus — green is fine, red is not. */
+const RISK_WORDS = { low: "LOW", medium: "MEDIUM", high: "HIGH", critical: "CRITICAL" };
+
+function shotHTML(s, i) {
+  if (!s.images?.length) return "";
+  return `<span class="kx-shots">${s.images.map(im => {
+    const url = im.local ? im.url : `/api/agent/run/${encodeURIComponent(KX.run)}/image/${encodeURIComponent(im.file)}`;
+    return `<img class="kx-shot" src="${esc(url)}" alt="${esc(im.name || "attached image")}"
+                 data-shot="${esc(url)}" data-name="${esc(im.name || "image")}" loading="lazy">`;
+  }).join("")}</span>`;
+}
+
+function stepHTML(s, i) {
+  if (s.kind === "user") {
+    return `<div class="kx-row me"><div class="kx-bub">${shotHTML(s, i)}${s.text ? esc(s.text) : ""}</div></div>`;
+  }
+  if (s.kind === "assistant") {
+    return `<div class="kx-row bot">
+      <div class="kx-bub md">${md(s.text)}
+        <button class="kx-copy" type="button" data-copy="${i}" aria-label="Copy this reply" data-tip="Copy">COPY</button>
+      </div></div>`;
+  }
+  if (s.kind === "error") return `<div class="kx-row"><div class="kx-err">${esc(s.text)}</div></div>`;
 
   // A tool call is a fact about what happened to the machine, so it is shown
   // as one — name, outcome, and the detail one click away.
   const label = toolPast(s.name);
   const state = s.denied ? "denied" : s.error ? "failed" : "done";
   const detail = s.denied ? "You denied this." : (s.result || "");
-  return `<details class="hx-tool ${state}">
-    <summary><i class="hx-tick"></i><span>${esc(label)}</span><em>${state}</em></summary>
+  return `<details class="kx-tool ${state}">
+    <summary><i class="kx-tick"></i><span>${esc(label)}</span><em>${state}</em></summary>
     <pre>${esc(argLine(s.args))}${detail ? "\n\n" + esc(detail) : ""}</pre>
   </details>`;
+}
+
+/** An attached image, full size, with a way to keep it. */
+function openShot(url, name) {
+  const wrap = document.createElement("div");
+  wrap.className = "kx-lightbox";
+  wrap.innerHTML = `<img src="${esc(url)}" alt="${esc(name)}">`;
+  openModal({
+    title: name.toUpperCase().slice(0, 40),
+    icon: ICON("files"),
+    body: wrap,
+    foot: `<span class="spacer"></span>
+           <a class="btn sm" id="kx-dl" href="${esc(url)}" download="${esc(name)}">DOWNLOAD</a>`
+  });
 }
 
 function argLine(args) {
@@ -6841,10 +7232,10 @@ function md(text) {
 }
 
 function paintUsage() {
-  const el = $("#hx-usage");
+  const el = $("#kx-usage");
   if (!el) return;
-  const t = HX.cfg?.usage;
-  const here = HX.usage || { in: 0, out: 0, cost: 0 };
+  const t = KX.cfg?.usage;
+  const here = KX.usage || { in: 0, out: 0, cost: 0 };
   // One line, because the footer is one line wide. The running total goes in
   // the tooltip and in full on the settings page, where there is room for it.
   el.textContent = `${tok(here.in)} in · ${tok(here.out)} out · ${money(here.cost, here.priced)}`;
@@ -6860,7 +7251,7 @@ async function renderAgentSettings() {
   const host = $("#agent-panel");
   if (!host) return;
   let c;
-  try { c = HX.cfg = await api("/agent/config"); }
+  try { c = KX.cfg = await api("/agent/config"); }
   catch { host.innerHTML = `<p class="hint">Could not load the agent settings.</p>`; return; }
 
   const s = c.settings;
@@ -6917,7 +7308,7 @@ async function renderAgentSettings() {
     </div>
 
     <div class="ag-block">
-      <h3>What Hermes may do</h3>
+      <h3>What Kernel may do</h3>
       <p class="hint">Everything is off until you turn it on. Nexus runs as root, so anything you grant
         here, it grants at root.</p>
       <div class="ag-caps">
@@ -6945,15 +7336,36 @@ async function renderAgentSettings() {
         <button type="button" class="ag-mode${s.approval === "ask" ? " on" : ""}" data-approval="ask">
           <b>Ask me first</b><span>Every change and every command waits for you.</span></button>
         <button type="button" class="ag-mode${s.approval === "auto" ? " on" : ""}" data-approval="auto">
-          <b>Full access</b><span>Hermes acts without asking.</span></button>
+          <b>Full access</b><span>Kernel acts without asking.</span></button>
       </div>
-      <p class="hint warnline">Full access plus the shell means anything Hermes reads &mdash; a file, a log,
+      <p class="hint warnline">Full access plus the shell means anything Kernel reads &mdash; a file, a log,
         a command's output &mdash; can carry text that reads like an instruction. Ask-me-first is what
         stops that becoming an action.</p>
+
+      <div class="ag-sub${s.approval === "ask" ? "" : " off"}">
+        <h4>Ask me about&hellip;</h4>
+        <p class="hint">Every command is classified from what it actually does before you are asked.
+          Pick the point at which it is worth interrupting you &mdash; being asked about
+          <code>df -h</code> is how people learn to press ALLOW without reading.</p>
+        <div class="ag-levels" role="group" aria-label="When to ask">
+          ${[["low", "Everything", "Even a command that only reads."],
+             ["medium", "Medium and up", "Installs, writes, starting things."],
+             ["high", "High and up", "Deletes, stops a service, changes permissions."],
+             ["critical", "Critical only", "Destroys data, repartitions, powers off, pipes the internet into a shell."]]
+            .map(([k, label, note]) => `
+            <button type="button" class="ag-level${(s.askAt || "medium") === k ? " on" : ""}" data-askat="${k}"
+                    ${s.approval === "ask" ? "" : "disabled"}>
+              <span class="kx-risk ${k}">${k.toUpperCase()}</span>
+              <b>${label}</b><span>${note}</span>
+            </button>`).join("")}
+        </div>
+        <p class="hint">Whatever this is set to, a tool that only reads never asks, and every call is
+          in the audit log.</p>
+      </div>
     </div>
 
     <div class="ag-block">
-      <h3>Skills <small>what Hermes knows before you tell him</small></h3>
+      <h3>Skills <small>what Kernel knows before you tell him</small></h3>
       ${skillSummary(c.skills)}
       <div class="ag-row">
         <button class="btn" id="ag-skills-open" type="button">OPEN SKILL LIBRARY</button>
@@ -6966,7 +7378,7 @@ async function renderAgentSettings() {
 
       <div class="ag-sub">
         <h4>Scheduled tasks</h4>
-        <p class="hint">Hermes can run a prompt on a timer — a morning check, a weekly tidy-up.
+        <p class="hint">Kernel can run a prompt on a timer — a morning check, a weekly tidy-up.
           ${s.approval === "ask"
             ? `You are on <b>ask me first</b>, so a task that wants to write a file or run a command
                will stop and wait with nobody there to answer. It records that it was waiting rather
@@ -6980,7 +7392,7 @@ async function renderAgentSettings() {
       <div class="ag-sub">
         <h4>Context</h4>
         ${capRowPlain("sendHostFacts", "Send the live briefing",
-          "Host, uptime, CPU, memory, filesystems and containers go in every message, so Hermes does not spend a tool call finding out where it is. Turning this off makes each message cheaper and Hermes blinder.",
+          "Host, uptime, CPU, memory, filesystems and containers go in every message, so Kernel does not spend a tool call finding out where it is. Turning this off makes each message cheaper and Kernel blinder.",
           s.sendHostFacts)}
         <div class="ag-row">
           <label for="ag-steps">Tool calls per message</label>
@@ -7014,6 +7426,7 @@ async function renderAgentSettings() {
   }));
   $$("[data-model]", host).forEach(b => b.addEventListener("click", () => patch({ model: b.dataset.model })));
   $$("[data-approval]", host).forEach(b => b.addEventListener("click", () => patch({ approval: b.dataset.approval })));
+  $$("[data-askat]", host).forEach(b => b.addEventListener("click", () => patch({ askAt: b.dataset.askat })));
   $$("[data-cap]", host).forEach(b => b.addEventListener("change", () => {
     patch({ caps: { ...s.caps, [b.dataset.cap]: b.checked } });
   }));
@@ -7037,7 +7450,7 @@ async function renderAgentSettings() {
   });
   const clear = $("#ag-key-clear", host);
   if (clear) clear.addEventListener("click", async () => {
-    if (!confirm(`Remove the ${prov.label} key?\n\nHermes will stop working until you add another.`)) return;
+    if (!confirm(`Remove the ${prov.label} key?\n\nKernel will stop working until you add another.`)) return;
     await api("/agent/key", { method: "PUT", body: { provider: s.provider, key: null } }).catch(() => {});
     renderAgentSettings(); refreshAgentConfig();
   });
@@ -7207,7 +7620,7 @@ function paintSkills(data) {
   wrap.innerHTML = `
     <div class="sk-drop" id="sk-drop">
       <b>Drop .md files here</b>
-      <span>or <button class="hx-link" id="sk-pick" type="button">choose files</button></span>
+      <span>or <button class="kx-link" id="sk-pick" type="button">choose files</button></span>
       <input type="file" id="sk-file" accept=".md,.markdown,text/markdown,text/plain" multiple hidden>
     </div>
     ${SK.budget ? skillSummary(SK) : ""}
@@ -7316,7 +7729,7 @@ async function editSkill(id) {
       <input id="sk-e-name" type="text" value="${esc(k.name)}" placeholder="What this skill is called"></div>
     <div class="ag-row"><label for="sk-e-desc">One line</label>
       <input id="sk-e-desc" type="text" value="${esc(k.description)}"
-             placeholder="How Hermes decides whether he needs it"></div>
+             placeholder="How Kernel decides whether he needs it"></div>
     <div class="ag-row"><label for="sk-e-tags">Tags</label>
       <input id="sk-e-tags" type="text" value="${esc((k.tags || []).join(", "))}"
              placeholder="docker, media, troubleshooting" spellcheck="false"></div>
@@ -7338,7 +7751,7 @@ async function editSkill(id) {
       </div>
     </div>
     <textarea id="sk-e-body" class="sk-body" spellcheck="false"
-              placeholder="Markdown. Write it as instructions to Hermes.">${esc(k.body)}</textarea>
+              placeholder="Markdown. Write it as instructions to Kernel.">${esc(k.body)}</textarea>
     <div id="sk-e-view" class="sk-view md" hidden></div>`;
 
   let mode = k.mode;
@@ -7363,7 +7776,7 @@ async function editSkill(id) {
     box.value = [...have, b.dataset.sug].join(", ");
   }));
   // Write / preview. The preview uses the same renderer the chat does, so what
-  // you see here is what Hermes will be handed.
+  // you see here is what Kernel will be handed.
   const pane = which => {
     $$(".sk-tab", form).forEach(t => t.classList.toggle("on", t.dataset.pane === which));
     const ta = $("#sk-e-body", form), view = $("#sk-e-view", form);
@@ -7466,7 +7879,7 @@ function editCron(cr) {
     <label for="cr-prompt">What to ask</label>
     <textarea id="cr-prompt" class="sk-body cr-body" spellcheck="false"
       placeholder="Check for failed services and full filesystems, and tell me only if something needs doing.">${esc(row.prompt)}</textarea>
-    <p class="hint">Write it as one instruction. Hermes has the same tools and the same
+    <p class="hint">Write it as one instruction. Kernel has the same tools and the same
       approval setting it has in the chat panel.</p>`;
 
   const paintDays = () => $$("[data-day]", form).forEach(b => {

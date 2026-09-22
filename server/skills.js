@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import cfg from "./config.js";
 import { db, save } from "./store.js";
@@ -12,7 +13,7 @@ import { db, save } from "./store.js";
  * difference is what it costs:
  *
  * - `mode: always` is pasted into the system prompt on every single turn. It is
- *   memory — who Hermes is, what this machine is, what Nexus is. You pay for it
+ *   memory — who Kernel is, what this machine is, what Nexus is. You pay for it
  *   on every message, so it stays short.
  * - `mode: ondemand` is advertised by name and one-line description only. The
  *   body is fetched by the `load_skill` tool when the model decides it needs it.
@@ -91,11 +92,39 @@ export function slug(name) {
 
 /* ---------------- the folder ---------------- */
 
+/**
+ * Stock skills that have been renamed, and the hash of the version they were
+ * shipped as.
+ *
+ * A rename would otherwise leave both copies on an existing install: the old
+ * file is still there, so `seed()` leaves it alone, and the new one arrives
+ * beside it. Deleting the old one outright would throw away an edit the owner
+ * made. So the old file is removed only when it is byte-for-byte the version
+ * we shipped — untouched stock, safe to replace. An edited one is theirs and
+ * stays, even at the cost of a duplicate they can delete themselves.
+ */
+const RETIRED = [
+  // The agent was called Hermes before it was called Kernel.
+  { file: "hermes-identity.md", sha256: "67dcc62da801d445e7c0ba6aadde1264848779d3a53955f75d36c821597aa288" }
+];
+
+function retire() {
+  for (const r of RETIRED) {
+    const p = path.join(SKILLS_DIR, r.file);
+    if (!fs.existsSync(p)) continue;
+    try {
+      const have = crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex");
+      if (have === r.sha256) fs.unlinkSync(p);
+    } catch { /* leave it; a file we cannot read is a file we do not delete */ }
+  }
+}
+
 /** Copy any seed skill that is not already present. Called on first boot, and
  *  again by RESTORE DEFAULTS — which is a restore, not a reset: a skill you
  *  edited keeps your version, a skill you deleted comes back. */
 export function seed() {
   fs.mkdirSync(SKILLS_DIR, { recursive: true });
+  retire();
   let added = 0;
   let seeds = [];
   try { seeds = fs.readdirSync(SEED_DIR).filter(f => f.endsWith(".md")); } catch { return 0; }
