@@ -6313,7 +6313,7 @@ function go(page) {
       $("#term-title").textContent = t.shell || "shell";
       const b = $("#term-backend");
       b.className = "pill " + (t.resize ? "ok" : "warn");
-      b.textContent = t.resize ? "NODE-PTY · FULL RESIZE" : "SCRIPT · RESIZE BEST-EFFORT";
+      b.textContent = `${String(t.backend || "script").toUpperCase()} · ${t.resize ? "FULL RESIZE" : "NO RESIZE"}`;
       connectTerminal();
       // The host has no size until the page is visible, so fit after paint.
       requestAnimationFrame(() => { fitTerm(); term?.focus(); });

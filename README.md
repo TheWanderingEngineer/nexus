@@ -214,11 +214,12 @@ There are two backends and the UI tells you which is active:
 | Backend | Resize | Requirement |
 |---|---|---|
 | `node-pty` | Full `SIGWINCH` | optional dependency; needs a compiler at install time |
-| `script` | Best-effort via `stty` | util-linux, always present |
+| `script` | Full `SIGWINCH`, via `stty -F` on the shell's pty | util-linux, always present |
 
 `node-pty` is an **optional** dependency: if your box has no build toolchain,
-npm skips it and Nexus silently uses `script` instead. To get the better one,
-install build tools before running the installer:
+npm skips it and Nexus silently uses `script` instead. Both resize properly;
+`node-pty` is simply the more direct route. To get it, install build tools
+before running the installer:
 
 ```bash
 sudo apt-get install -y build-essential python3
@@ -748,8 +749,10 @@ which covers every chart the dashboard draws.
 **The terminal uses `script`, not `node-pty`.** node-pty is a native addon, so
 installing it needs Python and a C++ toolchain on the target box. Instead Nexus
 runs `script -qfc $SHELL /dev/null`, which allocates a real pty using a
-util-linux tool present on every Ubuntu install. The trade-off is that window
-resize is best-effort rather than a true `SIGWINCH`.
+util-linux tool present on every Ubuntu install. `script` owns the pty, so
+Nexus resizes it from outside: it finds the shell's `/dev/pts/N` and runs
+`stty -F` against it, which delivers a real `SIGWINCH`. Nothing is ever typed
+into the shell to resize it.
 
 ## Working on it
 
