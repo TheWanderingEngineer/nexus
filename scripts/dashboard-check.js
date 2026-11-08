@@ -192,6 +192,8 @@ try {
   });
 
   const looks = [
+    ['modern/dark',  () => { NexusAppearance.setSkin('modern'); NexusAppearance.setMode('dark'); }],
+    ['modern/light', () => { NexusAppearance.setSkin('modern'); NexusAppearance.setMode('light'); }],
     ['workstation/parchment', () => NexusAppearance.setPalette('parchment')],
     ['workstation/evergreen', () => NexusAppearance.setPalette('evergreen')],
     ['workstation/midnight',  () => NexusAppearance.setPalette('midnight')],
@@ -258,7 +260,7 @@ try {
     const panel = document.querySelector('#kernel');
     const cs = getComputedStyle(panel);
     const page_ = getComputedStyle(document.body);
-    const ta = document.querySelector('#kx-input').getBoundingClientRect();
+    const box = document.querySelector('#kx-compose').getBoundingClientRect();
     const btn = document.querySelector('#kx-send').getBoundingClientRect();
     return {
       borderWidth: parseFloat(cs.borderTopWidth),
@@ -266,15 +268,15 @@ try {
       bodyBg: page_.backgroundColor,
       panelBg: cs.backgroundColor,
       shadow: cs.boxShadow !== 'none',
-      bottomGap: Math.abs(ta.bottom - btn.bottom),
-      heightGap: Math.abs(ta.height - btn.height)
+      // The send button lives inside the composer, on its own row under the
+      // text, so it can never drift away from the box it sends.
+      inside: btn.left >= box.left && btn.right <= box.right && btn.top >= box.top && btn.bottom <= box.bottom
     };
   });
   ok('the panel has an edge of its own, not the page\'s colour',
      chat.borderWidth >= 1 && chat.borderColor !== chat.panelBg &&
      chat.borderColor !== chat.bodyBg && chat.shadow, JSON.stringify(chat));
-  ok('the box and SEND sit on the same line',
-     chat.bottomGap < 2 && chat.heightGap < 2, `bottom off by ${chat.bottomGap}px, height by ${chat.heightGap}px`);
+  ok('the send button sits inside the composer', chat.inside, JSON.stringify(chat));
 
   // Dragged by its header, and it stays where it was put.
   const head = await page.$('#kx-head');
@@ -302,9 +304,11 @@ try {
   const after2 = await page.evaluate(() => document.querySelector('#kernel').getBoundingClientRect().width);
   ok('and resized from its edge', after2 > before2 + 100, `${Math.round(before2)} -> ${Math.round(after2)}`);
 
-  // Tabs, and the + that starts a conversation.
+  // The + starts a conversation, and the history menu lists it.
   await page.click('#kx-add'); await sleep(900);
-  ok('the + starts another conversation', (await page.$$('.kx-tab:not(.add)')).length >= 1);
+  await page.click('#kx-hist'); await sleep(400);
+  ok('the + starts another conversation', (await page.$$('#kx-histmenu .kx-hpick')).length >= 1);
+  await page.click('#kx-hist'); await sleep(200);
   ok('the panel remembers it across a reload', await page.evaluate(() => !!localStorage.getItem('nexus.kernel.chat')));
 
   await page.click('#kx-reset'); await sleep(500);

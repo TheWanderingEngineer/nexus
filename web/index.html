@@ -4,15 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#14101F">
-<script src="/appearance.js?v=0.8.1"></script>
+<meta name="theme-color" content="#0b0c0f">
+<script src="/appearance.js?v=0.9.0"></script>
 <title>Nexus</title>
 <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/icons/nexus-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/assets/brand/icons/nexus-16.png">
 <link rel="apple-touch-icon" href="/assets/brand/icons/nexus-128.png">
 <link rel="stylesheet" href="/vendor/xterm.css">
-<link rel="stylesheet" href="/style.css?v=0.8.1">
-<link rel="stylesheet" href="/workstation.css?v=0.8.1">
+<link rel="stylesheet" href="/style.css?v=0.9.0">
+<link rel="stylesheet" href="/workstation.css?v=0.9.0">
+<link rel="stylesheet" href="/ui.css?v=0.9.0">
+<link rel="stylesheet" href="/modern.css?v=0.9.0">
 </head>
 <body>
 
@@ -22,24 +24,24 @@
 <!-- ============ LOGIN / FIRST-RUN SETUP ============ -->
 <div id="gate">
   <div class="gatebox raised">
-    <div class="gatehead"><span id="gate-title">NEXUS &mdash; SIGN IN</span></div>
+    <div class="gatehead"><span class="gate-mark" aria-hidden="true"></span><span id="gate-title">Sign in to Nexus</span></div>
     <form class="gatebody" id="gate-form" autocomplete="on">
       <img class="crt" src="/assets/brand/nexus-logo.png" alt="">
-      <p class="gatemsg" id="gate-msg">Sign in to your homelab.</p>
+      <p class="gatemsg" id="gate-msg">Welcome back. Sign in to your homelab.</p>
       <div>
-        <label for="g-user">USERNAME</label>
+        <label for="g-user">Username</label>
         <input id="g-user" name="username" type="text" autocomplete="username" required autocapitalize="none" spellcheck="false">
       </div>
       <div>
-        <label for="g-pass">PASSWORD</label>
+        <label for="g-pass">Password</label>
         <input id="g-pass" name="password" type="password" autocomplete="current-password" required>
       </div>
       <div id="g-confirm-wrap" hidden>
-        <label for="g-confirm">CONFIRM PASSWORD</label>
+        <label for="g-confirm">Confirm password</label>
         <input id="g-confirm" type="password" autocomplete="new-password">
       </div>
       <div class="gateerr" id="gate-err"></div>
-      <button class="btn primary" id="g-submit" type="submit">SIGN IN</button>
+      <button class="btn primary" id="g-submit" type="submit">Sign in</button>
     </form>
   </div>
 </div>
@@ -47,99 +49,156 @@
 <!-- ============ APP ============ -->
 <div id="app" hidden>
 
-  <div id="topbar">
-    <img id="logo" src="/assets/brand/nexus-logo.png" alt="Nexus">
-    <span class="brand">NEXUS<span class="v">PERSONAL SERVER</span></span>
-    <span class="spacer"></span>
-    <span class="stat" id="st-state" data-tip="Opening the live metrics stream."><i class="dot" style="color:var(--text-3)"></i><span>CONNECTING</span></span>
-    <span class="stat" data-tip="Whole-host CPU usage, refreshed every 2 seconds.">CPU <b id="tb-cpu">--</b></span>
-    <span class="stat opt" data-tip="Memory in use, not counting cache.">RAM <b id="tb-mem">--</b></span>
-    <span class="stat opt" data-tip="The hottest temperature sensor on the box right now.">TEMP <b id="tb-temp">--</b></span>
-    <span id="clock" data-tip="Your local time, from this browser.">--:--:--</span>
-    <button class="btn" id="theme" data-tip="Choose a palette and display preferences in Settings.">PALETTE</button>
-    <button class="btn" id="logout" data-tip="Sign out of Nexus.">EXIT</button>
-  </div>
+  <!-- The sidebar. Everything you can go to, grouped the way the questions get
+       asked: is anything wrong (Overview, Areas), where do I work (Workspace),
+       what do I open (Quick launch), and how is Nexus set up (bottom). -->
+  <aside id="rail" aria-label="Main navigation">
+    <div class="sb-head">
+      <button class="sb-brand" type="button" data-go="overview" aria-label="Nexus — overview">
+        <img class="sb-logo" src="/assets/brand/icons/nexus-64.png" width="28" height="28" alt="">
+        <span class="sb-name"><b>Nexus</b><small id="sb-host">homelab</small></span>
+      </button>
+      <button class="sb-ico" id="sb-search" type="button" aria-label="Search (Ctrl+K)" data-tip="Search everything — Ctrl/&#8984;+K"><i class="ic" data-ic="search"></i></button>
+    </div>
 
-  <div id="body">
-    <nav id="rail" aria-label="Main navigation">
-      <button id="rail-toggle" title="Expand or collapse the menu"><span id="rail-toggle-txt">&#9776;</span></button>
-      <!-- Two groups. Everything above the rule is a place you go to look at or
-           use the machine; everything below it configures Nexus itself. Control
-           Panel sat in the first group and belongs in the second. -->
-      <button class="nav on" data-page="dash"><img src="/assets/brand/icons/ui-dashboard.png" alt=""><span class="nlabel">Dashboard</span><span class="tip">DASHBOARD</span></button>
-      <button class="nav" data-page="apps"><img src="/assets/brand/icons/ui-launcher.png" alt=""><span class="nlabel">Apps</span><span class="tip">APPS</span></button>
-      <button class="nav" data-page="containers"><img src="/assets/brand/icons/ui-containers.png" alt=""><span class="nlabel">Containers</span><span class="tip">CONTAINERS</span></button>
-      <button class="nav" data-page="files"><img src="/assets/brand/icons/ui-files.png" alt=""><span class="nlabel">Files</span><span class="tip">FILES</span></button>
-      <button class="nav" data-page="term"><img src="/assets/brand/icons/ui-terminal.png" alt=""><span class="nlabel">Terminal</span><span class="tip">TERMINAL</span></button>
-      <button class="nav" data-page="store"><img src="/assets/brand/icons/ui-apps.png" alt=""><span class="nlabel">App Store</span><span class="tip">APP STORE</span></button>
-      <span class="spacer"></span>
-      <div class="rail-workbench" aria-hidden="true">
-        <!-- Layered so only the moving parts move. The leaves are a separate
-             sprite on the same 240x120 canvas, so they line up exactly with the
-             hole left in the base. -->
-        <span class="workbench">
-          <img class="wb-base" src="/assets/workstation/workbench-base.png" width="240" height="120" alt="">
-          <img class="wb-leaves" src="/assets/workstation/workbench-leaves.png" width="240" height="120" alt="">
-          <i class="wb-led"></i>
-          <i class="wb-steam s1"></i><i class="wb-steam s2"></i><i class="wb-steam s3"></i>
-        </span>
-        <p>A PLACE FOR YOUR MACHINE</p>
+    <nav class="sb-scroll">
+      <button class="nav" data-page="overview" type="button"><i class="ic" data-ic="activity"></i><span class="nlabel">Overview</span><span class="nbadge" id="nb-problems" hidden>0</span></button>
+
+      <div class="sb-group" data-group="areas">
+        <button class="sb-ghead" type="button" aria-expanded="true"><span>Areas</span><i class="ic" data-ic="chevron-down"></i></button>
+        <div class="sb-gbody" id="sb-areas"></div>
       </div>
-      <div class="navrule" aria-hidden="true"></div>
-      <button class="nav" data-page="control"><img src="/assets/brand/icons/ui-power.png" alt=""><span class="nlabel">Control Panel</span><span class="tip">CONTROL PANEL</span></button>
-      <button class="nav" data-page="settings"><img src="/assets/brand/icons/ui-settings.png" alt=""><span class="nlabel">Settings</span><span class="tip">SETTINGS</span></button>
-      <div id="rail-grip" title="Drag to resize the menu"></div>
+
+      <div class="sb-group" data-group="work">
+        <button class="sb-ghead" type="button" aria-expanded="true"><span>Workspace</span><i class="ic" data-ic="chevron-down"></i></button>
+        <div class="sb-gbody">
+          <button class="nav" data-page="dash" type="button"><i class="ic" data-ic="layout"></i><span class="nlabel">Dashboard</span></button>
+          <button class="nav" data-page="apps" type="button"><i class="ic" data-ic="grid"></i><span class="nlabel">Apps</span></button>
+          <button class="nav" data-page="containers" type="button"><i class="ic" data-ic="box"></i><span class="nlabel">Containers</span><span class="ndot" id="nd-containers"></span></button>
+          <button class="nav" data-page="files" type="button"><i class="ic" data-ic="folder"></i><span class="nlabel">Files</span></button>
+          <button class="nav" data-page="term" type="button"><i class="ic" data-ic="terminal"></i><span class="nlabel">Terminal</span></button>
+          <button class="nav" data-page="store" type="button"><i class="ic" data-ic="store"></i><span class="nlabel">App Store</span></button>
+        </div>
+      </div>
+
+      <div class="sb-group" data-group="launch" id="sb-launch-group" hidden>
+        <button class="sb-ghead" type="button" aria-expanded="true"><span>Quick launch</span><i class="ic" data-ic="chevron-down"></i></button>
+        <div class="sb-gbody" id="sb-launch"></div>
+      </div>
     </nav>
+
+    <div class="sb-foot">
+      <button class="nav" data-page="control" type="button"><i class="ic" data-ic="zap"></i><span class="nlabel">Automations</span><span class="nbadge warn" id="nb-alerts" hidden>0</span></button>
+      <button class="nav" data-page="settings" type="button"><i class="ic" data-ic="settings"></i><span class="nlabel">Settings</span></button>
+      <div class="sb-status" id="sb-status">
+        <span class="stat" id="st-state" data-tip="Opening the live metrics stream."><i class="dot"></i><span>Connecting</span></span>
+        <span class="sb-meters">
+          <span class="stat" data-tip="Whole-host CPU usage.">CPU <b id="tb-cpu">--</b></span>
+          <span class="stat opt" data-tip="Memory in use, not counting cache.">RAM <b id="tb-mem">--</b></span>
+          <span class="stat opt" data-tip="The hottest temperature sensor right now.">Temp <b id="tb-temp">--</b></span>
+        </span>
+      </div>
+      <button id="rail-toggle" type="button" aria-label="Collapse the sidebar" data-tip="Collapse or expand the sidebar"><i class="ic" data-ic="sidebar"></i><span id="rail-toggle-txt">Collapse</span></button>
+    </div>
+  </aside>
+  <div id="scrim" hidden></div>
+
+  <div id="main-col">
+    <header id="topbar">
+      <button class="tb-ico" id="sb-open" type="button" aria-label="Open the menu"><i class="ic" data-ic="menu"></i></button>
+      <div class="tb-title">
+        <span class="tb-pico" id="tb-pico" aria-hidden="true"></span>
+        <h1 id="page-title">Overview</h1>
+      </div>
+      <span class="spacer"></span>
+      <span id="clock" data-tip="Your local time, from this browser.">--:--</span>
+      <button class="tb-ico" id="tb-refresh" type="button" aria-label="Refresh" data-tip="Refresh this page's data"><i class="ic" data-ic="refresh"></i></button>
+      <button class="tb-ico" id="theme" type="button" aria-label="Switch light or dark" data-tip="Light or dark — more in Settings"><i class="ic" data-ic="moon"></i></button>
+      <button class="tb-search" id="tb-search" type="button" aria-label="Search"><i class="ic" data-ic="search"></i><span>Search</span><kbd id="kbd-k">Ctrl K</kbd></button>
+      <button class="tb-kernel" id="tb-kernel" type="button" aria-label="Ask Kernel" data-tip="Ask Kernel about this machine — Ctrl/&#8984;+J"><i class="ic" data-ic="sparkles"></i><span>Ask Kernel</span></button>
+      <button class="tb-ico" id="logout" type="button" aria-label="Sign out" data-tip="Sign out of Nexus"><i class="ic" data-ic="logout"></i></button>
+    </header>
 
     <div id="main">
       <div id="toolbar">
-        <div class="page-heading"><h1 id="page-title">Dashboard</h1><p class="page-subtitle" id="page-subtitle">Your homelab, at a glance.</p></div>
+        <div class="page-heading"><p class="page-subtitle" id="page-subtitle">Your homelab, at a glance.</p></div>
         <span class="spacer"></span>
-        <div id="tools-dash">
-          <button class="btn" id="add" data-tip="Open the widget library.">+ ADD WIDGET</button>
-          <button class="btn" id="presets" data-tip="Saved arrangements. Switch between them, or save this one.">PRESETS</button>
-          <button class="btn" id="tidy" data-tip="Pack the widgets top-left with no gaps, keeping their order.">TIDY</button>
-          <button class="btn" id="reset" data-tip="Restore the default layout and close any gaps. Your widget styling is discarded.">RESET</button>
+        <div id="tools-overview">
+          <button class="btn" id="ov-run" data-tip="Run every health check now instead of waiting for the next round."><i class="ic" data-ic="refresh"></i>Run checks</button>
+        </div>
+        <div id="tools-area" hidden>
+          <button class="btn" id="ar-run" data-tip="Run every health check now."><i class="ic" data-ic="refresh"></i>Run checks</button>
+          <button class="btn primary" id="ar-add" data-tip="Watch a web address, a port, a host or a DNS name."><i class="ic" data-ic="plus"></i>Add check</button>
+        </div>
+        <div id="tools-dash" hidden>
+          <button class="btn primary" id="add" data-tip="Open the widget library."><i class="ic" data-ic="plus"></i>Add widget</button>
+          <button class="btn" id="presets" data-tip="Saved arrangements. Switch between them, or save this one.">Presets</button>
+          <button class="btn" id="tidy" data-tip="Pack the widgets top-left with no gaps, keeping their order.">Tidy</button>
+          <button class="btn" id="reset" data-tip="Restore the default layout and close any gaps. Your widget styling is discarded.">Reset</button>
         </div>
         <div id="tools-containers" hidden>
-          <button class="btn" id="c-refresh" data-tip="Re-read the container list from Docker.">REFRESH</button>
+          <button class="btn" id="c-refresh" data-tip="Re-read the container list from Docker."><i class="ic" data-ic="refresh"></i>Refresh</button>
         </div>
         <div id="tools-apps" hidden>
-          <button class="btn" id="l-add" data-tip="Add an app by hand.">+ ADD APP</button>
-          <button class="btn" id="l-group" data-tip="A titled band to arrange apps into — watching, downloading, keeping an eye on.">+ GROUP</button>
-          <button class="btn" id="l-pull" data-tip="Look at what is running and offer anything not already here. Nothing you have set up is touched.">PULL ALL</button>
+          <button class="btn primary" id="l-add" data-tip="Add an app by hand."><i class="ic" data-ic="plus"></i>Add app</button>
+          <button class="btn" id="l-group" data-tip="A titled band to arrange apps into — watching, downloading, keeping an eye on.">New group</button>
+          <button class="btn" id="l-pull" data-tip="Look at what is running and offer anything not already here. Nothing you have set up is touched.">Pull all</button>
         </div>
         <div id="tools-files" hidden>
-          <button class="btn" id="f-back" data-tip="Back to the folder you came from.">&#8592; BACK</button>
-          <button class="btn" id="f-up" data-tip="Go up one folder. Stops at your configured roots.">PARENT</button>
-          <button class="btn" id="f-copy" data-tip="Copy the selection. Ctrl/&#8984;+C.">COPY</button>
-          <button class="btn" id="f-cut" data-tip="Cut the selection. Ctrl/&#8984;+X.">CUT</button>
-          <button class="btn primary" id="f-paste" data-tip="Paste into this folder. Ctrl/&#8984;+V." hidden>PASTE</button>
-          <button class="btn" id="f-mkdir" data-tip="Create a folder here.">NEW FOLDER</button>
-          <button class="btn primary" id="f-upload" data-tip="Upload files into this folder. You can also drop them anywhere on this page.">UPLOAD</button>
-          <button class="btn" id="f-upload-dir" data-tip="Upload a whole folder, keeping its structure.">UPLOAD FOLDER</button>
+          <button class="btn" id="f-back" data-tip="Back to the folder you came from.">&#8592; Back</button>
+          <button class="btn" id="f-up" data-tip="Go up one folder. Stops at your configured roots.">Parent</button>
+          <button class="btn" id="f-copy" data-tip="Copy the selection. Ctrl/&#8984;+C.">Copy</button>
+          <button class="btn" id="f-cut" data-tip="Cut the selection. Ctrl/&#8984;+X.">Cut</button>
+          <button class="btn primary" id="f-paste" data-tip="Paste into this folder. Ctrl/&#8984;+V." hidden>Paste</button>
+          <button class="btn" id="f-mkdir" data-tip="Create a folder here.">New folder</button>
+          <button class="btn primary" id="f-upload" data-tip="Upload files into this folder. You can also drop them anywhere on this page."><i class="ic" data-ic="upload"></i>Upload</button>
+          <button class="btn" id="f-upload-dir" data-tip="Upload a whole folder, keeping its structure.">Upload folder</button>
           <input id="f-file-input" type="file" multiple hidden>
           <input id="f-dir-input" type="file" webkitdirectory directory multiple hidden>
         </div>
         <div id="tools-store" hidden>
-          <button class="btn" id="st-installed-btn" data-tip="Apps installed through Nexus, and how to remove them.">INSTALLED</button>
-          <button class="btn" id="st-github" data-tip="Install from a repo, a compose URL, or pasted YAML.">+ FROM GITHUB</button>
-          <button class="btn" id="st-libs" data-tip="Add or sync the git repositories the catalogue is built from.">LIBRARIES</button>
+          <button class="btn" id="st-installed-btn" data-tip="Apps installed through Nexus, and how to remove them.">Installed</button>
+          <button class="btn" id="st-github" data-tip="Install from a repo, a compose URL, or pasted YAML.">From GitHub</button>
+          <button class="btn" id="st-libs" data-tip="Add or sync the git repositories the catalogue is built from.">Libraries</button>
         </div>
         <div id="tools-term" hidden>
-          <button class="btn" id="t-new" data-tip="Close this shell and open a fresh one.">NEW SESSION</button>
-          <button class="btn" id="t-clear" data-tip="Wipe the screen. The session keeps running.">CLEAR</button>
+          <button class="btn" id="t-new" data-tip="Close this shell and open a fresh one.">New session</button>
+          <button class="btn" id="t-clear" data-tip="Wipe the screen. The session keeps running.">Clear</button>
         </div>
       </div>
 
+      <!-- overview -->
+      <section class="page" id="page-overview">
+        <div class="ov-hero" id="ov-hero"></div>
+        <div class="ov-sec" id="ov-problems-sec">
+          <h2 class="ov-h">Problems <span class="ov-count" id="ov-pcount"></span></h2>
+          <div class="ov-problems" id="ov-problems"></div>
+        </div>
+        <div class="ov-sec">
+          <h2 class="ov-h">Today</h2>
+          <div class="ov-stats" id="ov-stats"></div>
+        </div>
+        <div class="ov-sec">
+          <h2 class="ov-h">Areas <span class="ov-hint">their checks, the last 30 results</span></h2>
+          <div class="ov-areas" id="ov-areas"></div>
+        </div>
+      </section>
+
+      <!-- one area, in detail -->
+      <section class="page" id="page-area">
+        <div class="ar-summary" id="ar-summary"></div>
+        <div class="ov-areas" id="ar-checks"></div>
+        <p class="hint ar-note" id="ar-note"></p>
+      </section>
+
       <!-- dashboard -->
-      <section class="page on" id="page-dash">
+      <section class="page" id="page-dash">
         <div class="selbar" id="selbar" hidden>
-          <span class="selc" id="selcount">0 WIDGETS SELECTED</span>
+          <span class="selc" id="selcount">0 widgets selected</span>
           <span class="hint">Ctrl/&#8984;+click to add &middot; drag any of them to move the group &middot; right-click for shared settings &middot; Delete removes them</span>
         </div>
         <div id="grid"></div>
-        <div class="empty" id="grid-empty" hidden>NO WIDGETS &mdash; PRESS &ldquo;+ ADD WIDGET&rdquo;</div>
+        <div class="empty" id="grid-empty" hidden>No widgets yet &mdash; press &ldquo;Add widget&rdquo;</div>
       </section>
 
       <!-- containers -->
@@ -148,9 +207,9 @@
         <div class="cbar" id="c-bar" hidden>
           <input id="c-q" type="search" placeholder="Find a container…" aria-label="Find a container">
           <div class="cfilters" role="group" aria-label="Filter by state">
-            <button class="cfilter on" data-cstate="all" type="button">ALL <i>0</i></button>
-            <button class="cfilter" data-cstate="running" type="button">RUNNING <i>0</i></button>
-            <button class="cfilter" data-cstate="stopped" type="button">STOPPED <i>0</i></button>
+            <button class="cfilter on" data-cstate="all" type="button">All <i>0</i></button>
+            <button class="cfilter" data-cstate="running" type="button">Running <i>0</i></button>
+            <button class="cfilter" data-cstate="stopped" type="button">Stopped <i>0</i></button>
           </div>
         </div>
         <div class="cgrid" id="c-grid"></div>
@@ -164,17 +223,17 @@
         </div>
         <div class="ltagbar" id="l-tags" hidden></div>
         <div class="lselbar" id="l-selbar" hidden>
-          <span class="selc" id="l-selcount">0 SELECTED</span>
+          <span class="selc" id="l-selcount">0 selected</span>
           <span class="spacer"></span>
-          <button class="btn sm" id="l-selgroup">GROUP</button>
-          <button class="btn sm" id="l-selsize">SIZE</button>
-          <button class="btn sm" id="l-selpin">PIN</button>
-          <button class="btn sm danger" id="l-selremove">REMOVE</button>
-          <button class="btn sm" id="l-selclear">CLEAR</button>
+          <button class="btn sm" id="l-selgroup">Group</button>
+          <button class="btn sm" id="l-selsize">Size</button>
+          <button class="btn sm" id="l-selpin">Pin</button>
+          <button class="btn sm danger" id="l-selremove">Remove</button>
+          <button class="btn sm" id="l-selclear">Clear</button>
         </div>
         <div class="lgrid" id="l-grid"></div>
         <div class="empty" id="l-empty" hidden>
-          NOTHING HERE YET &mdash; PRESS &ldquo;PULL ALL&rdquo; TO FIND WHAT IS RUNNING, OR ADD ONE BY HAND
+          Nothing here yet &mdash; press &ldquo;Pull all&rdquo; to find what is running, or add one by hand
         </div>
       </section>
 
@@ -184,11 +243,11 @@
         <div class="crumbs" id="f-crumbs"></div>
         <div class="clipbar" id="f-clipbar" hidden>
           <span class="clipinfo" id="f-clipinfo"></span>
-          <span class="hint">Open a folder and press PASTE, or right-click a folder to paste inside it.</span>
-          <button class="btn sm" id="f-clipcancel">CANCEL</button>
+          <span class="hint">Open a folder and press Paste, or right-click a folder to paste inside it.</span>
+          <button class="btn sm" id="f-clipcancel">Cancel</button>
         </div>
         <div class="selbar" id="f-selbar" hidden>
-          <span class="selc" id="f-selcount">0 ITEMS SELECTED</span>
+          <span class="selc" id="f-selcount">0 items selected</span>
           <span class="hint">Ctrl/&#8984;+click to add &middot; Shift+click for a run &middot; drag a box over empty space &middot; Delete removes them</span>
         </div>
         <div class="tw"><table id="f-table">
@@ -200,7 +259,7 @@
         <div id="f-drop" hidden>
           <div class="dropcard">
             <img src="/assets/brand/icons/ui-upload.png" alt="">
-            <span class="dt">DROP TO UPLOAD</span>
+            <span class="dt">Drop to upload</span>
             <span class="dp" id="f-drop-path"></span>
             <span class="hint">Folders are uploaded with their structure intact.</span>
           </div>
@@ -217,11 +276,11 @@
           <div class="dnum"><span id="up-pct">0</span><i>%</i></div>
         </div>
         <div class="upmeta">
-          <span class="uptitle" id="up-title">UPLOADING</span>
+          <span class="uptitle" id="up-title">Uploading</span>
           <span class="upname mono" id="up-name">&nbsp;</span>
           <span class="hint" id="up-stat">&nbsp;</span>
         </div>
-        <button class="btn danger" id="up-cancel" data-tip="Stop after the current file.">CANCEL</button>
+        <button class="btn danger" id="up-cancel" data-tip="Stop after the current file.">Cancel</button>
       </div>
 
       <!-- app store -->
@@ -238,13 +297,13 @@
         </div>
 
         <div id="st-grid" class="appgrid"></div>
-        <div id="st-more" class="loadmore" hidden><button class="btn" id="st-more-btn">LOAD MORE</button></div>
+        <div id="st-more" class="loadmore" hidden><button class="btn" id="st-more-btn">Load more</button></div>
       </section>
 
       <!-- terminal -->
       <section class="page" id="page-term">
         <div class="section" id="term-off" hidden>
-          <h2>TERMINAL DISABLED</h2>
+          <h2>Terminal disabled</h2>
           <p class="hint">The terminal is switched off in the server config. Set <code>terminal.enabled</code> to true and restart to use it.</p>
         </div>
         <div id="term-on">
@@ -254,7 +313,7 @@
               <span class="tt" id="term-title">/bin/bash</span>
               <span class="spacer"></span>
               <span class="pill idle" id="term-backend">—</span>
-              <span class="pill ok" id="term-state"><i class="dot live"></i>CONNECTED</span>
+              <span class="pill ok" id="term-state"><i class="dot live"></i>Connected</span>
             </div>
             <div id="xterm-host"></div>
           </div>
@@ -276,29 +335,29 @@
         <div class="section">
           <div class="sechead">
             <div class="sectitle">
-              <h2>ALERTS</h2>
-              <p class="hint">What has tripped, newest first. Kept on the server, so this survives a
-                 reload &mdash; and a restart.</p>
+              <h2>Alerts</h2>
+              <p class="hint">What has tripped, newest first — including health checks that went down.
+                 Kept on the server, so this survives a reload &mdash; and a restart.</p>
             </div>
             <div class="secacts">
-              <button class="btn sm" id="cp-ack" data-tip="Mark every alert as seen. Nothing is deleted.">MARK ALL READ</button>
-              <button class="btn sm danger" id="cp-clear" data-tip="Delete the alert history permanently.">CLEAR HISTORY</button>
+              <button class="btn sm" id="cp-ack" data-tip="Mark every alert as seen. Nothing is deleted.">Mark all read</button>
+              <button class="btn sm danger" id="cp-clear" data-tip="Delete the alert history permanently.">Clear history</button>
             </div>
           </div>
           <div id="cp-alerts"></div>
         </div>
 
-        <h3 class="bandhead">WHEN SOMETHING SHOULD HAPPEN</h3>
+        <h3 class="bandhead">When something should happen</h3>
 
         <div class="section">
           <div class="sechead">
             <div class="sectitle">
-              <h2>WATCH RULES</h2>
+              <h2>Watch rules</h2>
               <p class="hint">A rule watches one thing and does something when it stays wrong for long
                  enough. Sustain and cooldown are what keep this useful rather than noisy.</p>
             </div>
             <div class="secacts">
-              <button class="btn sm primary" id="cp-new-rule" data-tip="Watch something and act when it stays wrong.">+ NEW RULE</button>
+              <button class="btn sm primary" id="cp-new-rule" data-tip="Watch something and act when it stays wrong.">New rule</button>
             </div>
           </div>
           <div id="cp-rules"></div>
@@ -307,23 +366,23 @@
         <div class="section">
           <div class="sechead">
             <div class="sectitle">
-              <h2>SCHEDULED TASKS</h2>
+              <h2>Scheduled tasks</h2>
               <p class="hint">Container restarts on a clock, in the server&rsquo;s local time. A timed
                  whole-host reboot is deliberately not offered.</p>
             </div>
             <div class="secacts">
-              <button class="btn sm primary" id="cp-new-task" data-tip="Restart a container on a schedule.">+ NEW TASK</button>
+              <button class="btn sm primary" id="cp-new-task" data-tip="Restart a container on a schedule.">New task</button>
             </div>
           </div>
           <div id="cp-schedules"></div>
         </div>
 
-        <h3 class="bandhead">WHERE IT GOES, AND THE SWITCH YOU ARM</h3>
+        <h3 class="bandhead">Where it goes, and the switch you arm</h3>
 
         <div class="section">
           <div class="sechead">
             <div class="sectitle">
-              <h2>NOTIFICATIONS</h2>
+              <h2>Notifications</h2>
               <p class="hint">An alert that only appears in a browser tab you do not have open is not
                  an alert.</p>
             </div>
@@ -334,7 +393,7 @@
         <div class="section">
           <div class="sechead">
             <div class="sectitle">
-              <h2>POWER</h2>
+              <h2>Power</h2>
               <p class="hint">Reboot and shutdown, disarmed by default. While disarmed the server
                  refuses them, not just the buttons.</p>
             </div>
@@ -347,65 +406,100 @@
       <section class="page" id="page-settings">
         <div class="section" id="appearance-section">
           <div class="appearance-intro">
-            <div><h2>Make yourself at home.</h2><p>Three palettes for your personal workstation. Changes apply instantly and stay in this browser.</p></div>
-            <img class="appearance-art" src="/assets/workstation/workbench.png" width="240" height="120" alt="A pixel-art computer, plant and coffee on a wooden shelf">
+            <div><h2>Appearance</h2><p>How Nexus looks in this browser. Changes apply instantly and are saved here, not on the server.</p></div>
           </div>
-          <div class="palette-list" role="group" aria-label="Workstation palette">
-            <button type="button" class="palette-choice" data-palette-choice="parchment" aria-pressed="false">
-              <span class="palette-preview" data-preview="parchment" aria-hidden="true"><span class="mini-rail"><i></i><i></i><i></i></span><span class="mini-panels"><i><b></b></i><i><b></b></i><i><b></b></i></span></span>
-              <span class="palette-label">Parchment<span class="palette-status">SELECTED</span></span><span class="palette-detail">Warm paper &amp; olive. A little daylight.</span>
-            </button>
-            <button type="button" class="palette-choice" data-palette-choice="evergreen" aria-pressed="false">
-              <span class="palette-preview" data-preview="evergreen" aria-hidden="true"><span class="mini-rail"><i></i><i></i><i></i></span><span class="mini-panels"><i><b></b></i><i><b></b></i><i><b></b></i></span></span>
-              <span class="palette-label">Evergreen<span class="palette-status">SELECTED</span></span><span class="palette-detail">Forest green &amp; brass. Settle in.</span>
-            </button>
-            <button type="button" class="palette-choice" data-palette-choice="midnight" aria-pressed="false">
-              <span class="palette-preview" data-preview="midnight" aria-hidden="true"><span class="mini-rail"><i></i><i></i><i></i></span><span class="mini-panels"><i><b></b></i><i><b></b></i><i><b></b></i></span></span>
-              <span class="palette-label">Night Shift<span class="palette-status">SELECTED</span></span><span class="palette-detail">Slate &amp; amber. For the late hours.</span>
-            </button>
+
+          <div class="ap-block">
+            <h3>Theme</h3>
+            <div class="skin-list" role="group" aria-label="Theme">
+              <button type="button" class="skin-choice" data-skin-choice="modern" aria-pressed="false">
+                <span class="skin-prev sp-modern" aria-hidden="true"><i></i><b></b><b></b><b></b></span>
+                <span class="skin-label">Modern</span><span class="skin-detail">Graphite or daylight, one accent. The default.</span>
+              </button>
+              <button type="button" class="skin-choice" data-skin-choice="workstation" aria-pressed="false">
+                <span class="skin-prev sp-workstation" aria-hidden="true"><i></i><b></b><b></b><b></b></span>
+                <span class="skin-label">Workstation</span><span class="skin-detail">Warm paper, forest or slate. Cosy and retro.</span>
+              </button>
+              <button type="button" class="skin-choice" data-skin-choice="classic" aria-pressed="false">
+                <span class="skin-prev sp-classic" aria-hidden="true"><i></i><b></b><b></b><b></b></span>
+                <span class="skin-label">Classic</span><span class="skin-detail">The original pixel CRT.</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="ap-block" id="ap-modern">
+            <div class="display-row">
+              <div><h3>Mode</h3><p>Dark is the graphite look; System follows your device.</p></div>
+              <div class="seg" role="group" aria-label="Mode" id="ap-mode">
+                <button type="button" data-mode="dark">Dark</button><button type="button" data-mode="light">Light</button><button type="button" data-mode="system">System</button>
+              </div>
+            </div>
+            <div class="display-row">
+              <div><h3>Accent</h3><p>The one colour used for selection and primary actions. Status colours never change.</p></div>
+              <div class="accent-list" role="group" aria-label="Accent colour" id="ap-accent"></div>
+            </div>
+          </div>
+
+          <div class="ap-block" id="ap-workstation">
+            <h3>Workstation palette</h3>
+            <div class="palette-list" role="group" aria-label="Workstation palette">
+              <button type="button" class="palette-choice" data-palette-choice="parchment" aria-pressed="false">
+                <span class="palette-preview" data-preview="parchment" aria-hidden="true"><span class="mini-rail"><i></i><i></i><i></i></span><span class="mini-panels"><i><b></b></i><i><b></b></i><i><b></b></i></span></span>
+                <span class="palette-label">Parchment<span class="palette-status">Selected</span></span><span class="palette-detail">Warm paper &amp; olive. A little daylight.</span>
+              </button>
+              <button type="button" class="palette-choice" data-palette-choice="evergreen" aria-pressed="false">
+                <span class="palette-preview" data-preview="evergreen" aria-hidden="true"><span class="mini-rail"><i></i><i></i><i></i></span><span class="mini-panels"><i><b></b></i><i><b></b></i><i><b></b></i></span></span>
+                <span class="palette-label">Evergreen<span class="palette-status">Selected</span></span><span class="palette-detail">Forest green &amp; brass. Settle in.</span>
+              </button>
+              <button type="button" class="palette-choice" data-palette-choice="midnight" aria-pressed="false">
+                <span class="palette-preview" data-preview="midnight" aria-hidden="true"><span class="mini-rail"><i></i><i></i><i></i></span><span class="mini-panels"><i><b></b></i><i><b></b></i><i><b></b></i></span></span>
+                <span class="palette-label">Night Shift<span class="palette-status">Selected</span></span><span class="palette-detail">Slate &amp; amber. For the late hours.</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="ap-block">
+            <div class="display-row">
+              <div><h3>Glass panels</h3><p>Kernel, the search palette, menus and dialogs become translucent and blur what is behind them. Turn it off for the crispest reading.</p></div>
+              <button class="switch" id="glass-toggle" type="button" role="switch" aria-checked="false"><span></span></button>
+            </div>
+            <div class="display-row">
+              <div><h3>Reduce motion</h3><p>Stops transitions and animations. Your device's reduced-motion preference is always respected.</p></div>
+              <button class="switch" id="motion-toggle" type="button" role="switch" aria-checked="false"><span></span></button>
+            </div>
+            <div class="display-row" id="crt-row">
+              <div><h3>CRT scanlines</h3><p>A faint CRT texture, for the Classic and Workstation themes.</p></div>
+              <button class="switch" id="crt-toggle" type="button" role="switch" aria-checked="false"><span></span></button>
+            </div>
           </div>
           <p class="appearance-status" id="appearance-status" role="status" aria-live="polite"></p>
         </div>
         <div class="section" id="agent-section">
-          <h2>NEXUS EXPERT</h2>
+          <h2>Kernel — the Nexus Expert</h2>
           <p class="hint">Kernel is an AI agent with tools pointed at this machine. It starts with no
             access at all &mdash; every capability below is yours to hand over, one at a time.</p>
           <div id="agent-panel"></div>
         </div>
         <div class="section">
-          <h2>DISPLAY</h2>
-          <div class="display-row">
-            <div><h3>Interface motion</h3><p>Gentle drawer transitions and tactile controls. Your device's reduced-motion preference is always respected.</p></div>
-            <button class="btn" id="motion-toggle" aria-pressed="false">REDUCE MOTION: OFF</button>
-          </div>
-          <div class="display-row">
-            <div><h3>CRT scanlines</h3><p>A faint CRT texture. Leave it off for the clearest reading.</p></div>
-            <button class="btn" id="crt-toggle" aria-pressed="false">CRT SCANLINES: OFF</button>
-          </div>
-        </div>
-        <div class="section">
-          <h2>AN EASY WAY BACK</h2>
-          <div class="display-row">
-            <div><h3>Classic GUI</h3><p>Switch to the original colors and controls. Your widgets, files and settings stay in place. Choose a palette above to return.</p></div>
-            <button class="btn" id="classic-toggle" aria-pressed="false">USE CLASSIC GUI</button>
-          </div>
-          <p class="hint">To restore the original GUI files, run this from your Nexus folder. The command saves the outgoing GUI first.</p>
+          <h2>An easy way back</h2>
+          <p class="hint">Theme choices above switch the look instantly and keep every widget, file and setting.
+            To restore the original GUI files from the verified backup, run this from your Nexus folder — the outgoing GUI is saved first.</p>
           <code class="restore-command">node scripts/gui-backup.js restore</code>
         </div>
         <div class="section">
-          <h2>SYSTEM</h2>
+          <h2>System</h2>
           <dl class="kv" id="s-system"></dl>
         </div>
         <div class="section">
-          <h2>SERVICES</h2>
+          <h2>Services</h2>
           <dl class="kv" id="s-services"></dl>
         </div>
         <div class="section">
-          <h2>STORAGE HEALTH (SMART)</h2>
+          <h2>Storage health (SMART)</h2>
           <div id="s-smart"></div>
         </div>
         <div class="section">
-          <h2>RECENT ACTIVITY</h2>
+          <h2>Recent activity</h2>
           <div class="tw"><table id="s-audit">
             <thead><tr><th>When</th><th>Action</th><th>Who</th><th>Detail</th></tr></thead>
             <tbody></tbody>
@@ -419,19 +513,19 @@
 <!-- ============ WIDGET LIBRARY ============ -->
 <div id="drawer">
   <div class="dw raised">
-    <div class="dw-head"><span>WIDGET LIBRARY</span><span class="dcount" id="dcount"></span><span class="spacer"></span><button class="xbtn" id="dclose" type="button" aria-label="Close" data-tip="Close">&times;</button></div>
+    <div class="dw-head"><span>Widget library</span><span class="dcount" id="dcount"></span><span class="spacer"></span><button class="xbtn" id="dclose" type="button" aria-label="Close" data-tip="Close">&times;</button></div>
     <div class="dw-body" id="dbody"></div>
   </div>
 </div>
 
 <!-- ============ WIDGET CONTEXT MENU (right-click) ============ -->
 <div id="ctx">
-  <div class="ctxhead"><img id="ctx-icon" src="/assets/brand/icons/ui-settings.png" alt=""><span id="ctx-title">WIDGET</span></div>
+  <div class="ctxhead"><img id="ctx-icon" src="/assets/brand/icons/ui-settings.png" alt=""><span id="ctx-title">Widget</span></div>
   <div id="ctx-body"></div>
   <div class="ctxfoot">
-    <button class="ctxopt" id="ctx-select">SELECT</button>
-    <button class="ctxopt" id="ctx-reset">RESET STYLE</button>
-    <button class="ctxopt" id="ctx-remove" style="color:var(--crit)">REMOVE</button>
+    <button class="ctxopt" id="ctx-select">Select</button>
+    <button class="ctxopt" id="ctx-reset">Reset style</button>
+    <button class="ctxopt" id="ctx-remove" style="color:var(--crit)">Remove</button>
   </div>
 </div>
 
@@ -440,7 +534,7 @@
   <div class="mw raised">
     <div class="mw-head">
       <img id="mw-icon" src="/assets/brand/icons/ui-apps.png" alt="">
-      <span id="mw-title">TITLE</span>
+      <span id="mw-title">Title</span>
       <span class="spacer"></span>
       <button class="xbtn" id="mw-close" type="button" aria-label="Close" data-tip="Close">&times;</button>
     </div>
@@ -449,46 +543,69 @@
   </div>
 </div>
 
-<!-- ============ NEXUS EXPERT (KERNEL) ============ -->
-<button id="kernel-open" type="button" aria-expanded="false"
-        aria-controls="kernel" data-tip="Nexus Expert &mdash; ask Kernel about this machine">
-  <span class="hbot-art" aria-hidden="true"></span>
-  <span class="hbot-label">EXPERT</span>
+<!-- ============ COMMAND PALETTE ============ -->
+<div id="cmdk" hidden>
+  <div class="ck-box" role="dialog" aria-modal="true" aria-label="Search Nexus">
+    <div class="ck-in">
+      <i class="ic" data-ic="search"></i>
+      <input id="ck-q" type="text" autocomplete="off" spellcheck="false" placeholder="Search pages, apps, containers, actions… or ask Kernel"
+             role="combobox" aria-expanded="true" aria-controls="ck-list" aria-autocomplete="list">
+      <kbd>Esc</kbd>
+    </div>
+    <div class="ck-list" id="ck-list" role="listbox"></div>
+    <div class="ck-foot"><span><kbd>&uarr;</kbd><kbd>&darr;</kbd> move</span><span><kbd>&crarr;</kbd> open</span><span><kbd>Esc</kbd> close</span><span class="spacer"></span><span><kbd>?</kbd> shortcuts</span></div>
+  </div>
+</div>
+
+<!-- ============ KERNEL — THE NEXUS EXPERT ============ -->
+<button id="kernel-open" type="button" aria-expanded="false" aria-controls="kernel" data-tip="Ask Kernel about this machine — Ctrl/&#8984;+J">
+  <span class="kx-orb" aria-hidden="true"></span>
+  <span class="hbot-label">Ask Kernel</span>
 </button>
 
-<section id="kernel" hidden aria-label="Nexus Expert">
+<section id="kernel" hidden aria-label="Kernel, the Nexus Expert">
   <!-- Grips on the two edges that grow the panel into the screen: it is
        anchored bottom-right, so left and top are where the room is. -->
   <i class="kx-grip n" data-grip="n" aria-hidden="true"></i>
   <i class="kx-grip w" data-grip="w" aria-hidden="true"></i>
   <i class="kx-grip nw" data-grip="nw" aria-hidden="true"></i>
   <header class="kx-head" id="kx-head">
-    <span class="hbot-art sm" aria-hidden="true"></span>
-    <span class="kx-who"><b>KERNEL</b><span class="kx-model" id="kx-model">not configured</span></span>
+    <span class="kx-orb" aria-hidden="true"></span>
+    <span class="kx-who"><b id="kx-title">Kernel</b><span class="kx-model" id="kx-model">not configured</span></span>
     <span class="spacer"></span>
-    <button class="kx-ico" id="kx-reset" type="button" aria-label="Put the panel back in the corner" data-tip="Back to the corner">&#9737;</button>
-    <button class="kx-ico" id="kx-close" type="button" aria-label="Close the expert panel" data-tip="Close">&times;</button>
+    <button class="kx-ico" id="kx-add" type="button" aria-label="New conversation" data-tip="New conversation"><i class="ic" data-ic="plus"></i></button>
+    <button class="kx-ico" id="kx-hist" type="button" aria-label="Conversations" aria-expanded="false" data-tip="Conversations"><i class="ic" data-ic="history"></i></button>
+    <button class="kx-ico" id="kx-dock" type="button" aria-label="Dock to the side" data-tip="Dock to the side"><i class="ic" data-ic="panel-right"></i></button>
+    <button class="kx-ico" id="kx-reset" type="button" aria-label="Put the panel back in the corner" data-tip="Back to the corner"><i class="ic" data-ic="corner"></i></button>
+    <button class="kx-ico" id="kx-close" type="button" aria-label="Close Kernel" data-tip="Close (Esc)"><i class="ic" data-ic="x"></i></button>
   </header>
-  <div class="kx-tabs" id="kx-tabs" role="tablist" aria-label="Conversations"></div>
+  <div class="kx-hist" id="kx-histmenu" hidden></div>
   <div class="kx-body" id="kx-body" role="log" aria-live="polite"></div>
+  <div class="kx-status" id="kx-status" hidden></div>
   <div class="kx-ask" id="kx-ask" hidden></div>
-  <div class="kx-atts" id="kx-atts" hidden></div>
-  <form class="kx-compose" id="kx-compose">
-    <button class="kx-attach" id="kx-attach" type="button" aria-label="Attach an image" data-tip="Attach an image — or just paste one">+</button>
-    <input type="file" id="kx-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
-    <textarea id="kx-input" rows="1" placeholder="Ask about this machine…" aria-label="Message for Kernel"></textarea>
-    <button class="btn primary sm" id="kx-send" type="submit">SEND</button>
-  </form>
-  <footer class="kx-foot">
-    <span id="kx-usage" data-tip="Tokens this conversation, and the running total since you last reset it">&mdash;</span>
-    <span class="spacer"></span>
-    <button class="kx-link" id="kx-config" type="button">SETTINGS</button>
-  </footer>
+  <div class="kx-dockbar">
+    <div class="kx-atts" id="kx-atts" hidden></div>
+    <form class="kx-compose" id="kx-compose">
+      <textarea id="kx-input" rows="1" placeholder="Ask about this machine…" aria-label="Message for Kernel"></textarea>
+      <div class="kx-crow">
+        <button class="kx-attach" id="kx-attach" type="button" aria-label="Attach an image" data-tip="Attach an image — or just paste one"><i class="ic" data-ic="paperclip"></i></button>
+        <input type="file" id="kx-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+        <span class="kx-hint">Enter to send · Shift+Enter for a new line</span>
+        <span class="spacer"></span>
+        <button class="kx-send" id="kx-send" type="submit" aria-label="Send"><i class="ic" data-ic="arrow-up"></i></button>
+      </div>
+    </form>
+    <footer class="kx-foot">
+      <span id="kx-usage" data-tip="Tokens this conversation, and the running total since you last reset it">&mdash;</span>
+      <span class="spacer"></span>
+      <button class="kx-link" id="kx-config" type="button">Kernel settings</button>
+    </footer>
+  </div>
 </section>
 
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/xterm-addon-fit.js"></script>
 <script src="/vendor/xterm-addon-web-links.js"></script>
-<script src="/app.js?v=0.8.1"></script>
+<script src="/app.js?v=0.9.0"></script>
 </body>
 </html>

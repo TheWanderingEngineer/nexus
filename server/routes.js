@@ -17,6 +17,7 @@ import * as automation from "./automation.js";
 import * as agent from "./agent.js";
 import * as agentSkills from "./skills.js";
 import * as pins from "./pins.js";
+import * as health from "./health.js";
 import {
   hashPassword, verifyPassword, createSession, destroySession,
   setSessionCookies, clearSessionCookies, requireAuth, requireCsrf,
@@ -149,6 +150,17 @@ export default function routes() {
     const force = req.query.refresh === "1";
     res.json(await sensors.smart(force));
   }));
+
+  /* ---------------- health checks (the Overview page) ----------------
+     `/health` above is Nexus's own liveness for an outside monitor and needs
+     no session. These are the checks Nexus runs on everything else. */
+  r.get("/checks", (_req, res) => res.json(health.overview()));
+  r.post("/checks/run", wrap(async (_req, res) => res.json(await health.runNow())));
+  r.put("/checks/config", (req, res) => {
+    const out = health.saveConfig(req.body || {});
+    audit("health.config", { custom: out.custom.length, notify: out.notify }, req);
+    res.json(health.overview());
+  });
 
   /* ---------------- docker ---------------- */
   r.get("/docker/containers", wrap(async (_req, res) => {
@@ -831,6 +843,11 @@ export default function routes() {
     // it is given. Without this the capability switches — including the root
     // shell — could be set from here with none of those checks run.
     delete s.agent; delete s.agentUsage;
+    // The same for every other validated island in settings: the launcher's
+    // `safeUrl` check (a javascript: URL on a tile is stored XSS), the health
+    // checks' target validation (a ping target reaches execFile), and presets,
+    // which go through the layout clamp. Each has its own endpoint.
+    delete s.launcher; delete s.health; delete s.presets;
     db().settings = { ...db().settings, ...s };
     save();
     res.json(db().settings);
@@ -884,8 +901,16 @@ export default function routes() {
     const text = String(req.body?.text || "").trim();
     const images = Array.isArray(req.body?.images) ? req.body.images : [];
     if (!text && !images.length) throw Object.assign(new Error("say something first"), { status: 400 });
-    res.json(await agent.send(req.params.id, text, req, images));
+    // `async: true` starts the turn and returns at once; the panel then reads
+    // progress from GET /agent/run/:id. Without it the request waits for the
+    // whole turn, which scripts and the self-check still rely on.
+    res.json(await agent.send(req.params.id, text, req, images, { async: req.body?.async === true }));
   }));
+
+  r.post("/agent/run/:id/stop", (req, res) => {
+    audit("agent.stop", null, req);
+    res.json(agent.stop(req.params.id));
+  });
 
   /* An attached image, back out again — for the thumbnail, the larger view and
      the download. Served from the run's own folder and nowhere else: the id is
@@ -900,7 +925,7 @@ export default function routes() {
   r.post("/agent/run/:id/approve", wrap(async (req, res) => {
     const decision = req.body?.decision === "allow" ? "allow" : "deny";
     audit("agent.approval", { decision }, req);
-    res.json(await agent.resume(req.params.id, decision, req));
+    res.json(await agent.resume(req.params.id, decision, req, { async: req.body?.async === true }));
   }));
 
   r.post("/agent/test", wrap(async (req, res) => {

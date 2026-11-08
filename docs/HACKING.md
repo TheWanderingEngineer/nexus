@@ -8,6 +8,7 @@ is *built* and which decisions are load-bearing.
 | | |
 |---|---|
 | `docs/HACKING.md` | this file — architecture, invariants, how to extend it |
+| `docs/REDESIGN.md` | the 0.9 plan: the Overview, health checks, the Modern theme, Kernel v2, the gap analysis |
 | `docs/DESIGN.md` | the original pixel design system. Historical in places: it predates the workstation theme and its "no border-radius" rule now governs only the classic look |
 | `PRODUCT.md` | what the product is meant to be |
 | `HANDOFF.md` | a transient note between agents, if one is present. Delete it once settled |
@@ -35,6 +36,7 @@ server/
   sensors.js      hwmon / thermal_zone discovery, smartctl
   security.js     failed logins, listening ports, pending updates
   automation.js   watch rules, scheduled tasks, webhooks, power
+  health.js       the Overview's checks: derived readings + HTTP/TCP/ping/DNS probes
   dockerx.js      container list + control, reads io.casaos.* labels
   files.js        path-jailed file ops, uploads
   terminal.js     pty-less shell over a WebSocket
@@ -49,8 +51,10 @@ server/
 web/
   app.js          one IIFE, no framework, no bundler
   appearance.js   loaded before paint; sets the theme attributes on <html>
-  style.css       the original pixel theme, and every layout rule
+  style.css       the original pixel theme, and every older layout rule
   workstation.css the workstation theme, layered on top of style.css
+  ui.css          the 0.9 shell, Overview, search palette and Kernel — tokens only
+  modern.css      the Modern theme: its tokens, and refinements of everything else
   vendor/         xterm.js, vendored because CSP forbids CDN scripts
 assets/brand/       pixel art (PixelLab); cat/ holds the Server Cat frames
 assets/workstation/ workbench scene and the theme's fonts
@@ -104,17 +108,41 @@ permanently. See `procLoop` in `metrics.js`.
 
 ---
 
-## Two themes, three palettes
+## Three themes
 
 `appearance.js` runs before first paint — that is why it is a blocking script in
-`<head>` — and stamps four attributes on `<html>`:
+`<head>` — and stamps these attributes on `<html>`:
 
 | Attribute | Values |
 |---|---|
-| `data-gui` | `workstation` (default) or `classic` |
-| `data-palette` | `parchment` (light), `evergreen` (dark), `midnight` (dark) |
+| `data-skin` | `modern` (default since 0.9), `workstation` or `classic` — the theme |
+| `data-gui` | `workstation` for Modern *and* Workstation, `classic` for Classic — the geometry |
+| `data-palette` | `graphite` / `daylight` (Modern), `parchment` / `evergreen` / `midnight` (Workstation) |
 | `data-theme` | `light` / `dark`, derived from the above |
+| `data-accent` | `indigo`, `blue`, `teal`, `emerald`, `amber`, `rose` (Modern only reads it) |
+| `data-glass` | `on` / `off` — translucent floating surfaces; always `off` in Classic |
 | `data-motion` | `full` or `reduced` |
+
+**Modern is a refinement layer, not a fourth stylesheet from scratch.** It sets
+`data-gui="workstation"` so every rounded, 1 px rule in `workstation.css`
+applies, and `modern.css` re-keys the tokens and refines components under
+`[data-skin="modern"]`. A component that looks right in Workstation is most of
+the way to right in Modern.
+
+**New components go in `ui.css`, written only against tokens**, so they render
+under all three themes. Where an older rule targets the same element, raise the
+selector (`#app #rail .nav`, `#kernel .kx-head`, `:root #kernel`) rather than
+relying on load order: `[data-gui="workstation"] .x` is (0,2,0) and beats a
+single class however late it is loaded — the same trap as *Two rules that
+outrank yours* below.
+
+**Labels are sentence case in the source.** Classic shouts them back via
+`text-transform` at the bottom of `modern.css`. `toast()` runs every message
+through `human()`, so an all-caps string from older code still reads normally.
+
+The old `nexus.gui` key is deliberately not read for the theme: every browser
+that ever picked a workstation palette stored `workstation` there, and honouring
+it would have kept them all off the new design. The theme lives in `nexus.skin`.
 
 All four are browser-local (`localStorage`), never server state — the same
 account on two machines can look different, deliberately. `window.NexusAppearance`
@@ -435,6 +463,58 @@ Where a provider bills by time of day (DeepSeek's peak/off-peak), quote the
 seconds into a conversation. It calls the model with capabilities stripped and
 no skills attached, so it measures the connection rather than the configuration
 around it — and it counts the tokens it spends, because they are real.
+
+## Health checks
+
+`server/health.js`, read by the Overview, the area pages, the sidebar dots and
+Kernel's briefing through `GET /api/checks`. Rules that are load-bearing:
+
+- **Results live in memory**, sixty per check — the metrics invariant again.
+  A restart forgets history and that is fine.
+- **Absent is not zero.** A probe that could not run is `unknown`. A thing this
+  platform cannot measure has *no check* — there is no gateway check on Windows
+  and no temperature check on a box with no sensors — rather than a green one. A
+  stopped container is `off`, never `down`: people stop things on purpose.
+  `worst()` ignores `off` and `unknown` when it rolls an area up.
+- **Three strikes and a flap damper.** `noteForAlert()` raises only on the
+  third consecutive failure, announces recovery once, and stays silent for a
+  check that alerted in the last fifteen minutes. The first version alerted on
+  two strikes and, on a congested link, produced 24 down/up alerts in an hour. Derived Servers/Storage readings do not
+  alert at all: the seeded watch rules already cover temperature and disk with
+  sustain and cooldown, and two alert systems for one fact is noise.
+- **A pass in progress is joined, not skipped** (`fastLoop`/`slowLoop` share
+  the running promise). A plain busy flag made "Run checks" return before a
+  just-added check had been probed.
+- **No shell, ever.** `ping` is `execFile` with a host that has matched
+  `HOST_RE`/`IPV6_RE` (which cannot start with `-`); everything else is a socket.
+  Custom targets are validated on the way *in* (`cleanCustom`), and `PUT
+  /settings` deletes `health` so it cannot be written around that check.
+- **A locked app's address stays on the server.** It is probed like any other
+  tile, but its `target` is reported as `locked`, and `summaryLines()` — what
+  Kernel sees — carries names and messages only, never targets.
+- HTTP probes do not verify certificates: homelab services are self-signed, and
+  the question is "is it answering", not "is it private". Nothing but a GET is
+  sent.
+
+## Kernel turns run in the background
+
+`send` and `resume` take `{ async: true }` from the panel: `background()` marks
+the run `busy`, starts the loop without awaiting it, and returns the transcript
+at once. The panel polls `GET /agent/run/:id` (quick at first, then easing off)
+and renders each step as it lands. Why: a turn with a few tool calls outlived
+Nginx Proxy Manager's 60-second proxy timeout, and the panel reported an error
+while the turn finished unseen.
+
+- A second message while `busy` is a 409, and the panel answers it by polling.
+- `POST /agent/run/:id/stop` sets `r.stop`; `loop()` checks it before each model
+  call and between tool calls. An unanswered call left by a stop is closed by
+  `sealed()` on the next request, so stopping cannot brick a conversation.
+- The synchronous form is still the default — `agent-check.js` and anything
+  scripted rely on it.
+
+The panel renders incrementally: `stepKey()` identifies each step on screen,
+and only steps after the first difference are redrawn. That is what keeps an
+expanded tool detail open and the scroll position put while a turn streams in.
 
 ## The version string
 

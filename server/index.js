@@ -1,4 +1,6 @@
 import http from "node:http";
+import fs from "node:fs";
+import zlib from "node:zlib";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
@@ -14,6 +16,7 @@ import * as terminal from "./terminal.js";
 import * as apps from "./apps.js";
 import * as automation from "./automation.js";
 import * as agent from "./agent.js";
+import * as health from "./health.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = path.join(__dirname, "..", "web");
@@ -59,6 +62,67 @@ app.use("/api", routes());
 // Sprites are content-stable and small; a day of caching is safe and they
 // revalidate by ETag anyway.
 app.use("/assets", express.static(ASSET_DIR, { maxAge: "1d", etag: true }));
+
+/**
+ * Compressed delivery of the app shell.
+ *
+ * app.js alone is ~350 KB of plain text and was sent raw on every cold load —
+ * over Wi-Fi to a phone that is the slowest thing on the page. Each file is
+ * compressed once per version (brotli where the browser accepts it, gzip
+ * otherwise) and kept in memory; the cache key includes size and mtime, so a
+ * `git pull` is picked up without a restart. No dependency: zlib is built in.
+ *
+ * Caching semantics are unchanged from the static handler below: `no-cache`
+ * plus an ETag, so a repeat load is a 304 with no body and a new build is never
+ * served stale.
+ */
+const COMPRESSIBLE = /\.(js|css|html|svg|json|map)$/i;
+const packed = new Map();   // file -> { key, br, gz, type }
+const TYPES = { ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
+                ".html": "text/html; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json", ".map": "application/json" };
+
+app.use((req, res, next) => {
+  if (req.method !== "GET" && req.method !== "HEAD") return next();
+  if (req.path.startsWith("/api/") || req.path.startsWith("/ws/") || req.path.startsWith("/assets/")) return next();
+  const rel = req.path === "/" ? "/index.html" : req.path;
+  if (!COMPRESSIBLE.test(rel)) return next();
+  const accepts = String(req.headers["accept-encoding"] || "");
+  const enc = /\bbr\b/.test(accepts) ? "br" : /\bgzip\b/.test(accepts) ? "gzip" : null;
+  if (!enc) return next();
+
+  let file;
+  try { file = path.join(WEB_DIR, path.normalize(decodeURIComponent(rel)).replace(/^([/\\])+/, "")); }
+  catch { return next(); }
+  if (!file.startsWith(WEB_DIR + path.sep)) return next();
+
+  fs.stat(file, (err, st) => {
+    if (err || !st.isFile()) return next();
+    const key = `${st.size}-${st.mtimeMs}`;
+    let entry = packed.get(file);
+    if (!entry || entry.key !== key) {
+      try {
+        const raw = fs.readFileSync(file);
+        entry = {
+          key, type: TYPES[path.extname(file).toLowerCase()] || "application/octet-stream",
+          br: zlib.brotliCompressSync(raw, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 9 } }),
+          gz: zlib.gzipSync(raw, { level: 9 })
+        };
+        packed.set(file, entry);
+      } catch { return next(); }
+    }
+    const etag = `W/"${key}-${enc}"`;
+    res.setHeader("Vary", "Accept-Encoding");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("ETag", etag);
+    if (req.headers["if-none-match"] === etag) return res.status(304).end();
+    const body = enc === "br" ? entry.br : entry.gz;
+    res.setHeader("Content-Type", entry.type);
+    res.setHeader("Content-Encoding", enc);
+    res.setHeader("Content-Length", body.length);
+    if (req.method === "HEAD") return res.end();
+    res.end(body);
+  });
+});
 
 // The app shell must NOT be cached by time. After `git pull && install.sh` a
 // stale app.js would keep running against a newer API until the cache expired,
@@ -109,10 +173,14 @@ const server = http.createServer(app);
 
 /* ============================ WebSockets ============================ */
 
-const wssMetrics = new WebSocketServer({ noServer: true });
+// Metrics frames carry four minutes of six series every two seconds; deflate
+// shrinks them about fourfold. The terminal stays uncompressed — keystrokes are
+// tiny and latency is the only thing that matters there.
+const DEFLATE = { perMessageDeflate: { threshold: 1024, zlibDeflateOptions: { level: 6 } } };
+const wssMetrics = new WebSocketServer({ noServer: true, ...DEFLATE });
 const wssTerminal = new WebSocketServer({ noServer: true });
-const wssLogs = new WebSocketServer({ noServer: true });
-const wssEvents = new WebSocketServer({ noServer: true });
+const wssLogs = new WebSocketServer({ noServer: true, ...DEFLATE });
+const wssEvents = new WebSocketServer({ noServer: true, ...DEFLATE });
 
 let lastOriginWarn = 0;
 server.on("upgrade", (req, socket, head) => {
@@ -276,6 +344,9 @@ async function main() {
     // The agent's own scheduler. Last, like automation, because a task that
     // fires immediately would read an empty metrics snapshot.
     try { agent.startCrons(); } catch (e) { console.error("[boot] agent crons:", e.message); }
+    // Health checks read the metrics snapshot, Docker and the launcher, so they
+    // start once those exist.
+    try { health.start(); } catch (e) { console.error("[boot] health:", e.message); }
   })();
 
   server.listen(cfg.port, cfg.host, async () => {

@@ -18,6 +18,107 @@ const on = (sel, ev, fn, opts) => {
   return el;
 };
 const ICON = n => `/assets/brand/icons/ui-${n}.png`;
+const cap = s => (s = String(s ?? "")) && s[0].toUpperCase() + s.slice(1);
+
+/* ============================ line icons ============================
+ * One set of crisp stroke icons, drawn in `currentColor`, for the shell, the
+ * Overview and Kernel. Inline SVG rather than a sprite file: the CSP allows
+ * nothing else without a request per icon, and these are a few hundred bytes
+ * each. The pixel PNGs stay where the Classic and Workstation themes use them.
+ *
+ * Each entry is the inner markup on a 24-unit grid; IC() wraps it.
+ */
+const P = d => `<path d="${d}"/>`;
+const ICONS = {
+  search: '<circle cx="11" cy="11" r="7.5"/>' + P("m21 21-4.3-4.3"),
+  activity: P("M22 12h-4l-3 9L9 3l-3 9H2"),
+  "chevron-down": P("m6 9 6 6 6-6"),
+  "chevron-right": P("m9 18 6-6-6-6"),
+  layout: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>',
+  box: P("M11 21.7a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7z") + P("M12 22V12") + P("m3.3 7 7.7 4.7a2 2 0 0 0 2 0L20.7 7"),
+  folder: P("M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9L9.6 3.9A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"),
+  terminal: P("m4 17 6-6-6-6") + P("M12 19h8"),
+  store: P("M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z") + P("M3 6h18") + P("M16 10a4 4 0 0 1-8 0"),
+  zap: P("M13 2 4.1 13.1a.6.6 0 0 0 .5 1H11l-1 7.9 8.9-11.1a.6.6 0 0 0-.5-1H12z"),
+  settings: P("M12.2 2h-.4a2 2 0 0 0-2 2v.2a2 2 0 0 1-1 1.7l-.4.3a2 2 0 0 1-2 0l-.2-.1a2 2 0 0 0-2.7.7l-.2.4a2 2 0 0 0 .7 2.7l.2.1a2 2 0 0 1 1 1.7v.5a2 2 0 0 1-1 1.7l-.2.1a2 2 0 0 0-.7 2.7l.2.4a2 2 0 0 0 2.7.7l.2-.1a2 2 0 0 1 2 0l.4.3a2 2 0 0 1 1 1.7v.2a2 2 0 0 0 2 2h.4a2 2 0 0 0 2-2v-.2a2 2 0 0 1 1-1.7l.4-.3a2 2 0 0 1 2 0l.2.1a2 2 0 0 0 2.7-.7l.2-.4a2 2 0 0 0-.7-2.7l-.2-.1a2 2 0 0 1-1-1.7v-.5a2 2 0 0 1 1-1.7l.2-.1a2 2 0 0 0 .7-2.7l-.2-.4a2 2 0 0 0-2.7-.7l-.2.1a2 2 0 0 1-2 0l-.4-.3a2 2 0 0 1-1-1.7V4a2 2 0 0 0-2-2z") + '<circle cx="12" cy="12" r="3"/>',
+  sidebar: '<rect x="3" y="3" width="18" height="18" rx="2.5"/>' + P("M9 3v18"),
+  "panel-right": '<rect x="3" y="3" width="18" height="18" rx="2.5"/>' + P("M15 3v18"),
+  menu: P("M4 6h16M4 12h16M4 18h16"),
+  refresh: P("M21 12a9 9 0 1 1-9-9c2.5 0 4.9 1 6.7 2.7L21 8") + P("M21 3v5h-5"),
+  moon: P("M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"),
+  sun: '<circle cx="12" cy="12" r="4"/>' + P("M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"),
+  sparkles: P("M12 3.5l1.6 4.6a2 2 0 0 0 1.3 1.3l4.6 1.6-4.6 1.6a2 2 0 0 0-1.3 1.3L12 18.5l-1.6-4.6a2 2 0 0 0-1.3-1.3L4.5 11l4.6-1.6a2 2 0 0 0 1.3-1.3z") + P("M19 3v3M17.5 4.5h3M5 17v3M3.5 18.5h3"),
+  logout: P("M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4") + P("m16 17 5-5-5-5") + P("M21 12H9"),
+  plus: P("M5 12h14M12 5v14"),
+  upload: P("M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4") + P("m17 8-5-5-5 5") + P("M12 3v12"),
+  history: P("M3 12a9 9 0 1 0 9-9 9.8 9.8 0 0 0-6.7 2.7L3 8") + P("M3 3v5h5") + P("M12 7v5l4 2"),
+  corner: P("m7 7 10 10") + P("M17 7v10H7"),
+  x: P("M18 6 6 18M6 6l12 12"),
+  paperclip: P("m21.4 11-9.2 9.2a6 6 0 0 1-8.5-8.5l8.6-8.6a4 4 0 0 1 5.7 5.7l-8.6 8.6a2 2 0 0 1-2.8-2.8l8.5-8.5"),
+  "arrow-up": P("m5 12 7-7 7 7") + P("M12 19V5"),
+  server: '<rect x="2.5" y="3" width="19" height="8" rx="2"/><rect x="2.5" y="13" width="19" height="8" rx="2"/>' + P("M6.5 7h.01M6.5 17h.01"),
+  globe: '<circle cx="12" cy="12" r="9.5"/>' + P("M12 2.5a14.5 14.5 0 0 0 0 19 14.5 14.5 0 0 0 0-19") + P("M2.5 12h19"),
+  database: '<ellipse cx="12" cy="5" rx="8.5" ry="3"/>' + P("M3.5 5v14a8.5 3 0 0 0 17 0V5") + P("M3.5 12a8.5 3 0 0 0 17 0"),
+  cpu: '<rect x="4" y="4" width="16" height="16" rx="2.5"/><rect x="9" y="9" width="6" height="6" rx="1"/>' + P("M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2"),
+  memory: P("M6 19v-3M10 19v-3M14 19v-3M18 19v-3M8 11V9M16 11V9M12 11V9M2 15h20") + P("M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1.1a2 2 0 0 0 0 3.8V17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5.1a2 2 0 0 0 0-3.8Z"),
+  drive: P("M22 12H2") + P("M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z") + P("M6 16h.01M10 16h.01"),
+  network: P("m3 16 4 4 4-4") + P("M7 20V4") + P("m21 8-4-4-4 4") + P("M17 4v16"),
+  thermo: P("M14 4v10.5a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"),
+  clock: '<circle cx="12" cy="12" r="9.5"/>' + P("M12 6.5V12l3.5 2"),
+  shield: P("M20 13c0 5-3.5 7.5-7.7 9a1 1 0 0 1-.7 0C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.2-2.7a1.2 1.2 0 0 1 1.6 0C14.5 3.8 17 5 19 5a1 1 0 0 1 1 1z"),
+  bell: P("M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9") + P("M10.3 21a1.9 1.9 0 0 0 3.4 0"),
+  alert: '<circle cx="12" cy="12" r="9.5"/>' + P("M12 7.5v5") + P("M12 16.5h.01"),
+  "check-circle": '<circle cx="12" cy="12" r="9.5"/>' + P("m8.5 12 2.5 2.5 5-5"),
+  "x-circle": '<circle cx="12" cy="12" r="9.5"/>' + P("m15 9-6 6M9 9l6 6"),
+  half: '<circle cx="12" cy="12" r="9.5"/>' + '<path d="M12 6.5a5.5 5.5 0 0 1 0 11z" fill="currentColor" stroke="none"/>',
+  minus: '<circle cx="12" cy="12" r="9.5"/>' + P("M8 12h8"),
+  external: P("M7 7h10v10") + P("M7 17 17 7"),
+  copy: '<rect x="8" y="8" width="13" height="13" rx="2"/>' + P("M4 16a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2"),
+  check: P("M20 6 9 17l-5-5"),
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor" stroke="none"/>',
+  trash: P("M3 6h18") + P("M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6") + P("M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2"),
+  edit: P("M21.2 6.8a2.8 2.8 0 0 0-4-4L3.8 16.2a2 2 0 0 0-.5.8l-1.3 4.4a.5.5 0 0 0 .6.6l4.4-1.3a2 2 0 0 0 .8-.5z"),
+  keyboard: '<rect x="2" y="5" width="20" height="14" rx="2.5"/>' + P("M6 9h.01M10 9h.01M14 9h.01M18 9h.01M8 13h.01M12 13h.01M16 13h.01M7 16.5h10"),
+  home: P("M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8") + P("M3 10a2 2 0 0 1 .7-1.5l7-6a2 2 0 0 1 2.6 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"),
+  lock: '<rect x="3.5" y="11" width="17" height="10.5" rx="2"/>' + P("M7.5 11V7a4.5 4.5 0 0 1 9 0v4"),
+  gauge: P("m12 14 4-4") + P("M3.3 19a10 10 0 1 1 17.4 0"),
+  calendar: '<rect x="3" y="4.5" width="18" height="17" rx="2.5"/>' + P("M16 2.5v4M8 2.5v4M3 10h18"),
+  message: P("M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"),
+  retry: P("M3 12a9 9 0 1 0 9-9 9.8 9.8 0 0 0-6.7 2.7L3 8") + P("M3 3v5h5"),
+  "arrow-down": P("M12 5v14") + P("m19 12-7 7-7-7"),
+  wifi: P("M12 20h.01") + P("M2 8.8a15 15 0 0 1 20 0") + P("M5 12.9a10 10 0 0 1 14 0") + P("M8.5 16.4a5 5 0 0 1 7 0"),
+  image: '<rect x="3" y="3" width="18" height="18" rx="2.5"/><circle cx="9" cy="9" r="2"/>' + P("m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"),
+  power: P("M12 2v10") + P("M18.4 6.6a9 9 0 1 1-12.8 0")
+};
+/** An icon as markup. Unknown names draw nothing rather than throwing. */
+function IC(name, cls = "") {
+  const body = ICONS[name];
+  if (!body) return "";
+  return `<svg class="ico${cls ? " " + cls : ""}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+}
+/** Fill every `<i class="ic" data-ic="name">` placeholder in the static HTML. */
+function hydrateIcons(root = document) {
+  $$("i.ic[data-ic]", root).forEach(el => { if (!el.firstChild) el.innerHTML = IC(el.dataset.ic); });
+}
+hydrateIcons();
+
+/**
+ * Sentence case for a message that arrives in capitals.
+ *
+ * The pixel theme shouted everything and a lot of strings were written that
+ * way; the modern theme reads in sentence case. Only a message with no
+ * lowercase letter at all is touched, and acronyms survive.
+ */
+const KEEP_CAPS = new Set(["CPU", "RAM", "SSH", "PIN", "URL", "API", "IP", "DNS", "HTTP", "HTTPS", "TCP", "ID", "OK",
+  "AI", "GUI", "OS", "SMART", "JSON", "YAML", "LAN", "VPN", "TLS", "KB", "MB", "GB", "TB", "UTC", "PTY"]);
+function human(msg) {
+  const s = String(msg ?? "");
+  if (/[a-z]/.test(s) || !/[A-Z].*[A-Z]/.test(s)) return s;
+  return s.toLowerCase()
+    .replace(/[a-z][a-z]*/g, w => (KEEP_CAPS.has(w.toUpperCase()) ? w.toUpperCase() : w === "nexus" ? "Nexus" : w))
+    .replace(/^([^a-z]*)([a-z])/, (_, a, b) => a + b.toUpperCase());
+}
 
 let CSRF = null;
 
@@ -83,9 +184,14 @@ addEventListener("keydown", e => { if (e.key === "Escape") hideTip(); });
 function toast(msg, kind) {
   const el = document.createElement("div");
   el.className = "toast" + (kind ? " " + kind : "");
-  el.textContent = msg;
-  $("#toast").appendChild(el);
-  setTimeout(() => el.remove(), 3200);
+  el.innerHTML = IC(kind === "err" ? "alert" : kind === "ok" ? "check-circle" : "bell", "t-ico") +
+    `<span>${esc(human(msg))}</span>`;
+  const host = $("#toast");
+  // Three at a time. A burst of failures used to stack a column of toasts up
+  // the screen that outlived the thing that caused them.
+  while (host.children.length >= 3) host.firstElementChild.remove();
+  host.appendChild(el);
+  setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 220); }, 3400);
 }
 
 async function api(pathname, opts = {}) {
@@ -134,8 +240,8 @@ function upfmt(sec) {
   return d ? `${d}d ${h}h ${m}m` : `${h}h ${m}m`;
 }
 
-const DAYS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** 12-hour by default — "5:47 PM". 24-hour keeps the leading zero. */
 function fmtTime(d, h12 = true, seconds = false) {
@@ -167,9 +273,9 @@ async function boot() {
   } catch { /* server unreachable; the form will report it */ }
 
   if (needsSetup) {
-    $("#gate-title").textContent = "NEXUS — FIRST RUN";
+    $("#gate-title").textContent = "Nexus — first run";
     $("#gate-msg").textContent = "No account exists yet. Create your admin user.";
-    $("#g-submit").textContent = "CREATE ACCOUNT";
+    $("#g-submit").textContent = "Create account";
     $("#g-confirm-wrap").hidden = false;
     $("#g-pass").setAttribute("autocomplete", "new-password");
     showGate();
@@ -194,8 +300,8 @@ on("#gate-form", "submit", async e => {
   const password = $("#g-pass").value;
 
   if (needsSetup) {
-    if (password.length < 8) { err.textContent = "PASSWORD MUST BE AT LEAST 8 CHARACTERS"; return; }
-    if (password !== $("#g-confirm").value) { err.textContent = "PASSWORDS DO NOT MATCH"; return; }
+    if (password.length < 8) { err.textContent = "Password must be at least 8 characters"; return; }
+    if (password !== $("#g-confirm").value) { err.textContent = "Passwords do not match"; return; }
   }
 
   $("#g-submit").disabled = true;
@@ -207,7 +313,7 @@ on("#gate-form", "submit", async e => {
     hideGate();
     start();
   } catch (ex) {
-    err.textContent = String(ex.message || "SIGN IN FAILED").toUpperCase();
+    err.textContent = String(ex.message || "Sign in failed");
   } finally {
     $("#g-submit").disabled = false;
   }
@@ -266,11 +372,11 @@ function setLinkState(state, tip) {
   const el = $("#st-state");
   if (!el) return;
   const look = {
-    connecting: ["var(--text-3)", "CONNECTING", "Opening the live metrics stream."],
-    live:       ["var(--ok)",     "LIVE",       "Live metrics stream over a WebSocket."],
-    polling:    ["var(--warn)",   "POLLING",    "The WebSocket could not be opened, so readings are being fetched over HTTP instead."],
-    offline:    ["var(--crit)",   "OFFLINE",    "No connection to the server."]
-  }[state] || ["var(--crit)", "OFFLINE", ""];
+    connecting: ["var(--text-3)", "Connecting", "Opening the live metrics stream."],
+    live:       ["var(--ok)",     "Live",       "Live metrics stream over a WebSocket."],
+    polling:    ["var(--warn)",   "Polling",    "The WebSocket could not be opened, so readings are being fetched over HTTP instead."],
+    offline:    ["var(--crit)",   "Offline",    "No connection to the server."]
+  }[state] || ["var(--crit)", "Offline", ""];
   el.innerHTML = `<i class="dot${state === "live" ? " live" : ""}" style="color:${look[0]}"></i><span>${look[1]}</span>`;
   // The colour lives in CSS keyed off this, so the workstation theme cannot
   // pin the pill green while the link is actually down.
@@ -293,6 +399,7 @@ function applyFrame(d) {
   });
   paintTopbar();
   renderWidgets();
+  onLiveFrame();
 }
 
 function applyFull(m) {
@@ -522,7 +629,15 @@ function drawChart(svg, vals, maxV, color, opts = {}) {
                fill="${cssv("--text-3")}">${esc(opts.maxLabel)}</text>`
       : "");
 }
-const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+/* Token reads are cached. Every chart asked getComputedStyle for two or three
+   tokens on every redraw — a style recalculation per chart per second — for
+   values that only change when the theme does. */
+const cssCache = new Map();
+const cssv = n => {
+  if (!cssCache.has(n)) cssCache.set(n, getComputedStyle(document.documentElement).getPropertyValue(n).trim());
+  return cssCache.get(n);
+};
+document.addEventListener("nexus:appearance", () => cssCache.clear());
 
 /**
  * Two series mirrored around a centre line — reads above, writes below.
@@ -899,7 +1014,7 @@ function openCtx(list, x, y) {
   $("#ctx-icon").src = sameType ? def.icon : ICON("dashboard");
   $("#ctx-title").textContent = many
     ? `${sel.length} WIDGETS SELECTED`
-    : def.name.toUpperCase();
+    : def.name;
 
   const body = $("#ctx-body");
   body.innerHTML = "";
@@ -970,14 +1085,14 @@ function openCtx(list, x, y) {
 
   // The file-manager menu hides the footer; put it back for widgets.
   $(".ctxfoot").hidden = false;
-  $("#ctx-remove").textContent = many ? `REMOVE ${sel.length}` : "REMOVE";
+  $("#ctx-remove").textContent = many ? `REMOVE ${sel.length}` : "Remove";
 
   // Ctrl-click is how a selection is built with a mouse; touch has no modifier
   // key, so the menu carries the same action as a button.
   const selBtn = $("#ctx-select");
   selBtn.hidden = false;
-  selBtn.textContent = many ? "CLEAR SELECTION"
-    : selection.has(sel[0].id) ? "DESELECT" : "SELECT";
+  selBtn.textContent = many ? "Clear selection"
+    : selection.has(sel[0].id) ? "Deselect" : "Select";
 
   placeCtx(x, y);
 }
@@ -1078,8 +1193,8 @@ function ctxChecklist(p, cfg) {
     b.addEventListener("click", fn);
     return b;
   };
-  all.appendChild(mk("ALL", () => setCfg({ [p.key]: [] })));
-  all.appendChild(mk("NONE", () => setCfg({ [p.key]: p.items.map(i => i.value) })));
+  all.appendChild(mk("All", () => setCfg({ [p.key]: [] })));
+  all.appendChild(mk("None", () => setCfg({ [p.key]: p.items.map(i => i.value) })));
   g.appendChild(all);
   return g;
 }
@@ -1153,7 +1268,7 @@ const REG = {
       return { n: $(".n", b), svg: $("svg", b), sub: $(".sub", b) }; },
     update(r, cfg) { r.n.textContent = Math.round(LIVE.cpu);
       drawChart(r.svg, LIVE.history.cpu, 100, colorCss(cfg.color),
-        { label: "LOAD", fmt: v => v.toFixed(1) + "%" });
+        { label: "Load", fmt: v => v.toFixed(1) + "%" });
       const t = LIVE.sensors.find(s => s.kind === "temperature");
       r.sub.textContent = `${LIVE.info?.cpu?.cores || "?"} cores${t ? " · " + Math.round(t.value) + "°C" : ""}`; } },
 
@@ -1197,7 +1312,7 @@ const REG = {
     defaults: { trace: "rx" },
     options: [
       { key: "trace", label: "Graph shows", values: [
-        { value: "rx", label: "DOWNLOAD" }, { value: "tx", label: "UPLOAD" }] }
+        { value: "rx", label: "Download" }, { value: "tx", label: "Upload" }] }
     ],
     mount(b) {
       // Both directions get an equal, labelled slot. Previously download was a
@@ -1205,8 +1320,8 @@ const REG = {
       // look like two unrelated readings.
       b.innerHTML = `
         <div class="netrow">
-          <div class="netstat"><span class="nlbl">DOWN</span><span class="nval rx">--</span></div>
-          <div class="netstat"><span class="nlbl">UP</span><span class="nval tx">--</span></div>
+          <div class="netstat"><span class="nlbl">Down</span><span class="nval rx">--</span></div>
+          <div class="netstat"><span class="nlbl">Up</span><span class="nval tx">--</span></div>
           <span class="spacer"></span>
           <span class="npeak"></span>
         </div>
@@ -1222,14 +1337,14 @@ const REG = {
       // through its own axis label.
       r.peak.textContent = `peak ${rate(max)} · ${cfg.trace === "tx" ? "up" : "down"}`;
       drawChart(r.svg, series, max, colorCss(cfg.color),
-        { label: cfg.trace === "tx" ? "UP" : "DOWN", fmt: rate });
+        { label: cfg.trace === "tx" ? "Up" : "Down", fmt: rate });
     } },
 
   sensors: { name: "Sensors", icon: ICON("temp"), desc: "Temperatures and fans", w: 4, h: 4,
     defaults: { mode: "bars" },
     options: [
       { key: "mode", label: "Display", values: [
-        { value: "bars", label: "BARS" }, { value: "list", label: "LIST" }] }
+        { value: "bars", label: "Bars" }, { value: "list", label: "List" }] }
     ],
     // This replaces the old "how many" cap. Ticking the channels you want is
     // strictly better than a count: on a box with acpitz, Composite, two NVMe
@@ -1289,9 +1404,9 @@ const REG = {
     defaults: { show: "all", limit: 10 },
     options: [
       { key: "show", label: "Show", values: [
-        { value: "all", label: "ALL" }, { value: "running", label: "RUNNING" }, { value: "stopped", label: "STOPPED" }] },
+        { value: "all", label: "All" }, { value: "running", label: "Running" }, { value: "stopped", label: "Stopped" }] },
       { key: "limit", label: "How many", values: [
-        { value: 5, label: "5" }, { value: 10, label: "10" }, { value: 20, label: "20" }, { value: 99, label: "ALL" }] }
+        { value: 5, label: "5" }, { value: 10, label: "10" }, { value: 20, label: "20" }, { value: 99, label: "All" }] }
     ],
     mount(b) {
       b.innerHTML = '<div class="csummary"></div><div class="clist"></div>';
@@ -1306,11 +1421,11 @@ const REG = {
         el.busy.add(id);
         try {
           await api(`/docker/containers/${encodeURIComponent(id)}/${act}`, { method: "POST" });
-          toast(`${act.toUpperCase()} ${nm}`, "ok");
+          toast(`${cap(act)} ${nm}`, "ok");
           const o = await api("/docker/containers");
           if (o.available) LIVE.containers = o.containers;
         } catch (ex) {
-          toast(ex.message.toUpperCase(), "err");
+          toast(ex.message, "err");
         } finally {
           el.busy.delete(id);
           renderWidgets();
@@ -1321,7 +1436,7 @@ const REG = {
     update(r, cfg) {
       const all = LIVE.containers || [];
       if (!all.length) {
-        r.sum.innerHTML = '<span class="pill idle">DOCKER UNAVAILABLE OR NO CONTAINERS</span>';
+        r.sum.innerHTML = '<span class="pill idle">Docker unavailable or no containers</span>';
         r.list.innerHTML = "";
         return;
       }
@@ -1344,11 +1459,11 @@ const REG = {
           <span class="cname" data-tip="${esc(c.image)}">${esc(c.title || c.name)}</span>
           <span class="cports">${up ? portLinks(c.ports, "cport") : ""}</span>
           <button class="cact" data-act="${up ? "stop" : "start"}" data-id="${esc(c.id)}"
-                  data-nm="${esc(c.name)}" ${busy ? "disabled" : ""}>${busy ? "…" : up ? "STOP" : "START"}</button>
+                  data-nm="${esc(c.name)}" ${busy ? "disabled" : ""}>${busy ? "…" : up ? "Stop" : "Start"}</button>
           <button class="cact" data-act="restart" data-id="${esc(c.id)}"
-                  data-nm="${esc(c.name)}" ${busy || !up ? "disabled" : ""}>RESTART</button>
+                  data-nm="${esc(c.name)}" ${busy || !up ? "disabled" : ""}>Restart</button>
         </div>`;
-      }).join("") || '<div class="empty">NOTHING MATCHES THAT FILTER</div>';
+      }).join("") || '<div class="empty">Nothing matches that filter</div>';
     } },
 
   uptime: { name: "Uptime", icon: ICON("power"), desc: "Time since last boot", w: 3, h: 2,
@@ -1360,11 +1475,11 @@ const REG = {
     defaults: { face: "digital", h12: true, seconds: false },
     options: [
       { key: "face", label: "Face", values: [
-        { value: "digital", label: "DIGITAL" }, { value: "analog", label: "ANALOG" }] },
+        { value: "digital", label: "Digital" }, { value: "analog", label: "Analog" }] },
       { key: "h12", label: "Format", values: [
         { value: true, label: "12 H" }, { value: false, label: "24 H" }] },
       { key: "seconds", label: "Seconds", values: [
-        { value: false, label: "OFF" }, { value: true, label: "ON" }] }
+        { value: false, label: "Off" }, { value: true, label: "On" }] }
     ],
     mount(b, cfg) {
       b.style.containerType = "inline-size";
@@ -1412,7 +1527,7 @@ const REG = {
     defaults: { show: "both" },
     options: [
       { key: "show", label: "Show", values: [
-        { value: "both", label: "BOTH" }, { value: "uptime", label: "UPTIME" }, { value: "when", label: "WHEN" }] }
+        { value: "both", label: "Both" }, { value: "uptime", label: "Uptime" }, { value: "when", label: "When" }] }
     ],
     mount(b) {
       b.innerHTML = `<div class="big"><span class="n" style="font-size:0.62em">--</span></div>
@@ -1446,18 +1561,18 @@ const REG = {
     defaults: { catName: "Nyx", gender: "she", chatty: "normal", rest: "auto", posture: "auto" },
     options: [
       { key: "gender", label: "Refer to her as", values: [
-        { value: "she", label: "SHE" }, { value: "he", label: "HE" }] },
+        { value: "she", label: "She" }, { value: "he", label: "He" }] },
       { key: "rest", label: "Sleep", values: [
-        { value: "auto", label: "AUTO" }, { value: "awake", label: "KEEP AWAKE" }, { value: "asleep", label: "LET SLEEP" }] },
+        { value: "auto", label: "Auto" }, { value: "awake", label: "Keep awake" }, { value: "asleep", label: "Let sleep" }] },
       { key: "posture", label: "Posture", values: [
-        { value: "auto", label: "AUTO" }, { value: "sit", label: "SITTING" }, { value: "stand", label: "STAND UP" }] },
+        { value: "auto", label: "Auto" }, { value: "sit", label: "Sitting" }, { value: "stand", label: "Stand up" }] },
       { key: "chatty", label: "Talks", values: [
-        { value: "quiet", label: "RARELY" }, { value: "normal", label: "SOMETIMES" }, { value: "chatty", label: "A LOT" }] }
+        { value: "quiet", label: "Rarely" }, { value: "normal", label: "Sometimes" }, { value: "chatty", label: "A lot" }] }
     ],
     // Naming the cat is the one setting that needs free text, so it gets a
     // prompt rather than a row of preset buttons.
     actions: [
-      { label: "RENAME", icon: ICON("textsize"), run(it) {
+      { label: "Rename", icon: ICON("textsize"), run(it) {
         const cur = cfgOf(it).catName || "Nyx";
         const next = prompt("What is the cat called?", cur);
         if (next == null) return;
@@ -1509,9 +1624,9 @@ const REG = {
     defaults: { mode: "grid", labels: true },
     options: [
       { key: "mode", label: "Display", values: [
-        { value: "grid", label: "GRID" }, { value: "bars", label: "BARS" }] },
+        { value: "grid", label: "Grid" }, { value: "bars", label: "Bars" }] },
       { key: "labels", label: "Numbers", values: [
-        { value: true, label: "ON" }, { value: false, label: "OFF" }] }
+        { value: true, label: "On" }, { value: false, label: "Off" }] }
     ],
     mount(b, cfg) {
       b.innerHTML = `<div class="coregrid ${cfg.mode === "bars" ? "asbars" : ""}"></div><span class="sub"></span>`;
@@ -1549,7 +1664,7 @@ const REG = {
     defaults: { by: "cpu", limit: 5 },
     options: [
       { key: "by", label: "Sort by", values: [
-        { value: "cpu", label: "CPU" }, { value: "mem", label: "MEMORY" }] },
+        { value: "cpu", label: "CPU" }, { value: "mem", label: "Memory" }] },
       { key: "limit", label: "How many", values: [
         { value: 3, label: "3" }, { value: 5, label: "5" }, { value: 8, label: "8" }, { value: 12, label: "12" }] }
     ],
@@ -1608,8 +1723,8 @@ const REG = {
     mount(b) {
       b.innerHTML = `
         <div class="netrow">
-          <div class="netstat"><span class="nlbl">READ</span><span class="nval rd">--</span></div>
-          <div class="netstat"><span class="nlbl">WRITE</span><span class="nval wr">--</span></div>
+          <div class="netstat"><span class="nlbl">Read</span><span class="nval rd">--</span></div>
+          <div class="netstat"><span class="nlbl">Write</span><span class="nval wr">--</span></div>
           <span class="spacer"></span>
           <span class="npeak"></span>
         </div>
@@ -1635,7 +1750,7 @@ const REG = {
       const max = Math.max(65536, ...dr, ...dw);
       r.peak.textContent = `peak ${rate(max)}`;
       drawMirror(r.svg, dr, dw, max, colorCss(cfg.color), cssv("--text-2"),
-        { upLabel: "READ", downLabel: "WRITE", fmt: rate });
+        { upLabel: "Read", downLabel: "Write", fmt: rate });
     } },
 
   /* ------------------------------------------------------ security watch */
@@ -1646,7 +1761,7 @@ const REG = {
       { key: "hours", label: "Look back", values: [
         { value: 1, label: "1 H" }, { value: 24, label: "24 H" }, { value: 168, label: "7 D" }] },
       { key: "detail", label: "Show", values: [
-        { value: "findings", label: "FINDINGS" }, { value: "tiles", label: "COUNTS ONLY" }] }
+        { value: "findings", label: "Findings" }, { value: "tiles", label: "Counts only" }] }
     ],
     // Which checks you care about. A box with SSH firewalled off has no use for
     // the SSH row, and a permanently-visible zero trains you to ignore it.
@@ -1694,11 +1809,11 @@ const REG = {
       const sesV = d.sessions?.ok ? d.sessions.count : "?";
 
       r.tiles.innerHTML =
-        tile("ssh", "SSH FAILS", sshV, d.ssh?.ok ? `${d.ssh.sources} distinct sources` : d.ssh?.reason, d.ssh?.ok && d.ssh.count >= 10) +
-        tile("nexus", "NEXUS FAILS", nexV, "Failed logins to Nexus itself", d.nexus?.ok && d.nexus.count > 0) +
-        tile("ports", "OPEN PORTS", portV, d.ports?.ok ? "Listening on all interfaces" : d.ports?.reason, false) +
-        tile("updates", "SEC. UPDATES", updV, d.updates?.ok ? `${d.updates.total} updates in total` : d.updates?.reason, d.updates?.ok && d.updates.security > 0) +
-        tile("sessions", "SESSIONS", sesV, d.sessions?.ok ? "Active logins right now" : d.sessions?.reason, false);
+        tile("ssh", "SSH fails", sshV, d.ssh?.ok ? `${d.ssh.sources} distinct sources` : d.ssh?.reason, d.ssh?.ok && d.ssh.count >= 10) +
+        tile("nexus", "Nexus fails", nexV, "Failed logins to Nexus itself", d.nexus?.ok && d.nexus.count > 0) +
+        tile("ports", "Open ports", portV, d.ports?.ok ? "Listening on all interfaces" : d.ports?.reason, false) +
+        tile("updates", "Sec. updates", updV, d.updates?.ok ? `${d.updates.total} updates in total` : d.updates?.reason, d.updates?.ok && d.updates.security > 0) +
+        tile("sessions", "Sessions", sesV, d.sessions?.ok ? "Active logins right now" : d.sessions?.reason, false);
 
       if (cfg.detail !== "findings") { r.find.innerHTML = ""; return; }
 
@@ -1723,7 +1838,7 @@ const REG = {
     defaults: { dense: false },
     options: [
       { key: "dense", label: "Layout", values: [
-        { value: false, label: "ROOMY" }, { value: true, label: "DENSE" }] }
+        { value: false, label: "Roomy" }, { value: true, label: "Dense" }] }
     ],
     // Which lines matter differs by person: someone with one box does not need
     // the interface name, someone with three needs the address above all.
@@ -2138,6 +2253,17 @@ function catTick(r, cfg) {
   }
 }
 
+/* Line icons for the widget headers. Each slot carries both the pixel PNG and
+   the line icon; the stylesheet shows the one that suits the theme. The cat is
+   always her own sprite. */
+const W_ICONS = { cpu: "cpu", memory: "memory", storage: "drive", network: "network", sensors: "thermo",
+  containers: "box", uptime: "power", clock: "clock", boot: "calendar", cores: "cpu", procs: "terminal",
+  diskio: "drive", security: "shield", host: "home" };
+function widgetIcon(type, def) {
+  const ln = W_ICONS[type];
+  return ln ? `<img class="px-ico" src="${def.icon}" alt="">${IC(ln, "ln-ico w-lico")}` : `<img src="${def.icon}" alt="">`;
+}
+
 /* ============================ grid engine ============================ */
 const COLS = 12, ROW = 44, GAP = 8;
 const gridEl = $("#grid"), emptyEl = $("#grid-empty");
@@ -2297,9 +2423,9 @@ function build(it, animate) {
   // control there is no way to reach a widget's settings on a phone or an iPad.
   el.innerHTML =
     `<div class="w-head" data-tip="${esc(def.desc)} — drag to move, right-click or press the gear for settings">` +
-      `<img src="${def.icon}" alt=""><span class="t">${esc(def.name.toUpperCase())}</span>` +
-      `<button class="w-cfg" aria-label="Widget settings" data-tip="Size, colour and options">&#9881;</button>` +
-      `<button class="w-x" aria-label="Remove widget" data-tip="Remove this widget">&times;</button>` +
+      widgetIcon(it.t, def) + `<span class="t">${esc(def.name)}</span>` +
+      `<button class="w-cfg" aria-label="Widget settings" data-tip="Size, colour and options"><span class="px">&#9881;</span>${IC("settings", "ln-ico")}</button>` +
+      `<button class="w-x" aria-label="Remove widget" data-tip="Remove this widget"><span class="px">&times;</span>${IC("x", "ln-ico")}</button>` +
     `</div>` +
     `<div class="w-body"></div>` +
     `<div class="w-rs" data-tip="Drag to resize"></div>`;
@@ -2365,7 +2491,7 @@ function deleteSelection() {
   if (!n) return;
   if (n > 1 && !confirm(`Remove ${n} widgets from the dashboard?`)) return;
   removeWidgets([...selection]);
-  toast(n === 1 ? "WIDGET REMOVED" : `${n} WIDGETS REMOVED`, "ok");
+  toast(n === 1 ? "Widget removed" : `${n} WIDGETS REMOVED`, "ok");
 }
 
 /** True when a keystroke belongs to whatever the user is typing in. */
@@ -2467,7 +2593,7 @@ function addWidget(type) {
   // One of each. Enforced here rather than only in the library, so the rule
   // holds however the widget is added.
   if (widgetInUse(type)) {
-    toast("ALREADY ON THE DASHBOARD", "err");
+    toast("Already on the dashboard", "err");
     return;
   }
   const maxY = items.reduce((m, i) => Math.max(m, i.y + i.h), 0);
@@ -2511,16 +2637,16 @@ function renderDrawer() {
       : d.desc);
 
     b.innerHTML =
-      `<img src="${d.icon}" alt="">` +
+      widgetIcon(k, d) +
       `<span class="ct">` +
-        `<span class="cn">${esc(d.name.toUpperCase())}</span>` +
+        `<span class="cn">${esc(d.name)}</span>` +
         `<span class="cd">${esc(d.desc)}</span>` +
-        (used ? `<span class="cused"><i>&#10003;</i>ON DASHBOARD</span>` : "") +
+        (used ? `<span class="cused"><i>&#10003;</i>On dashboard</span>` : "") +
       `</span>`;
 
     b.addEventListener("click", () => {
       if (widgetInUse(k)) {
-        toast("ALREADY ON THE DASHBOARD", "err");
+        toast("Already on the dashboard", "err");
         return;                      // the drawer stays open; nothing happened
       }
       addWidget(k);
@@ -2537,6 +2663,11 @@ function renderDrawer() {
   }
 }
 function renderWidgets() {
+  // Nothing is drawn for a page nobody is looking at. This ran every second,
+  // and on every metrics frame, on every page and in background tabs — fifteen
+  // widgets' worth of DOM writes for an empty audience. Arriving on the
+  // dashboard calls this again, so nothing is stale when you get there.
+  if (document.hidden || !onDashboard()) return;
   for (const id in mounted) {
     const m = mounted[id];
     try { m.def.update(m.ref, cfgOf(m.it)); } catch {}
@@ -2556,8 +2687,9 @@ function renderWidgets() {
 let secBusy = false;
 async function pollSecurity() {
   if (secBusy) return;
-  const wanted = new Set(
-    items.filter(i => i.t === "security").map(i => cfgOf(i).hours || 24));
+  // 24 hours is always wanted: the Overview reads it for its Security card.
+  const wanted = new Set([24,
+    ...items.filter(i => i.t === "security").map(i => cfgOf(i).hours || 24)]);
   if (!wanted.size) return;
 
   secBusy = true;
@@ -2566,6 +2698,7 @@ async function pollSecurity() {
       try { LIVE.security[h] = await api(`/system/security?hours=${h}`); } catch {}
     }
     renderWidgets();
+    if (curPage === "overview") paintOverview();
   } finally { secBusy = false; }
 }
 
@@ -2904,7 +3037,7 @@ async function loadContainers() {
     LIVE.containers = out.containers;
     paintContainers();
   } catch (e) {
-    box.innerHTML = `<div class="empty">${esc(e.message).toUpperCase()}</div>`;
+    box.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
   }
 }
 
@@ -2952,12 +3085,12 @@ function paintContainers() {
       <div class="cportrow">${ports || '<span class="dim">no published ports</span>'}</div>
       <footer class="cacts">
         <button class="btn sm" data-act="${up ? "stop" : "start"}" data-id="${esc(c.id)}"
-                data-tip="${up ? "Stop this container" : "Start this container"}">${up ? "STOP" : "START"}</button>
-        <button class="btn sm" data-act="restart" data-id="${esc(c.id)}" data-tip="Stop and start it again">RESTART</button>
-        <button class="btn sm" data-manage="${esc(c.id)}" data-tip="Logs, live stats and the rest">MANAGE</button>
+                data-tip="${up ? "Stop this container" : "Start this container"}">${up ? "Stop" : "Start"}</button>
+        <button class="btn sm" data-act="restart" data-id="${esc(c.id)}" data-tip="Stop and start it again">Restart</button>
+        <button class="btn sm" data-manage="${esc(c.id)}" data-tip="Logs, live stats and the rest">Manage</button>
       </footer>
     </article>`;
-  }).join("") || `<div class="empty">${CT.list.length ? "NOTHING MATCHES THAT FILTER" : "NO CONTAINERS"}</div>`;
+  }).join("") || `<div class="empty">${CT.list.length ? "Nothing matches that filter" : "No containers"}</div>`;
 }
 
 on("#c-q", "input", e => { CT.q = e.target.value; paintContainers(); });
@@ -2987,27 +3120,27 @@ async function manageContainer(id) {
   body.className = "cdetail";
   body.innerHTML = `
     <dl class="kv cd-kv">
-      <dt>STATE</dt><dd>${esc(c.status || c.state)}</dd>
-      <dt>IMAGE</dt><dd class="mono cd-img">${esc(c.image)}</dd>
+      <dt>State</dt><dd>${esc(c.status || c.state)}</dd>
+      <dt>Image</dt><dd class="mono cd-img">${esc(c.image)}</dd>
       <dt>ID</dt><dd class="mono">${esc(c.id)}</dd>
-      <dt>CREATED</dt><dd>${c.created ? esc(fmtDate(new Date(c.created * 1000))) : "—"}</dd>
-      <dt>SOURCE</dt><dd>${esc(managedTip(c.managedBy))}</dd>
-      <dt>PORTS</dt><dd class="cd-ports">${portLinks(c.ports, "cport") || '<span class="dim">none published</span>'}</dd>
+      <dt>Created</dt><dd>${c.created ? esc(fmtDate(new Date(c.created * 1000))) : "—"}</dd>
+      <dt>Source</dt><dd>${esc(managedTip(c.managedBy))}</dd>
+      <dt>Ports</dt><dd class="cd-ports">${portLinks(c.ports, "cport") || '<span class="dim">none published</span>'}</dd>
     </dl>
     <div class="cd-live" id="cd-live">${up ? '<span class="dim">reading stats…</span>' : '<span class="dim">not running</span>'}</div>
     <div class="cd-logs">
-      <div class="cd-loghead"><b>LOGS</b><span class="dim">live tail</span></div>
+      <div class="cd-loghead"><b>Logs</b><span class="dim">live tail</span></div>
       <pre id="cd-log" class="cd-log">${up ? "" : "(container is not running)"}</pre>
     </div>`;
 
   openModal({
-    title: (c.title || c.name).toUpperCase(),
+    title: c.title || c.name,
     icon: ICON("containers"),
     body,
-    foot: `<button class="btn sm danger" id="cd-rm" type="button">REMOVE CONTAINER</button>
+    foot: `<button class="btn sm danger" id="cd-rm" type="button">Remove container</button>
            <span class="spacer"></span>
-           <button class="btn sm" id="cd-restart" type="button">RESTART</button>
-           <button class="btn primary sm" id="cd-toggle" type="button">${up ? "STOP" : "START"}</button>`,
+           <button class="btn sm" id="cd-restart" type="button">Restart</button>
+           <button class="btn primary sm" id="cd-toggle" type="button">${up ? "Stop" : "Start"}</button>`,
     // However it is dismissed, the log socket has to stop: left open it would
     // keep streaming into a node that is no longer on the page.
     onClose: closeLogs
@@ -3018,10 +3151,10 @@ async function manageContainer(id) {
   const act = async a => {
     try {
       await api(`/docker/containers/${encodeURIComponent(id)}/${a}`, { method: "POST" });
-      toast(a.toUpperCase() + " OK", "ok");
+      toast(cap(a) + " done", "ok");
       shut();
       setTimeout(loadContainers, 700);
-    } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+    } catch (ex) { toast(ex.message, "err"); }
   };
   on("#cd-toggle", "click", () => act(up ? "stop" : "start"));
   on("#cd-restart", "click", () => act("restart"));
@@ -3029,10 +3162,10 @@ async function manageContainer(id) {
     if (!confirm(`Delete the container "${c.name}"?\n\nIts image and any named volumes stay on disk. This does not uninstall an app that Nexus manages — use the app store for that.`)) return;
     try {
       await api(`/docker/containers/${encodeURIComponent(id)}`, { method: "DELETE" });
-      toast("CONTAINER REMOVED", "ok");
+      toast("Container removed", "ok");
       shut();
       setTimeout(loadContainers, 500);
-    } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+    } catch (ex) { toast(ex.message, "err"); }
   });
 
   if (!up) return;
@@ -3122,9 +3255,9 @@ on("#c-grid", "click", async e => {
   b.disabled = true;
   try {
     await api(`/docker/containers/${encodeURIComponent(b.dataset.id)}/${b.dataset.act}`, { method: "POST" });
-    toast(b.dataset.act.toUpperCase() + " OK", "ok");
+    toast(cap(b.dataset.act) + " done", "ok");
     setTimeout(loadContainers, 700);
-  } catch (ex) { toast(ex.message.toUpperCase(), "err"); b.disabled = false; }
+  } catch (ex) { toast(ex.message, "err"); b.disabled = false; }
 });
 on("#c-refresh", "click", loadContainers);
 
@@ -3346,6 +3479,8 @@ function paintLauncher() {
   paintTagBar();
   paintSelBar();
   wireIcons(grid);
+  paintLauncherStatus();
+  paintSidebarLaunch();
 }
 
 function paintTagBar() {
@@ -3358,7 +3493,7 @@ function paintTagBar() {
   bar.innerHTML = tags.map(([t, n]) =>
     `<button type="button" class="ltagchip wc-${tagHue(t)}${LP.tag === t ? " on" : ""}" data-tagf="${esc(t)}">
        ${esc(t)}<i>${n}</i></button>`).join("") +
-    (LP.tag ? `<button type="button" class="ltagchip clear" data-tagf="">CLEAR</button>` : "");
+    (LP.tag ? `<button type="button" class="ltagchip clear" data-tagf="">Clear</button>` : "");
 }
 
 /** The bar that appears when something is selected. On touch there is no
@@ -3444,7 +3579,7 @@ function askPin(a, external) {
     <p class="lpin-err" id="lpin-err" hidden></p>`;
   openModal({
     title: "PIN", icon: "/assets/brand/icons/ui-launcher.png", body: form,
-    foot: `<span class="spacer"></span><button class="btn primary sm" id="lpin-go" type="button">OPEN</button>`
+    foot: `<span class="spacer"></span><button class="btn primary sm" id="lpin-go" type="button">Open</button>`
   });
   const input = $("#lpin-in", form);
   setTimeout(() => input.focus(), 50);
@@ -3561,7 +3696,7 @@ function removeApps(list) {
   LP.apps = LP.apps.filter(a => !gone.has(a.id));
   LP.sel.clear();
   paintLauncher(); saveLauncher();
-  toast("REMOVED", "ok");
+  toast("Removed", "ok");
 }
 
 addEventListener("keydown", e => {
@@ -3761,11 +3896,11 @@ function editGroup(g) {
 
   let color = row.color;
   openModal({
-    title: isNew ? "NEW GROUP" : "EDIT GROUP",
+    title: isNew ? "New group" : "Edit group",
     icon: "/assets/brand/icons/ui-launcher.png", body: form,
-    foot: `${isNew ? "" : `<button class="btn sm danger" id="lg-del" type="button">REMOVE</button>`}
+    foot: `${isNew ? "" : `<button class="btn sm danger" id="lg-del" type="button">Remove</button>`}
            <span class="spacer"></span>
-           <button class="btn primary sm" id="lg-save" type="button">SAVE</button>`
+           <button class="btn primary sm" id="lg-save" type="button">Save</button>`
   });
   $$("[data-c]", form).forEach(b => b.addEventListener("click", () => {
     color = b.dataset.c;
@@ -3783,7 +3918,7 @@ function editGroup(g) {
     if (isNew) LP.groups.push({ id: "g" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name, color });
     else LP.groups = LP.groups.map(x => x.id === row.id ? { ...x, name, color } : x);
     closeModal(); paintLauncher(); saveLauncher();
-    toast(isNew ? "GROUP ADDED" : "GROUP SAVED", "ok");
+    toast(isNew ? "Group added" : "Group saved", "ok");
   });
 }
 
@@ -3836,8 +3971,8 @@ function editApp(app) {
     <div class="ag-row"><label>PIN</label>
       ${a.locked
         ? `<div class="lockrow"><span class="lockon">${SVG_LOCK} This app opens with a PIN</span>
-             <button class="btn sm" id="lf-repin" type="button">CHANGE IT</button>
-             <button class="btn sm danger" id="lf-unlock" type="button">TAKE IT OFF</button></div>`
+             <button class="btn sm" id="lf-repin" type="button">Change it</button>
+             <button class="btn sm danger" id="lf-unlock" type="button">Take it off</button></div>`
         : `<input id="lf-lock" type="password" inputmode="numeric" maxlength="4" placeholder="four digits" autocomplete="off">`}
       <span class="hint">Keeps the tile's address out of this page and asks for four digits before
         opening it. ${a.locked ? "Changing it or taking it off needs the PIN you set. " : ""}It is a screen
@@ -3847,12 +3982,12 @@ function editApp(app) {
 
   let size = a.size || "m";
   openModal({
-    title: app ? "EDIT APP" : "ADD APP",
+    title: app ? "Edit app" : "Add app",
     icon: "/assets/brand/icons/ui-launcher.png",
     body: form,
-    foot: `${app ? `<button class="btn sm danger" id="lf-del" type="button">REMOVE</button>` : ""}
+    foot: `${app ? `<button class="btn sm danger" id="lf-del" type="button">Remove</button>` : ""}
            <span class="spacer"></span>
-           <button class="btn primary sm" id="lf-save" type="button">SAVE</button>`
+           <button class="btn primary sm" id="lf-save" type="button">Save</button>`
   });
 
   const repaint = () => {
@@ -3876,26 +4011,26 @@ function editApp(app) {
   // A lock anyone can flick open from the settings gear is not a lock. Both
   // taking it off and changing it are proved with the PIN itself.
   on("#lf-unlock", "click", () => askForPin({
-    title: "TAKE THE PIN OFF",
+    title: "Take the PIN off",
     lead: `Type the PIN on "${a.name}" to remove it.`,
-    action: "TAKE IT OFF",
+    action: "Take it off",
     run: pin => api(`/launcher/${encodeURIComponent(a.id)}/lock`, { method: "DELETE", body: { pin } })
   }, out => {
     LP.apps = out.apps; LP.groups = out.groups;
     closeModal(); paintLauncher();
-    toast("PIN REMOVED", "ok");
+    toast("PIN removed", "ok");
   }));
 
   on("#lf-repin", "click", () => askForPin({
-    title: "CHANGE THE PIN",
+    title: "Change the PIN",
     lead: `Type the PIN on "${a.name}", then the new one.`,
-    action: "CHANGE IT",
+    action: "Change it",
     second: "New PIN",
     run: (pin, next) => api(`/launcher/${encodeURIComponent(a.id)}/lock`, { method: "POST", body: { current: pin, pin: next } })
   }, out => {
     LP.apps = out.apps; LP.groups = out.groups;
     closeModal(); paintLauncher();
-    toast("PIN CHANGED", "ok");
+    toast("PIN changed", "ok");
   }));
 
   on("#lf-del", "click", () => { closeModal(); removeApps([a]); });
@@ -3939,7 +4074,7 @@ function editApp(app) {
     } else saveLauncher();
 
     closeModal();
-    toast(app ? "APP SAVED" : "APP ADDED", "ok");
+    toast(app ? "App saved" : "App added", "ok");
   });
 }
 
@@ -3957,12 +4092,12 @@ async function pullApps() {
   catch (e) { return toast(e.message || "could not look", "err"); }
 
   if (!out.available) {
-    return openModal({ title: "PULL ALL", icon: "/assets/brand/icons/ui-launcher.png",
+    return openModal({ title: "Pull all", icon: "/assets/brand/icons/ui-launcher.png",
       body: `<p class="hint">Docker is not available on this host, so there is nothing to read.<br>
              ${esc(out.reason || "")}</p>` });
   }
   if (!out.found.length) {
-    return openModal({ title: "PULL ALL", icon: "/assets/brand/icons/ui-launcher.png",
+    return openModal({ title: "Pull all", icon: "/assets/brand/icons/ui-launcher.png",
       body: `<p class="hint">Nothing new. Every container with a published port is already on the
              board, or has no port to link to.</p>` });
   }
@@ -3987,9 +4122,9 @@ async function pullApps() {
   wireIcons(body);
 
   openModal({
-    title: "PULL ALL", icon: "/assets/brand/icons/ui-launcher.png", body,
+    title: "Pull all", icon: "/assets/brand/icons/ui-launcher.png", body,
     foot: `<span class="hint">Nothing already on the board is changed.</span><span class="spacer"></span>
-           <button class="btn primary sm" id="lp-add" type="button">ADD TICKED</button>`
+           <button class="btn primary sm" id="lp-add" type="button">Add ticked</button>`
   });
 
   on("#lp-add", "click", () => {
@@ -4189,22 +4324,22 @@ async function saveRootPrefs() {
   const prefs = {};
   ROOTS.forEach((r, i) => { prefs[r.path] = { note: r.note || "", order: i }; });
   try { await api("/files/roots/prefs", { method: "PUT", body: { prefs } }); }
-  catch (e) { toast(e.message.toUpperCase(), "err"); }
+  catch (e) { toast(e.message, "err"); }
 }
 
 function openRootMenu(x, y, root) {
   if (!root) return;
   const body = $("#ctx-body");
   $("#ctx-icon").src = ICON("storage");
-  $("#ctx-title").textContent = root.name.slice(0, 26).toUpperCase();
+  $("#ctx-title").textContent = root.name.slice(0, 26);
   body.innerHTML = "";
   ctxItems = [];
 
   const actions = [
-    { label: root.note ? "EDIT NOTE" : "ADD NOTE", go: () => editRootNote(root) },
-    { label: "OPEN", go: () => loadFiles(root.path) }
+    { label: root.note ? "Edit note" : "Add note", go: () => editRootNote(root) },
+    { label: "Open", go: () => loadFiles(root.path) }
   ];
-  if (root.note) actions.push({ label: "CLEAR NOTE", go: () => setRootNote(root, "") });
+  if (root.note) actions.push({ label: "Clear note", go: () => setRootNote(root, "") });
   if (fileClip.paths.length) {
     actions.push({ label: `PASTE ${fileClip.paths.length} HERE`, go: () => pasteInto(root.path) });
   }
@@ -4277,7 +4412,7 @@ async function loadFiles(dir, { history = true } = {}) {
     paintNav();
 
     if (!out.entries.length) {
-      tb.innerHTML = '<tr><td colspan="4" class="empty">EMPTY FOLDER &mdash; RIGHT-CLICK TO CREATE SOMETHING</td></tr>';
+      tb.innerHTML = '<tr><td colspan="4" class="empty">Empty folder &mdash; right-click to create something</td></tr>';
       return;
     }
 
@@ -4287,7 +4422,7 @@ async function loadFiles(dir, { history = true } = {}) {
         <td class="name"><span class="fname">
           <span class="fic ${k.cls}">${esc(k.ic)}</span>
           <span class="ftxt">${esc(en.name)}${en.dir ? "/" : ""}</span>
-          ${en.symlink ? '<span class="pill idle">LINK</span>' : ""}
+          ${en.symlink ? '<span class="pill idle">Link</span>' : ""}
         </span></td>
         <td class="mono">${en.dir ? "—" : bytes(en.size)}</td>
         <td class="mono">${en.mtime ? since(en.mtime) : "—"}</td>
@@ -4299,7 +4434,7 @@ async function loadFiles(dir, { history = true } = {}) {
       : "");
     paintClip();                   // re-dim anything still on the clipboard
   } catch (e) {
-    tb.innerHTML = `<tr><td colspan="4" class="empty">${esc(e.message).toUpperCase()}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="4" class="empty">${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -4440,15 +4575,15 @@ async function transferTo(paths, dest, move) {
   try {
     await run(false);
   } catch (err) {
-    if (err.status !== 409) { toast(err.message.toUpperCase(), "err"); return false; }
+    if (err.status !== 409) { toast(err.message, "err"); return false; }
     const names = (err.clashes || []).slice(0, 6).join(", ");
     const more = (err.clashes || []).length > 6 ? `\n…and ${err.clashes.length - 6} more` : "";
     if (!confirm(`${err.message}:\n\n${names}${more}\n\nOverwrite them?`)) return false;
     try { await run(true); }
-    catch (ex) { toast(ex.message.toUpperCase(), "err"); return false; }
+    catch (ex) { toast(ex.message, "err"); return false; }
   }
   const n = paths.length;
-  toast(`${move ? "MOVED" : "COPIED"} ${n} ITEM${n === 1 ? "" : "S"}`, "ok");
+  toast(`${move ? "Moved" : "Copied"} ${n} ITEM${n === 1 ? "" : "S"}`, "ok");
   loadFiles(curDir, { history: false });
   loadRoots(true);
   return true;
@@ -4555,7 +4690,7 @@ function openFileMenu(x, y, entry) {
   $("#ctx-icon").src = ICON("files");
   $("#ctx-title").textContent = many
     ? `${fileSel.size} ITEMS`
-    : entry ? entry.name.slice(0, 26).toUpperCase() : "THIS FOLDER";
+    : entry ? entry.name.slice(0, 26) : "This folder";
   body.innerHTML = "";
   ctxItems = [];
 
@@ -4566,30 +4701,30 @@ function openFileMenu(x, y, entry) {
     actions.push({ label: `COPY ${fileSel.size}`, go: () => clipTake(false) });
     actions.push({ label: `CUT ${fileSel.size}`, go: () => clipTake(true) });
     actions.push({ label: `DELETE ${fileSel.size} ITEMS`, go: deleteFileSelection, danger: true });
-    actions.push({ label: "DOWNLOAD FILES", go: downloadFileSelection });
-    actions.push({ label: "CLEAR SELECTION", go: clearFileSelection });
+    actions.push({ label: "Download files", go: downloadFileSelection });
+    actions.push({ label: "Clear selection", go: clearFileSelection });
   } else if (entry) {
-    if (entry.dir) actions.push({ label: "OPEN", go: () => loadFiles(entry.path) });
-    if (entry.text) actions.push({ label: "EDIT", go: () => openEditor(entry.path, entry.name) });
-    if (!entry.dir) actions.push({ label: "DOWNLOAD", go: () => { location.href = "/api/files/download?path=" + encodeURIComponent(entry.path); } });
-    actions.push({ label: "COPY", go: () => clipTake(false) });
-    actions.push({ label: "CUT", go: () => clipTake(true) });
+    if (entry.dir) actions.push({ label: "Open", go: () => loadFiles(entry.path) });
+    if (entry.text) actions.push({ label: "Edit", go: () => openEditor(entry.path, entry.name) });
+    if (!entry.dir) actions.push({ label: "Download", go: () => { location.href = "/api/files/download?path=" + encodeURIComponent(entry.path); } });
+    actions.push({ label: "Copy", go: () => clipTake(false) });
+    actions.push({ label: "Cut", go: () => clipTake(true) });
     // Pasting onto a folder puts things inside it, which is what every file
     // manager does and what the pointer is implicitly aiming at.
     if (entry.dir && fileClip.paths.length) {
       actions.push({ label: `PASTE ${fileClip.paths.length} INTO`, go: () => pasteInto(entry.path) });
     }
-    actions.push({ label: "RENAME", go: () => renameEntry(entry) });
+    actions.push({ label: "Rename", go: () => renameEntry(entry) });
     actions.push({ label: "DELETE", go: () => deleteEntry(entry), danger: true });
   }
   if (fileClip.paths.length) {
     actions.push({ label: `PASTE ${fileClip.paths.length} HERE`, go: () => pasteInto(curDir) });
   }
-  actions.push({ label: "SELECT ALL", go: selectAllFiles });
-  actions.push({ label: "NEW FOLDER", go: makeFolder });
-  actions.push({ label: "REFRESH", go: () => loadFiles(curDir, { history: false }) });
-  if (curParent) actions.push({ label: "GO UP", go: () => loadFiles(curParent) });
-  if (fileHistory.length) actions.push({ label: "BACK", go: () => $("#f-back").click() });
+  actions.push({ label: "Select all", go: selectAllFiles });
+  actions.push({ label: "New folder", go: makeFolder });
+  actions.push({ label: "Refresh", go: () => loadFiles(curDir, { history: false }) });
+  if (curParent) actions.push({ label: "Go up", go: () => loadFiles(curParent) });
+  if (fileHistory.length) actions.push({ label: "Back", go: () => $("#f-back").click() });
 
   const g = document.createElement("div");
   g.className = "ctxgroup ctxstack";
@@ -4640,7 +4775,7 @@ async function deleteFileSelection() {
 
 function downloadFileSelection() {
   const files = selectedEntries().filter(e => !e.dir);
-  if (!files.length) return toast("NOTHING TO DOWNLOAD — FOLDERS ONLY", "err");
+  if (!files.length) return toast("Nothing to download — folders only", "err");
   // One navigation per file, spaced out: the browser blocks a burst of
   // simultaneous downloads, and there is no server-side zip to hand back.
   files.forEach((en, i) => setTimeout(() => {
@@ -4657,9 +4792,9 @@ async function makeFolder() {
   if (!name) return;
   try {
     await api("/files/mkdir", { method: "POST", body: { path: curDir + "/" + name } });
-    toast("FOLDER CREATED", "ok");
+    toast("Folder created", "ok");
     loadFiles(curDir);
-  } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+  } catch (ex) { toast(ex.message, "err"); }
 }
 
 async function renameEntry(entry) {
@@ -4668,9 +4803,9 @@ async function renameEntry(entry) {
   const dir = entry.path.slice(0, entry.path.length - entry.name.length);
   try {
     await api("/files/rename", { method: "POST", body: { from: entry.path, to: dir + name } });
-    toast("RENAMED", "ok");
+    toast("Renamed", "ok");
     loadFiles(curDir);
-  } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+  } catch (ex) { toast(ex.message, "err"); }
 }
 
 async function deleteEntry(entry) {
@@ -4682,23 +4817,23 @@ async function deleteEntry(entry) {
   if (!confirm(msg)) return;
   try {
     await api("/files/delete", { method: "POST", body: { path: entry.path } });
-    toast("DELETED", "ok");
+    toast("Deleted", "ok");
     loadFiles(curDir);
-  } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+  } catch (ex) { toast(ex.message, "err"); }
 }
 
 /* ---- in-browser text editor ---- */
 let editorState = null;
 
 async function openEditor(path, name) {
-  openModal({ title: name.toUpperCase(), icon: ICON("files"), body: "<p>Loading…</p>" });
+  openModal({ title: name, icon: ICON("files"), body: "<p>Loading…</p>" });
   let file;
   try {
     file = await api("/files/read?path=" + encodeURIComponent(path));
   } catch (e) {
     const b = document.createElement("div");
     b.innerHTML = `<div class="warnbox err">${esc(e.message)}</div>`;
-    openModal({ title: name.toUpperCase(), icon: ICON("files"), body: b });
+    openModal({ title: name, icon: ICON("files"), body: b });
     return;
   }
 
@@ -4717,10 +4852,10 @@ async function openEditor(path, name) {
   const foot = document.createElement("div");
   foot.innerHTML = `<span class="hint" id="ed-hint">Ctrl+S saves</span>
                     <span class="spacer"></span>
-                    <button class="btn" id="ed-cancel">CANCEL</button>
-                    <button class="btn primary" id="ed-save">SAVE</button>`;
+                    <button class="btn" id="ed-cancel">Cancel</button>
+                    <button class="btn primary" id="ed-save">Save</button>`;
 
-  openModal({ title: name.toUpperCase(), icon: ICON("files"), body, foot });
+  openModal({ title: name, icon: ICON("files"), body, foot });
 
   const area = $("#ed-area");
   area.addEventListener("input", () => {
@@ -4755,17 +4890,17 @@ async function saveEditor() {
     $("#ed-stat").textContent = bytes(out.size);
     $("#ed-hint").textContent = "saved";
     $("#ed-hint").style.color = "var(--ok)";
-    toast("SAVED", "ok");
+    toast("Saved", "ok");
     loadFiles(curDir);
   } catch (e) {
-    toast(e.message.toUpperCase(), "err");
+    toast(e.message, "err");
     $("#ed-hint").textContent = e.message;
     $("#ed-hint").style.color = "var(--crit)";
   } finally { btn.disabled = false; }
 }
 
 on("#f-up", "click", () => {
-  if (curParent) loadFiles(curParent); else toast("ALREADY AT A ROOT", "err");
+  if (curParent) loadFiles(curParent); else toast("Already at a root", "err");
 });
 on("#f-mkdir", "click", makeFolder);
 
@@ -4773,12 +4908,12 @@ on("#f-mkdir", "click", makeFolder);
 
 function clipTake(move) {
   const chosen = selectedEntries();
-  if (!chosen.length) return toast("NOTHING SELECTED", "err");
+  if (!chosen.length) return toast("Nothing selected", "err");
   fileClip.paths = chosen.map(e => e.path);
   fileClip.move = move;
   fileClip.from = curDir;
   paintClip();
-  toast(`${chosen.length} ITEM${chosen.length === 1 ? "" : "S"} ${move ? "CUT" : "COPIED"}`, "ok");
+  toast(`${chosen.length} ITEM${chosen.length === 1 ? "" : "S"} ${move ? "Cut" : "Copied"}`, "ok");
 }
 
 function clipClear() {
@@ -4803,7 +4938,7 @@ function paintClip() {
     bar.hidden = !n;
     const t = $("#f-clipinfo");
     if (t && n) {
-      t.textContent = `${n} ITEM${n === 1 ? "" : "S"} ${fileClip.move ? "CUT" : "COPIED"} FROM ${fileClip.from}`;
+      t.textContent = `${n} ITEM${n === 1 ? "" : "S"} ${fileClip.move ? "Cut" : "Copied"} FROM ${fileClip.from}`;
     }
   }
   // Cut items are dimmed in place until the paste lands, so it is obvious what
@@ -4822,7 +4957,7 @@ function paintClip() {
 async function pasteInto(destDir) {
   if (!fileClip.paths.length) return;
   const dest = destDir || curDir;
-  if (!dest) return toast("OPEN A FOLDER FIRST", "err");
+  if (!dest) return toast("Open a folder first", "err");
 
   const ok = await transferTo(fileClip.paths, dest, fileClip.move);
   if (!ok) return;
@@ -4834,12 +4969,12 @@ async function pasteInto(destDir) {
 on("#f-copy", "click", () => clipTake(false));
 on("#f-cut", "click", () => clipTake(true));
 on("#f-paste", "click", () => pasteInto(curDir));
-on("#f-clipcancel", "click", () => { clipClear(); toast("CLIPBOARD CLEARED"); });
+on("#f-clipcancel", "click", () => { clipClear(); toast("Clipboard cleared"); });
 
 /* ---- going back ---- */
 on("#f-back", "click", () => {
   const prev = fileHistory.pop();
-  if (!prev) return toast("NOTHING TO GO BACK TO", "err");
+  if (!prev) return toast("Nothing to go back to", "err");
   loadFiles(prev, { history: false });
 });
 
@@ -4954,12 +5089,12 @@ function upShow(on) {
 }
 
 async function startUpload(items, targetDir) {
-  if (UP.running) return toast("AN UPLOAD IS ALREADY RUNNING", "err");
+  if (UP.running) return toast("An upload is already running", "err");
   items = items.filter(i => i.file && safeRel(i.rel));
   if (!items.length) return;
 
   const dir = targetDir || curDir;
-  if (!dir) return toast("OPEN A FOLDER FIRST", "err");
+  if (!dir) return toast("Open a folder first", "err");
 
   const planned = items.map(i => ({ ...i, rel: safeRel(i.rel), dest: joinPath(dir, safeRel(i.rel)) }));
 
@@ -4983,7 +5118,7 @@ async function startUpload(items, targetDir) {
   } catch { /* the precheck is a courtesy; a clash still 409s below */ }
 
   const queue = planned.filter(p => !p.skip);
-  if (!queue.length) { toast("NOTHING TO UPLOAD — EVERYTHING WAS SKIPPED", "err"); return; }
+  if (!queue.length) { toast("Nothing to upload — everything was skipped", "err"); return; }
 
   // Directories first, so a file never races the folder it belongs in.
   const dirs = [...new Set(queue.map(p => p.rel).filter(r => r.includes("/"))
@@ -4993,7 +5128,7 @@ async function startUpload(items, targetDir) {
   upShow(true);
   const cancelBtn = $("#up-cancel");
   if (cancelBtn) cancelBtn.hidden = false;
-  upPaint(0, "", "preparing…", "UPLOADING");
+  upPaint(0, "", "preparing…", "Uploading");
 
   const totalBytes = queue.reduce((n, p) => n + (p.file.size || 0), 0);
   let doneBytes = 0, doneCount = 0, failed = 0;
@@ -5031,15 +5166,15 @@ async function startUpload(items, targetDir) {
 
     if (UP.cancelled) {
       if (el) el.className = "err";
-      upPaint(totalBytes ? (doneBytes / totalBytes) * 100 : 0, "", `cancelled after ${doneCount} file${doneCount === 1 ? "" : "s"}`, "CANCELLED");
-      toast("UPLOAD CANCELLED", "err");
+      upPaint(totalBytes ? (doneBytes / totalBytes) * 100 : 0, "", `cancelled after ${doneCount} file${doneCount === 1 ? "" : "s"}`, "Cancelled");
+      toast("Upload cancelled", "err");
     } else if (failed) {
       if (el) el.className = "err";
-      upPaint(100, "", `${doneCount - failed} uploaded, ${failed} failed`, "FINISHED WITH ERRORS");
+      upPaint(100, "", `${doneCount - failed} uploaded, ${failed} failed`, "Finished with errors");
       toast(`${failed} FILE${failed === 1 ? "" : "S"} FAILED`, "err");
     } else {
       if (el) el.className = "ok";
-      upPaint(100, "", `${doneCount} file${doneCount === 1 ? "" : "s"} · ${bytes(doneBytes)}`, "DONE");
+      upPaint(100, "", `${doneCount} file${doneCount === 1 ? "" : "s"} · ${bytes(doneBytes)}`, "Done");
       toast(`UPLOADED ${doneCount} FILE${doneCount === 1 ? "" : "S"}`, "ok");
     }
 
@@ -5111,7 +5246,7 @@ on("#f-dir-input", "change", e => {
     hide();
     const dropDir = curDir;                 // pin it: the listing may refresh mid-walk
     const items = await collectDrop(e.dataTransfer);
-    if (!items.length) return toast("NOTHING USABLE IN THAT DROP", "err");
+    if (!items.length) return toast("Nothing usable in that drop", "err");
     startUpload(items, dropDir);
   });
 
@@ -5158,7 +5293,7 @@ function termTheme() {
 
 function ensureTerm() {
   if (term) return term;
-  if (typeof Terminal === "undefined") { toast("TERMINAL LIBRARY FAILED TO LOAD", "err"); return null; }
+  if (typeof Terminal === "undefined") { toast("Terminal library failed to load", "err"); return null; }
 
   term = new Terminal({
     fontFamily: '"IBM Plex Mono", ui-monospace, Consolas, monospace',
@@ -5256,33 +5391,22 @@ addEventListener("resize", () => { if (term && $("#page-term").classList.contain
 async function loadSettings() {
   paintAppearance();
   renderAgentSettings();
-  const crtBtn = $("#crt-toggle");
-  if (crtBtn && !crtBtn.dataset.wired) {
-    crtBtn.dataset.wired = "1";
-    const paint = () => {
-      crtBtn.setAttribute("aria-pressed", String(document.documentElement.getAttribute("data-crt") === "on"));
-      crtBtn.textContent = "CRT SCANLINES: " +
-        (document.documentElement.getAttribute("data-crt") === "on" ? "ON" : "OFF");
-    };
-    paint();
-    crtBtn.addEventListener("click", () => { toggleCRT(); paint(); });
-  }
 
   const i = LIVE.info || (LIVE.info = await api("/system/info").catch(() => null));
   if (!i) return;
   $("#s-system").innerHTML = [
-    ["HOSTNAME", i.host?.hostname], ["OS", i.host?.distro], ["KERNEL", i.host?.kernel],
-    ["ARCH", i.host?.arch], ["CPU", i.cpu?.model], ["CORES", i.cpu?.cores],
-    ["DATA DIR", i.config?.dataDir], ["CONFIG", i.config?.loadedFrom || "defaults"],
-    ["NEXUS", i.version ? "v" + i.version : null]
+    ["Hostname", i.host?.hostname], ["OS", i.host?.distro], ["Kernel", i.host?.kernel],
+    ["Arch", i.host?.arch], ["CPU", i.cpu?.model], ["Cores", i.cpu?.cores],
+    ["Data dir", i.config?.dataDir], ["Config", i.config?.loadedFrom || "defaults"],
+    ["Nexus", i.version ? "v" + i.version : null]
   ].filter(x => x[1] != null).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
 
   $("#s-services").innerHTML = [
-    ["DOCKER", i.docker?.available ? "connected" : "unavailable — " + (i.docker?.reason || "")],
-    ["TERMINAL", i.terminal?.enabled ? "enabled (" + i.terminal.shell + ")" : "disabled"],
-    ["SESSIONS", String(i.terminal?.active ?? 0)],
-    ["FILE ROOTS", (i.fileRoots || []).map(r => r.path).join(", ") || "none"],
-    ["SENSORS", i.simulated ? "simulated (non-Linux host)" : "reading /sys"]
+    ["Docker", i.docker?.available ? "connected" : "unavailable — " + (i.docker?.reason || "")],
+    ["Terminal", i.terminal?.enabled ? "enabled (" + i.terminal.shell + ")" : "disabled"],
+    ["Sessions", String(i.terminal?.active ?? 0)],
+    ["File roots", (i.fileRoots || []).map(r => r.path).join(", ") || "none"],
+    ["Sensors", i.simulated ? "simulated (non-Linux host)" : "reading /sys"]
   ].map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
 
   try {
@@ -5290,11 +5414,11 @@ async function loadSettings() {
     $("#s-smart").innerHTML = sm.length
       ? `<div class="tw"><table><thead><tr><th>Device</th><th>Model</th><th>Health</th><th>Temp</th><th>Hours</th></tr></thead><tbody>` +
         sm.map(d => `<tr><td class="mono">${esc(d.device)}</td><td>${esc(d.model || "—")}</td>
-          <td>${d.error ? `<span class="pill idle">${esc(d.error)}</span>` : `<span class="pill ${d.passed ? "ok" : "crit"}"><i class="dot"></i>${d.passed ? "PASSED" : "FAILED"}</span>`}</td>
+          <td>${d.error ? `<span class="pill idle">${esc(d.error)}</span>` : `<span class="pill ${d.passed ? "ok" : "crit"}"><i class="dot"></i>${d.passed ? "Passed" : "Failed"}</span>`}</td>
           <td class="mono">${d.temperature != null ? d.temperature + "°C" : "—"}</td>
           <td class="mono">${d.powerOnHours ?? "—"}</td></tr>`).join("") + "</tbody></table></div>"
       : `<div class="empty">NO SMART DATA — needs smartmontools on Linux</div>`;
-  } catch { $("#s-smart").innerHTML = `<div class="empty">SMART UNAVAILABLE</div>`; }
+  } catch { $("#s-smart").innerHTML = `<div class="empty">SMART unavailable</div>`; }
 
   try {
     const a = await api("/audit?limit=40");
@@ -5302,7 +5426,7 @@ async function loadSettings() {
       <td class="mono">${esc(new Date(e.ts).toLocaleString())}</td>
       <td class="name">${esc(e.action)}</td><td>${esc(e.user || "—")}</td>
       <td class="mono">${esc(e.detail ? JSON.stringify(e.detail) : "—")}</td></tr>`).join("")
-      || `<tr><td colspan="4" class="empty">NO ACTIVITY YET</td></tr>`;
+      || `<tr><td colspan="4" class="empty">No activity yet</td></tr>`;
   } catch {}
 }
 
@@ -5354,7 +5478,7 @@ async function loadStoreStatus() {
     else if (!ST.status.compose.available) bits.push(`<div class="warnbox err"><b>docker compose not found</b> — install the Compose plugin to enable app installs.</div>`);
     const unsynced = ST.status.libraries.filter(l => !l.lastSyncAt);
     if (unsynced.length && !(db_catalogCount())) {
-      bits.push(`<div class="warnbox"><b>The catalogue is empty.</b> Sync a library to populate it — the CasaOS store is already added, it just needs its first sync (a one-off clone of a few hundred MB). <button class="btn sm" id="st-sync-now">SYNC NOW</button></div>`);
+      bits.push(`<div class="warnbox"><b>The catalogue is empty.</b> Sync a library to populate it — the CasaOS store is already added, it just needs its first sync (a one-off clone of a few hundred MB). <button class="btn sm" id="st-sync-now">Sync now</button></div>`);
     }
     warn.innerHTML = bits.join("");
     const b = $("#st-sync-now");
@@ -5367,7 +5491,7 @@ const db_catalogCount = () => _catalogCount;
 async function loadStore(reset = true) {
   if (ST.loading) return;
   ST.loading = true;
-  if (reset) { ST.offset = 0; $("#st-grid").innerHTML = '<div class="empty">LOADING…</div>'; }
+  if (reset) { ST.offset = 0; $("#st-grid").innerHTML = '<div class="empty">Loading…</div>'; }
   try {
     const out = await api(`/store/apps?q=${encodeURIComponent(ST.q)}&category=${encodeURIComponent(ST.category)}&limit=${ST.limit}&offset=${ST.offset}`);
     ST.total = out.total;
@@ -5380,14 +5504,14 @@ async function loadStore(reset = true) {
 
     if (reset) $("#st-grid").innerHTML = "";
     if (!out.apps.length && reset) {
-      $("#st-grid").innerHTML = `<div class="empty">${ST.q ? "NO MATCHES" : "CATALOGUE EMPTY — SYNC A LIBRARY"}</div>`;
+      $("#st-grid").innerHTML = `<div class="empty">${ST.q ? "No matches" : "Catalogue empty — sync a library"}</div>`;
     }
     for (const a of out.apps) $("#st-grid").appendChild(appCard(a));
 
     $("#st-count").textContent = out.total ? `${out.total} app${out.total === 1 ? "" : "s"}` : "";
     $("#st-more").hidden = ST.offset + ST.limit >= out.total;
   } catch (e) {
-    $("#st-grid").innerHTML = `<div class="empty">${esc(e.message).toUpperCase()}</div>`;
+    $("#st-grid").innerHTML = `<div class="empty">${esc(e.message)}</div>`;
   } finally { ST.loading = false; }
 }
 
@@ -5405,15 +5529,15 @@ function appCard(a) {
       </span>
     </div>
     <div class="meta">
-      <span class="pill idle">${esc(a.category || "APP")}</span>
-      ${installed ? '<span class="pill ok"><i class="dot"></i>INSTALLED</span>' : ""}
+      <span class="pill idle">${esc(a.category || "App")}</span>
+      ${installed ? '<span class="pill ok"><i class="dot"></i>Installed</span>' : ""}
     </div>`;
   el.addEventListener("click", () => openAppDetail(a));
   return el;
 }
 
 async function openAppDetail(a) {
-  openModal({ title: a.name.toUpperCase(), icon: a.icon || undefined, body: `<p>Loading…</p>` });
+  openModal({ title: a.name, icon: a.icon || undefined, body: `<p>Loading…</p>` });
   let full = a;
   try { full = await api(`/store/apps/${encodeURIComponent(a.libraryId)}/${encodeURIComponent(a.slug)}`); } catch {}
 
@@ -5433,15 +5557,15 @@ async function openAppDetail(a) {
         <span class="t">${esc(full.name)}</span>
         <p>${esc(full.tagline || "")}</p>
         <div class="meta" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
-          <span class="pill idle">${esc(full.category || "APP")}</span>
+          <span class="pill idle">${esc(full.category || "App")}</span>
           ${full.developer ? `<span class="pill idle">${esc(full.developer)}</span>` : ""}
           ${full.image ? `<span class="pill idle">${esc(String(full.image).split(":")[0])}</span>` : ""}
         </div>
       </div>
     </div>
-    ${full.description ? `<div><h3>ABOUT</h3><p>${esc(full.description).slice(0, 1200)}</p></div>` : ""}
-    ${params.length ? `<div><h3>SETTINGS</h3><div id="ap-params" style="display:flex;flex-direction:column;gap:12px"></div></div>` : ""}
-    ${full.compose ? `<div><h3>COMPOSE</h3><div class="joblog"><pre>${esc(full.compose.slice(0, 4000))}</pre></div></div>` : ""}
+    ${full.description ? `<div><h3>About</h3><p>${esc(full.description).slice(0, 1200)}</p></div>` : ""}
+    ${params.length ? `<div><h3>Settings</h3><div id="ap-params" style="display:flex;flex-direction:column;gap:12px"></div></div>` : ""}
+    ${full.compose ? `<div><h3>Compose</h3><div class="joblog"><pre>${esc(full.compose.slice(0, 4000))}</pre></div></div>` : ""}
   `;
 
   if (params.length) {
@@ -5459,10 +5583,10 @@ async function openAppDetail(a) {
   const foot = document.createElement("div");
   foot.style.cssText = "display:flex;gap:8px;flex-wrap:wrap";
   foot.innerHTML = installed
-    ? `<button class="btn danger" id="ap-remove">UNINSTALL</button>`
-    : `<button class="btn" id="ap-cancel">CANCEL</button><button class="btn primary" id="ap-install">INSTALL</button>`;
+    ? `<button class="btn danger" id="ap-remove">Uninstall</button>`
+    : `<button class="btn" id="ap-cancel">Cancel</button><button class="btn primary" id="ap-install">Install</button>`;
 
-  openModal({ title: full.name.toUpperCase(), icon: full.icon || undefined, body, foot });
+  openModal({ title: full.name, icon: full.icon || undefined, body, foot });
 
   $("#ap-cancel")?.addEventListener("click", closeModal);
   $("#ap-install")?.addEventListener("click", () => {
@@ -5526,7 +5650,7 @@ function setJobProgress(pct, phase, state) {
 const activeJobs = new Map();
 
 async function doInstall(opts, force = false) {
-  const pre = jobModal(`INSTALLING ${opts.name.toUpperCase()}`);
+  const pre = jobModal(`Installing ${opts.name}`);
   const write = (t, cls) => {
     const s = document.createElement("span");
     if (cls) s.className = cls;
@@ -5550,7 +5674,7 @@ async function doInstall(opts, force = false) {
       write(e.message, "errl");
       const btn = document.createElement("button");
       btn.className = "btn";
-      btn.textContent = "INSTALL ANYWAY";
+      btn.textContent = "Install anyway";
       btn.addEventListener("click", () => doInstall(opts, true));
       $("#mw-foot").prepend(btn);
     } else {
@@ -5562,7 +5686,7 @@ async function doInstall(opts, force = false) {
 async function doUninstall(slug, name) {
   const keep = confirm(`Remove ${name}?\n\nOK = remove containers, keep data volumes.\nCancel = abort.`);
   if (!keep) return;
-  const pre = jobModal(`REMOVING ${name.toUpperCase()}`);
+  const pre = jobModal(`Removing ${name}`);
   const write = (t, cls) => {
     const s = document.createElement("span");
     if (cls) s.className = cls;
@@ -5596,7 +5720,7 @@ function connectEvents() {
                        d.status === "success" ? "done" : "failed",
                        d.status === "success" ? "ok" : "err");
         refreshInstalled();
-        if (d.status === "success") toast("DONE", "ok"); else toast("FAILED", "err");
+        if (d.status === "success") toast("Done", "ok"); else toast("Failed", "err");
       }
     }
   };
@@ -5610,13 +5734,13 @@ async function refreshInstalled() {
 
 /* ---- libraries ---- */
 async function syncLibrary(id) {
-  toast("SYNCING — THIS MAY TAKE A MINUTE");
+  toast("Syncing — this may take a minute");
   try {
     const out = await api(`/store/libraries/${encodeURIComponent(id)}/sync`, { method: "POST" });
     toast(`INDEXED ${out.apps} APPS`, "ok");
     await loadStoreStatus();
     loadStore(true);
-  } catch (e) { toast(e.message.toUpperCase(), "err"); }
+  } catch (e) { toast(e.message, "err"); }
 }
 
 async function openLibraries() {
@@ -5631,18 +5755,18 @@ async function openLibraries() {
     <div id="lib-list" style="display:flex;flex-direction:column;gap:8px"></div>
     <div id="lib-sug-wrap"></div>
     <div class="field">
-      <label for="lib-url">OR ADD ANY GIT URL</label>
+      <label for="lib-url">Or add any git URL</label>
       <input id="lib-url" type="text" placeholder="https://github.com/owner/repo.git" spellcheck="false">
     </div>`;
 
   const sugWrap = body.querySelector("#lib-sug-wrap");
   const notAdded = sug.filter(s => !s.added);
   if (notAdded.length) {
-    sugWrap.innerHTML = `<h3 style="margin:0 0 8px">SUGGESTED</h3><div class="libsug">` +
+    sugWrap.innerHTML = `<h3 style="margin:0 0 8px">Suggested</h3><div class="libsug">` +
       notAdded.map(s => `<div class="s">
         <span class="sn">${esc(s.name)}</span>
         <span class="pill idle">${esc(String(s.format).toUpperCase())}</span>
-        <button class="btn sm" data-add="${esc(s.url)}" data-nm="${esc(s.name)}">ADD</button>
+        <button class="btn sm" data-add="${esc(s.url)}" data-nm="${esc(s.name)}">Add</button>
         <span class="sd">${esc(s.description)}</span>
       </div>`).join("") + `</div>`;
     sugWrap.addEventListener("click", async e => {
@@ -5651,9 +5775,9 @@ async function openLibraries() {
       b.disabled = true;
       try {
         await api("/store/libraries", { method: "POST", body: { url: b.dataset.add, name: b.dataset.nm } });
-        toast("ADDED — NOW SYNC IT", "ok");
+        toast("Added — now sync it", "ok");
         openLibraries();
-      } catch (ex) { toast(ex.message.toUpperCase(), "err"); b.disabled = false; }
+      } catch (ex) { toast(ex.message, "err"); b.disabled = false; }
     });
   }
   const list = body.querySelector("#lib-list");
@@ -5663,24 +5787,24 @@ async function openLibraries() {
     row.innerHTML = `
       <span class="ln">${esc(l.name)}</span>
       <span class="pill idle">${esc(l.format.toUpperCase())}</span>
-      <span class="pill ${l.lastSyncAt ? "ok" : "warn"}">${l.lastSyncAt ? l.appCount + " APPS" : "NOT SYNCED"}</span>
-      <button class="btn sm" data-sync="${esc(l.id)}">SYNC</button>
-      <button class="btn sm danger" data-del="${esc(l.id)}">REMOVE</button>
+      <span class="pill ${l.lastSyncAt ? "ok" : "warn"}">${l.lastSyncAt ? l.appCount + " APPS" : "Not synced"}</span>
+      <button class="btn sm" data-sync="${esc(l.id)}">Sync</button>
+      <button class="btn sm danger" data-del="${esc(l.id)}">Remove</button>
       <span class="lu">${esc(l.url)}</span>
       ${l.lastSyncError ? `<span class="lu" style="color:var(--crit)">${esc(l.lastSyncError)}</span>` : ""}`;
     list.appendChild(row);
   });
 
   const foot = document.createElement("div");
-  foot.innerHTML = `<button class="btn" id="lib-cancel">CANCEL</button><button class="btn primary" id="lib-add">ADD LIBRARY</button>`;
-  openModal({ title: "APP LIBRARIES", body, foot });
+  foot.innerHTML = `<button class="btn" id="lib-cancel">Cancel</button><button class="btn primary" id="lib-add">Add library</button>`;
+  openModal({ title: "App libraries", body, foot });
 
   on("#lib-cancel", "click", closeModal);
   on("#lib-add", "click", async () => {
     const url = $("#lib-url").value.trim();
     if (!url) return;
-    try { await api("/store/libraries", { method: "POST", body: { url } }); toast("ADDED — NOW SYNC IT", "ok"); openLibraries(); }
-    catch (e) { toast(e.message.toUpperCase(), "err"); }
+    try { await api("/store/libraries", { method: "POST", body: { url } }); toast("Added — now sync it", "ok"); openLibraries(); }
+    catch (e) { toast(e.message, "err"); }
   });
   list.addEventListener("click", async e => {
     const s = e.target.closest("[data-sync]"), d = e.target.closest("[data-del]");
@@ -5688,7 +5812,7 @@ async function openLibraries() {
     if (d) {
       if (!confirm("Remove this library and its indexed apps?")) return;
       try { await api(`/store/libraries/${encodeURIComponent(d.dataset.del)}`, { method: "DELETE" }); openLibraries(); loadStore(true); }
-      catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+      catch (ex) { toast(ex.message, "err"); }
     }
   });
 }
@@ -5699,23 +5823,23 @@ function openGitHubInstall() {
   body.style.cssText = "display:flex;flex-direction:column;gap:16px";
   body.innerHTML = `
     <div class="field">
-      <label for="gh-url">GITHUB REPO OR COMPOSE URL</label>
+      <label for="gh-url">GitHub repo or compose URL</label>
       <input id="gh-url" type="text" spellcheck="false"
              placeholder="https://github.com/owner/repo">
       <span class="fh">A repo with docker-compose.yml at its root, a /blob/ link to one, or a raw .yml URL.</span>
     </div>
     <div class="field">
-      <label for="gh-name">APP NAME (OPTIONAL)</label>
+      <label for="gh-name">App name (optional)</label>
       <input id="gh-name" type="text" spellcheck="false" placeholder="derived from the repo name">
     </div>
     <div class="field">
-      <label for="gh-compose">…OR PASTE A COMPOSE FILE DIRECTLY</label>
+      <label for="gh-compose">…Or paste a compose file directly</label>
       <textarea id="gh-compose" spellcheck="false" placeholder="services:&#10;  app:&#10;    image: nginx&#10;    ports: [&quot;8081:80&quot;]"></textarea>
     </div>
     <div class="warnbox"><b>This runs third-party containers as root.</b> Only install from sources you trust.</div>`;
   const foot = document.createElement("div");
-  foot.innerHTML = `<button class="btn" id="gh-cancel">CANCEL</button><button class="btn primary" id="gh-go">INSTALL</button>`;
-  openModal({ title: "INSTALL FROM GITHUB", body, foot });
+  foot.innerHTML = `<button class="btn" id="gh-cancel">Cancel</button><button class="btn primary" id="gh-go">Install</button>`;
+  openModal({ title: "Install from GitHub", body, foot });
 
   on("#gh-cancel", "click", closeModal);
   on("#gh-go", "click", () => {
@@ -5723,7 +5847,7 @@ function openGitHubInstall() {
     const name = $("#gh-name").value.trim();
     const composeText = $("#gh-compose").value.trim();
     if (composeText) return doInstall({ composeText, name: name || "custom-app" });
-    if (!url) return toast("ENTER A URL OR PASTE A COMPOSE FILE", "err");
+    if (!url) return toast("Enter a URL or paste a compose file", "err");
     doInstall({ url, name: name || url.split("/").filter(Boolean).slice(-1)[0] });
   });
 }
@@ -5733,19 +5857,19 @@ async function openInstalled() {
   await refreshInstalled();
   const body = document.createElement("div");
   if (!LIVE.installed.length) {
-    body.innerHTML = `<div class="empty">NOTHING INSTALLED THROUGH NEXUS YET</div>`;
+    body.innerHTML = `<div class="empty">Nothing installed through Nexus yet</div>`;
   } else {
     body.innerHTML = `<div class="tw"><table><thead><tr><th>App</th><th>Ports</th><th>Source</th><th></th></tr></thead>
       <tbody>${LIVE.installed.map(a => `<tr>
         <td class="name">${esc(a.name)}</td>
         <td class="mono">${(a.ports || []).join(", ") || "—"}</td>
         <td class="mono">${esc(a.libraryId || a.source || "manual").slice(0, 40)}</td>
-        <td><button class="btn sm danger" data-rm="${esc(a.slug)}" data-nm="${esc(a.name)}">REMOVE</button></td>
+        <td><button class="btn sm danger" data-rm="${esc(a.slug)}" data-nm="${esc(a.name)}">Remove</button></td>
       </tr>`).join("")}</tbody></table></div>`;
   }
   const foot = document.createElement("div");
   foot.innerHTML = "";
-  openModal({ title: "INSTALLED APPS", body, foot });
+  openModal({ title: "Installed apps", body, foot });
   body.addEventListener("click", e => {
     const b = e.target.closest("[data-rm]");
     if (b) doUninstall(b.dataset.rm, b.dataset.nm);
@@ -5790,7 +5914,7 @@ async function loadControl() {
   try {
     CP.conf = await api("/automation");
   } catch (e) {
-    $("#cp-rules").innerHTML = `<div class="empty">${esc(e.message).toUpperCase()}</div>`;
+    $("#cp-rules").innerHTML = `<div class="empty">${esc(e.message)}</div>`;
     return;
   }
   await loadAlerts();
@@ -5804,13 +5928,14 @@ async function loadControl() {
 async function loadAlerts() {
   try { CP.alerts = await api("/automation/alerts?limit=60"); } catch { CP.alerts = []; }
   renderAlerts();
+  paintAlertBadge();
 }
 
 function renderAlerts() {
   const box = $("#cp-alerts");
   if (!box) return;
   if (!CP.alerts.length) {
-    box.innerHTML = `<div class="empty">NOTHING HAS TRIPPED YET — THAT IS THE GOOD OUTCOME</div>`;
+    box.innerHTML = `<div class="empty">Nothing has tripped yet — that is the good outcome</div>`;
     return;
   }
   box.innerHTML = `<div class="alertlist">` + CP.alerts.map(a => `
@@ -5847,7 +5972,7 @@ function renderRules() {
   const box = $("#cp-rules");
   const rules = CP.conf.rules || [];
   if (!rules.length) {
-    box.innerHTML = `<div class="empty">NO RULES — PRESS &ldquo;+ NEW RULE&rdquo;</div>`;
+    box.innerHTML = `<div class="empty">No rules — press &ldquo;+ new rule&rdquo;</div>`;
     return;
   }
   box.innerHTML = `<div class="rulelist">` + rules.map(r => `
@@ -5860,7 +5985,7 @@ function renderRules() {
         <span class="rd dim">Then stays quiet for ${esc(fmtSecs(r.cooldownSec))}</span>
       </span>
       <span class="pill ${r.severity === "crit" ? "crit" : r.severity === "warn" ? "warn" : "idle"}">${esc(String(r.severity).toUpperCase())}</span>
-      <button class="btn sm" data-edit="${esc(r.id)}">EDIT</button>
+      <button class="btn sm" data-edit="${esc(r.id)}">Edit</button>
       <button class="btn sm danger" data-del="${esc(r.id)}">DELETE</button>
     </div>`).join("") + `</div>`;
 }
@@ -5871,14 +5996,14 @@ on("#cp-rules", "click", async e => {
     const r = CP.conf.rules.find(x => x.id === t.dataset.toggle);
     if (!r) return;
     try { await api("/automation/rules", { method: "PUT", body: { ...r, enabled: !r.enabled } }); await loadControl(); }
-    catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+    catch (ex) { toast(ex.message, "err"); }
   }
   if (ed) openRuleEditor(CP.conf.rules.find(x => x.id === ed.dataset.edit));
   if (del) {
     const r = CP.conf.rules.find(x => x.id === del.dataset.del);
     if (!r || !confirm(`Delete the rule "${r.name}"?`)) return;
-    try { await api(`/automation/rules/${encodeURIComponent(r.id)}`, { method: "DELETE" }); await loadControl(); toast("RULE DELETED", "ok"); }
-    catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+    try { await api(`/automation/rules/${encodeURIComponent(r.id)}`, { method: "DELETE" }); await loadControl(); toast("Rule deleted", "ok"); }
+    catch (ex) { toast(ex.message, "err"); }
   }
 });
 
@@ -5910,46 +6035,46 @@ function openRuleEditor(rule) {
   body.className = "cpform";
   body.innerHTML = `
     <div class="field">
-      <label for="ru-name">NAME</label>
+      <label for="ru-name">Name</label>
       <input id="ru-name" type="text" value="${esc(r.name)}" placeholder="CPU temperature high">
     </div>
 
-    <h3>WHEN</h3>
+    <h3>When</h3>
     <div class="frow">
-      <div class="field"><label for="ru-src">WATCH</label>
+      <div class="field"><label for="ru-src">Watch</label>
         ${selectHTML("ru-src", sources.map(s => ({ value: s.key, label: s.label })), r.source)}</div>
-      <div class="field" id="ru-target-wrap"><label for="ru-target">WHICH ONE</label><span id="ru-target-slot"></span></div>
+      <div class="field" id="ru-target-wrap"><label for="ru-target">Which one</label><span id="ru-target-slot"></span></div>
     </div>
     <div class="frow" id="ru-threshold">
-      <div class="field"><label for="ru-op">GOES</label>
+      <div class="field"><label for="ru-op">Goes</label>
         ${selectHTML("ru-op", [{ value: "above", label: "Above" }, { value: "below", label: "Below" }], r.op)}</div>
-      <div class="field"><label for="ru-val">THRESHOLD</label>
+      <div class="field"><label for="ru-val">Threshold</label>
         <input id="ru-val" type="number" step="0.1" value="${esc(r.value)}"></div>
     </div>
     <div class="frow">
-      <div class="field"><label for="ru-for">SUSTAINED FOR (SECONDS)</label>
+      <div class="field"><label for="ru-for">Sustained for (seconds)</label>
         <input id="ru-for" type="number" min="0" step="10" value="${esc(r.forSec)}">
         <span class="fh">Stops a one-second spike during a backup from paging you.</span></div>
-      <div class="field"><label for="ru-cool">THEN STAY QUIET FOR (SECONDS)</label>
+      <div class="field"><label for="ru-cool">Then stay quiet for (seconds)</label>
         <input id="ru-cool" type="number" min="60" step="60" value="${esc(r.cooldownSec)}">
         <span class="fh">Without this, a disk at 91% alerts on every tick, forever.</span></div>
     </div>
 
-    <h3>THEN</h3>
-    <div class="field"><label>DO</label>
+    <h3>Then</h3>
+    <div class="field"><label>Do</label>
       <div class="checkrow" id="ru-actions"></div>
     </div>
     <div class="field" id="ru-actarget-wrap" hidden>
-      <label for="ru-actarget">ON WHICH CONTAINER</label>
+      <label for="ru-actarget">On which container</label>
       ${selectHTML("ru-actarget", containers.length ? containers : [{ value: "", label: "no containers visible" }], r.actionTarget || "")}
     </div>
-    <div class="field"><label for="ru-sev">SEVERITY</label>
+    <div class="field"><label for="ru-sev">Severity</label>
       ${selectHTML("ru-sev", [{ value: "info", label: "Info" }, { value: "warn", label: "Warning" }, { value: "crit", label: "Critical" }], r.severity)}</div>
     <div class="warnbox" id="ru-danger" hidden></div>`;
 
   const foot = document.createElement("div");
-  foot.innerHTML = `<button class="btn" id="ru-cancel">CANCEL</button><button class="btn primary" id="ru-save">${isNew ? "CREATE RULE" : "SAVE"}</button>`;
-  openModal({ title: isNew ? "NEW RULE" : "EDIT RULE", icon: ICON("warning"), body, foot });
+  foot.innerHTML = `<button class="btn" id="ru-cancel">Cancel</button><button class="btn primary" id="ru-save">${isNew ? "Create rule" : "Save"}</button>`;
+  openModal({ title: isNew ? "New rule" : "Edit rule", icon: ICON("warning"), body, foot });
 
   /* --- reactive bits --- */
   const paintTarget = () => {
@@ -6012,12 +6137,12 @@ function openRuleEditor(rule) {
       actions: r.actions,
       actionTarget: $("#ru-actarget-wrap").hidden ? null : $("#ru-actarget").value
     };
-    if (!payload.actions?.length) return toast("PICK AT LEAST ONE ACTION", "err");
+    if (!payload.actions?.length) return toast("Pick at least one action", "err");
     try {
       await api("/automation/rules", { method: "PUT", body: payload });
       closeModal(); await loadControl();
-      toast(isNew ? "RULE CREATED" : "RULE SAVED", "ok");
-    } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+      toast(isNew ? "Rule created" : "Rule saved", "ok");
+    } catch (ex) { toast(ex.message, "err"); }
   });
 }
 
@@ -6028,7 +6153,7 @@ function renderSchedules() {
   const box = $("#cp-schedules");
   const list = CP.conf.schedules || [];
   if (!list.length) {
-    box.innerHTML = `<div class="empty">NO SCHEDULED TASKS</div>`;
+    box.innerHTML = `<div class="empty">No scheduled tasks</div>`;
     return;
   }
   box.innerHTML = `<div class="rulelist">` + list.map(s => {
@@ -6041,7 +6166,7 @@ function renderSchedules() {
         <span class="rd">${esc(s.action.replace("container.", ""))} <b>${esc(s.target || "—")}</b> at ${esc(s.time)}, ${esc(days)}</span>
         <span class="rd dim">${s.lastRunAt ? "last ran " + esc(since(s.lastRunAt)) : "has not run yet"}${s.lastError ? " · " + esc(s.lastError) : ""}</span>
       </span>
-      <button class="btn sm" data-edit="${esc(s.id)}">EDIT</button>
+      <button class="btn sm" data-edit="${esc(s.id)}">Edit</button>
       <button class="btn sm danger" data-del="${esc(s.id)}">DELETE</button>
     </div>`;
   }).join("") + `</div>`;
@@ -6053,14 +6178,14 @@ on("#cp-schedules", "click", async e => {
     const s = CP.conf.schedules.find(x => x.id === t.dataset.toggle);
     if (!s) return;
     try { await api("/automation/schedules", { method: "PUT", body: { ...s, enabled: !s.enabled } }); await loadControl(); }
-    catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+    catch (ex) { toast(ex.message, "err"); }
   }
   if (ed) openScheduleEditor(CP.conf.schedules.find(x => x.id === ed.dataset.edit));
   if (del) {
     const s = CP.conf.schedules.find(x => x.id === del.dataset.del);
     if (!s || !confirm(`Delete the task "${s.name}"?`)) return;
-    try { await api(`/automation/schedules/${encodeURIComponent(s.id)}`, { method: "DELETE" }); await loadControl(); toast("TASK DELETED", "ok"); }
-    catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+    try { await api(`/automation/schedules/${encodeURIComponent(s.id)}`, { method: "DELETE" }); await loadControl(); toast("Task deleted", "ok"); }
+    catch (ex) { toast(ex.message, "err"); }
   }
 });
 
@@ -6073,18 +6198,18 @@ function openScheduleEditor(sched) {
   const body = document.createElement("div");
   body.className = "cpform";
   body.innerHTML = `
-    <div class="field"><label for="sc-name">NAME</label>
+    <div class="field"><label for="sc-name">Name</label>
       <input id="sc-name" type="text" value="${esc(s.name)}" placeholder="Nightly Jellyfin restart"></div>
     <div class="frow">
-      <div class="field"><label for="sc-act">DO</label>
+      <div class="field"><label for="sc-act">Do</label>
         ${selectHTML("sc-act", CP.conf.scheduleActions.map(a => ({ value: a.key, label: a.label })), s.action)}</div>
-      <div class="field"><label for="sc-target">CONTAINER</label>
+      <div class="field"><label for="sc-target">Container</label>
         ${selectHTML("sc-target", containers.length ? containers : [{ value: "", label: "no containers visible" }], s.target || "")}</div>
     </div>
     <div class="frow">
-      <div class="field"><label for="sc-time">AT (SERVER LOCAL TIME)</label>
+      <div class="field"><label for="sc-time">At (server local time)</label>
         <input id="sc-time" type="time" value="${esc(s.time)}"></div>
-      <div class="field"><label>ON</label><div class="daypick" id="sc-days"></div></div>
+      <div class="field"><label>On</label><div class="daypick" id="sc-days"></div></div>
     </div>
     <div class="warnbox">
       Whole-host reboots are deliberately not offered here. Rebooting Linux on a
@@ -6095,8 +6220,8 @@ function openScheduleEditor(sched) {
     </div>`;
 
   const foot = document.createElement("div");
-  foot.innerHTML = `<button class="btn" id="sc-cancel">CANCEL</button><button class="btn primary" id="sc-save">${isNew ? "CREATE TASK" : "SAVE"}</button>`;
-  openModal({ title: isNew ? "NEW SCHEDULED TASK" : "EDIT TASK", icon: ICON("clock"), body, foot });
+  foot.innerHTML = `<button class="btn" id="sc-cancel">Cancel</button><button class="btn primary" id="sc-save">${isNew ? "Create task" : "Save"}</button>`;
+  openModal({ title: isNew ? "New scheduled task" : "Edit task", icon: ICON("clock"), body, foot });
 
   const paintDays = () => {
     $("#sc-days").innerHTML = DAY_LABELS.map((d, i) =>
@@ -6114,8 +6239,8 @@ function openScheduleEditor(sched) {
 
   on("#sc-cancel", "click", closeModal);
   on("#sc-save", "click", async () => {
-    if (!days.size) return toast("PICK AT LEAST ONE DAY", "err");
-    if (!$("#sc-target").value) return toast("PICK A CONTAINER", "err");
+    if (!days.size) return toast("Pick at least one day", "err");
+    if (!$("#sc-target").value) return toast("Pick a container", "err");
     try {
       await api("/automation/schedules", {
         method: "PUT",
@@ -6126,8 +6251,8 @@ function openScheduleEditor(sched) {
         }
       });
       closeModal(); await loadControl();
-      toast(isNew ? "TASK CREATED" : "TASK SAVED", "ok");
-    } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+      toast(isNew ? "Task created" : "Task saved", "ok");
+    } catch (ex) { toast(ex.message, "err"); }
   });
 }
 
@@ -6140,7 +6265,7 @@ function renderNotify() {
   $("#cp-notify").innerHTML = `
     <div class="cpform">
       <div class="field">
-        <label for="nt-url">WEBHOOK URL</label>
+        <label for="nt-url">Webhook URL</label>
         <input id="nt-url" type="text" spellcheck="false" value="${esc(n.webhookUrl || "")}"
                placeholder="https://ntfy.sh/my-private-topic">
         <span class="fh">ntfy, a Discord webhook, or any endpoint that accepts a JSON POST.
@@ -6148,19 +6273,19 @@ function renderNotify() {
           that only appears in a tab you do not have open is not an alert.</span>
       </div>
       <div class="frow">
-        <div class="field"><label for="nt-fmt">FORMAT</label>
+        <div class="field"><label for="nt-fmt">Format</label>
           ${selectHTML("nt-fmt", [
             { value: "auto", label: "Detect from URL" }, { value: "ntfy", label: "ntfy" },
             { value: "discord", label: "Discord" }, { value: "json", label: "Plain JSON" }
           ], n.webhookFormat || "auto")}</div>
-        <div class="field"><label>BROWSER NOTIFICATIONS</label>
-          <button class="btn" id="nt-browser">${perm === "granted" ? (n.browser === false ? "OFF — TURN ON" : "ON") : perm === "denied" ? "BLOCKED BY BROWSER" : "ENABLE"}</button>
+        <div class="field"><label>Browser notifications</label>
+          <button class="btn" id="nt-browser">${perm === "granted" ? (n.browser === false ? "Off — turn on" : "On") : perm === "denied" ? "Blocked by browser" : "Enable"}</button>
           <span class="fh">Desktop pop-ups while a Nexus tab is open.</span>
         </div>
       </div>
       <div class="rowbtns">
-        <button class="btn primary" id="nt-save">SAVE</button>
-        <button class="btn" id="nt-test">SEND TEST</button>
+        <button class="btn primary" id="nt-save">Save</button>
+        <button class="btn" id="nt-test">Send test</button>
       </div>
     </div>`;
 
@@ -6171,28 +6296,28 @@ function renderNotify() {
         body: { webhookUrl: $("#nt-url").value.trim(), webhookFormat: $("#nt-fmt").value, browser: CP.conf.notify.browser !== false }
       });
       await loadControl();
-      toast("NOTIFICATIONS SAVED", "ok");
-    } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+      toast("Notifications saved", "ok");
+    } catch (ex) { toast(ex.message, "err"); }
   });
 
   on("#nt-test", "click", async () => {
     const url = $("#nt-url").value.trim();
-    if (!url) return toast("ENTER A WEBHOOK URL FIRST", "err");
+    if (!url) return toast("Enter a webhook URL first", "err");
     const btn = $("#nt-test");
-    btn.disabled = true; btn.textContent = "SENDING…";
+    btn.disabled = true; btn.textContent = "Sending…";
     try {
       const out = await api("/automation/notify/test", { method: "POST", body: { webhookUrl: url } });
-      toast(`TEST SENT AS ${String(out.format).toUpperCase()}`, "ok");
-    } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
-    finally { btn.disabled = false; btn.textContent = "SEND TEST"; }
+      toast(`Test sent as ${String(out.format)}`, "ok");
+    } catch (ex) { toast(ex.message, "err"); }
+    finally { btn.disabled = false; btn.textContent = "Send test"; }
   });
 
   on("#nt-browser", "click", async () => {
-    if (!("Notification" in window)) return toast("THIS BROWSER HAS NO NOTIFICATION API", "err");
-    if (Notification.permission === "denied") return toast("UNBLOCK NOTIFICATIONS IN YOUR BROWSER SETTINGS", "err");
+    if (!("Notification" in window)) return toast("This browser has no notification API", "err");
+    if (Notification.permission === "denied") return toast("Unblock notifications in your browser settings", "err");
     if (Notification.permission !== "granted") {
       const p = await Notification.requestPermission();
-      if (p !== "granted") return toast("PERMISSION NOT GRANTED", "err");
+      if (p !== "granted") return toast("Permission not granted", "err");
     }
     const next = CP.conf.notify.browser === false;
     try {
@@ -6201,7 +6326,7 @@ function renderNotify() {
         body: { webhookUrl: CP.conf.notify.webhookUrl || "", webhookFormat: CP.conf.notify.webhookFormat || "auto", browser: next }
       });
       await loadControl();
-    } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+    } catch (ex) { toast(ex.message, "err"); }
   });
 }
 
@@ -6218,9 +6343,9 @@ function renderPower() {
       </div>
       <div class="rowbtns">
         <button class="btn ${p.allowRemote ? "danger" : "primary"}" id="pw-arm">
-          ${p.allowRemote ? "DISARM POWER ACTIONS" : "ARM POWER ACTIONS"}</button>
-        <button class="btn danger" id="pw-reboot" ${p.allowRemote && p.supported ? "" : "disabled"}>REBOOT NOW</button>
-        <button class="btn danger" id="pw-shutdown" ${p.allowRemote && p.supported ? "" : "disabled"}>SHUT DOWN NOW</button>
+          ${p.allowRemote ? "Disarm power actions" : "Arm power actions"}</button>
+        <button class="btn danger" id="pw-reboot" ${p.allowRemote && p.supported ? "" : "disabled"}>Reboot now</button>
+        <button class="btn danger" id="pw-shutdown" ${p.allowRemote && p.supported ? "" : "disabled"}>Shut down now</button>
       </div>
       <span class="fh">Nexus runs as root, so these do exactly what they say. There is no undo
         and no remote power-on — if the box lives somewhere awkward, think before the second one.</span>
@@ -6230,7 +6355,7 @@ function renderPower() {
     const next = !CP.conf.power.allowRemote;
     if (next && !confirm("Arm power actions?\n\nOnce armed, this browser page can reboot or power off the host, and any rule with a power action becomes live.")) return;
     try { await api("/automation/power", { method: "PUT", body: { allowRemote: next } }); await loadControl(); }
-    catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+    catch (ex) { toast(ex.message, "err"); }
   });
 
   const doPower = async action => {
@@ -6239,11 +6364,11 @@ function renderPower() {
     // power off a machine you may have to walk to.
     const typed = prompt(`${action === "reboot" ? "Reboot" : "Shut down"} ${host}?\n\nType the hostname to confirm:`);
     if (typed == null) return;
-    if (typed.trim() !== host) return toast("HOSTNAME DID NOT MATCH — NOTHING HAPPENED", "err");
+    if (typed.trim() !== host) return toast("Hostname did not match — nothing happened", "err");
     try {
       await api(`/system/power/${action}`, { method: "POST" });
-      toast(action === "reboot" ? "REBOOTING…" : "SHUTTING DOWN…", "ok");
-    } catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+      toast(action === "reboot" ? "Rebooting…" : "Shutting down…", "ok");
+    } catch (ex) { toast(ex.message, "err"); }
   };
   on("#pw-reboot", "click", () => doPower("reboot"));
   on("#pw-shutdown", "click", () => doPower("shutdown"));
@@ -6251,7 +6376,7 @@ function renderPower() {
 
 /* ---- live alerts ---- */
 function onAlert(a) {
-  toast(`${String(a.level).toUpperCase()}: ${a.title}`, a.level === "crit" ? "err" : a.level === "warn" ? "err" : "ok");
+  toast(a.title, a.level === "crit" ? "err" : a.level === "warn" ? "err" : "ok");
 
   if (CP.conf?.notify?.browser !== false && "Notification" in window && Notification.permission === "granted") {
     try { new Notification(a.title, { body: a.message, icon: "/assets/brand/icons/nexus-128.png", tag: a.ruleId || a.id }); } catch {}
@@ -6259,42 +6384,81 @@ function onAlert(a) {
   CP.alerts.unshift(a);
   if (CP.alerts.length > 60) CP.alerts.length = 60;
   if ($("#page-control")?.classList.contains("on")) renderAlerts();
+  paintAlertBadge();
+  // A health alert means a check just changed state: show it now rather than
+  // at the next poll.
+  if (a.source === "health") loadChecks();
 }
 
 on("#cp-ack", "click", async () => {
-  try { await api("/automation/alerts/ack", { method: "POST" }); await loadAlerts(); toast("ACKNOWLEDGED", "ok"); }
-  catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+  try { await api("/automation/alerts/ack", { method: "POST" }); await loadAlerts(); toast("Acknowledged", "ok"); }
+  catch (ex) { toast(ex.message, "err"); }
 });
 on("#cp-clear", "click", async () => {
   if (!confirm("Clear the alert history?")) return;
   try { await api("/automation/alerts", { method: "DELETE" }); await loadAlerts(); }
-  catch (ex) { toast(ex.message.toUpperCase(), "err"); }
+  catch (ex) { toast(ex.message, "err"); }
 });
 
-/* ============================ navigation ============================ */
-const TITLES = { dash: "Dashboard", apps: "Apps", store: "App Store", containers: "Containers", files: "Files", term: "Terminal", control: "Control Panel", settings: "Settings" };
-const SUBTITLES = { dash: "Your homelab, at a glance.", apps: "Everything you run, one press away.", store: "Find a new home for your next project.", containers: "The services that keep your homelab running.", files: "Everything in its place.", term: "A direct line to your machine.", control: "Your routines, running quietly in the background.", settings: "A workstation that feels like yours." };
+/* ============================ navigation ============================
+ * Every page has an address: `#/files`, `#/area/network`. Reloading keeps you
+ * where you were, the back button works, and a link to a page can be shared
+ * with yourself on another device. Hash routing because the server already
+ * serves the shell for any path, and a hash never reaches it.
+ */
+const PAGES = {
+  overview:   { title: "Overview",      icon: "activity", sub: "Your homelab, at a glance." },
+  area:       { title: "Area",          icon: "activity", sub: "" },
+  dash:       { title: "Dashboard",     icon: "layout",   sub: "Your widgets, arranged your way." },
+  apps:       { title: "Apps",          icon: "grid",     sub: "Everything you run, one press away." },
+  containers: { title: "Containers",    icon: "box",      sub: "The services that keep your homelab running." },
+  files:      { title: "Files",         icon: "folder",   sub: "Everything in its place." },
+  term:       { title: "Terminal",      icon: "terminal", sub: "A direct line to your machine." },
+  store:      { title: "App Store",     icon: "store",    sub: "Find a new home for your next project." },
+  control:    { title: "Automations",   icon: "zap",      sub: "Alerts, watch rules, schedules and where the news goes." },
+  settings:   { title: "Settings",      icon: "settings", sub: "A workstation that feels like yours." }
+};
+const TITLES = Object.fromEntries(Object.entries(PAGES).map(([k, v]) => [k, v.title]));
+let curPage = null, curArg = null, hashSkip = null;
 
-function go(page) {
+function go(page, arg = null, { push = true } = {}) {
+  if (!PAGES[page]) page = "overview";
+  if (page === "area" && !arg) arg = "servers";
+  const same = page === curPage && arg === curArg;
+  curPage = page; curArg = arg;
+
   $$(".nav").forEach(n => {
-    n.classList.toggle("on", n.dataset.page === page);
-    if (n.dataset.page === page) n.setAttribute("aria-current", "page");
-    else n.removeAttribute("aria-current");
+    const hit = n.dataset.page === page && (page !== "area" || n.dataset.area === arg);
+    n.classList.toggle("on", hit);
+    if (hit) n.setAttribute("aria-current", "page"); else n.removeAttribute("aria-current");
   });
   $$(".page").forEach(p => p.classList.toggle("on", p.id === "page-" + page));
-  $("#page-title").textContent = TITLES[page] || page;
-  $("#page-subtitle").textContent = SUBTITLES[page] || "";
-  $("#tools-dash").hidden = page !== "dash";
-  $("#tools-containers").hidden = page !== "containers";
-  $("#tools-apps").hidden = page !== "apps";
-  $("#tools-files").hidden = page !== "files";
-  $("#tools-store").hidden = page !== "store";
-  $("#tools-term").hidden = page !== "term";
+
+  const meta = PAGES[page];
+  const areaMeta = page === "area" ? AREA_META[arg] : null;
+  $("#page-title").textContent = areaMeta ? areaMeta.name : meta.title;
+  $("#tb-pico").innerHTML = IC(areaMeta ? areaMeta.icon : meta.icon);
+  $("#page-subtitle").textContent = areaMeta ? areaMeta.sub : meta.sub;
+  document.title = (areaMeta ? areaMeta.name : meta.title) + " · Nexus";
+
+  for (const k of ["overview", "area", "dash", "containers", "apps", "files", "store", "term"]) {
+    const t = $("#tools-" + k);
+    if (t) t.hidden = page !== k;
+  }
 
   // Leaving a page should not leave its selection armed for the Delete key.
   if (page !== "dash") clearSelection();
   if (page !== "files") clearFileSelection();
+  closeSidebar();
 
+  if (push) {
+    const h = "#/" + page + (arg ? "/" + encodeURIComponent(arg) : "");
+    if (location.hash !== h) { hashSkip = h; location.hash = h; }
+  }
+  if (same && !push) return;
+
+  if (page === "overview") { paintOverview(); loadChecks(); }
+  if (page === "area") { paintArea(); loadChecks(); }
   // Re-measure on arrival: the canvas had no width while it was hidden, so
   // anything that tried to lay it out in the meantime was correctly ignored.
   if (page === "dash") requestAnimationFrame(() => { layout(false); renderWidgets(); });
@@ -6313,88 +6477,212 @@ function go(page) {
       $("#term-title").textContent = t.shell || "shell";
       const b = $("#term-backend");
       b.className = "pill " + (t.resize ? "ok" : "warn");
-      b.textContent = `${String(t.backend || "script").toUpperCase()} · ${t.resize ? "FULL RESIZE" : "NO RESIZE"}`;
+      b.textContent = `${String(t.backend || "script")} · ${t.resize ? "full resize" : "no resize"}`;
       connectTerminal();
       // The host has no size until the page is visible, so fit after paint.
       requestAnimationFrame(() => { fitTerm(); term?.focus(); });
     }
   }
-}
-$$(".nav").forEach(n => n.addEventListener("click", () => go(n.dataset.page)));
-
-/* ============================ sidebar ============================ */
-const RAIL_MIN = 60, RAIL_MAX = 260, RAIL_WIDE_AT = 132;
-
-function setRail(px, persist = true) {
-  const w = clamp(Math.round(px), RAIL_MIN, RAIL_MAX);
-  const rail = $("#rail");
-  document.documentElement.style.setProperty("--rail-w", w + "px");
-  // Icons grow with the rail, but stop before they dominate the labels.
-  document.documentElement.style.setProperty("--rail-icon", clamp(Math.round(w * 0.34), 22, 40) + "px");
-  rail.classList.toggle("wide", w >= RAIL_WIDE_AT);
-  $("#rail-toggle-txt").textContent = w >= RAIL_WIDE_AT ? "◀  MENU" : "☰";
-  if (persist) { try { localStorage.setItem("nexus.rail", String(w)); } catch {} }
-  if (term && $("#page-term").classList.contains("on")) requestAnimationFrame(fitTerm);
-  layout(false);
-}
-
-on("#rail-toggle", "click", () => {
-  const cur = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--rail-w")) || 72;
-  setRail(cur >= RAIL_WIDE_AT ? 72 : 180);
-});
-
-// Drag the right edge to any width in between.
-on("#rail-grip", "pointerdown", e => {
-  e.preventDefault();
-  const grip = e.currentTarget;
-  grip.setPointerCapture(e.pointerId);
-  const startX = e.clientX;
-  const startW = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--rail-w")) || 72;
-  const mv = ev => setRail(startW + (ev.clientX - startX), false);
-  const up = () => {
-    grip.releasePointerCapture(e.pointerId);
-    grip.removeEventListener("pointermove", mv);
-    grip.removeEventListener("pointerup", up);
-    grip.removeEventListener("pointercancel", up);
-    const w = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--rail-w")) || 72;
-    setRail(w);
-  };
-  grip.addEventListener("pointermove", mv);
-  grip.addEventListener("pointerup", up);
-  grip.addEventListener("pointercancel", up);
-});
-
-try {
-  const saved = parseInt(localStorage.getItem("nexus.rail"));
-  setRail(Number.isFinite(saved) ? saved : 192, false);
-} catch { setRail(192, false); }
-
-on("#theme", "click", () => {
-  go("settings");
   $("#main").scrollTop = 0;
-  $(".palette-choice").focus({ preventScroll: true });
+}
+
+function routeFromHash() {
+  const [page, arg] = location.hash.replace(/^#\/?/, "").split("/");
+  return { page: PAGES[page] ? page : "overview", arg: arg ? decodeURIComponent(arg) : null };
+}
+addEventListener("hashchange", () => {
+  if (hashSkip && location.hash === hashSkip) { hashSkip = null; return; }
+  hashSkip = null;
+  const r = routeFromHash();
+  go(r.page, r.arg, { push: false });
 });
 
+// One delegated listener for every way of going somewhere: the sidebar, the
+// brand, and any `data-go` link drawn later (problem rows, stat cards).
+document.addEventListener("click", e => {
+  const n = e.target.closest(".nav[data-page], [data-go]");
+  if (!n || n.closest("#ctx")) return;
+  if (n.matches("a[href]") && (e.ctrlKey || e.metaKey)) return;
+  e.preventDefault();
+  go(n.dataset.page || n.dataset.go, n.dataset.area || n.dataset.arg || null);
+});
+
+/* ============================ sidebar ============================
+ * Wide with labels, or a slim rail of icons; on a phone, a drawer. The groups
+ * remember whether they are folded, per browser, like every display choice.
+ */
+const AREA_META = {
+  servers:    { name: "Servers",    icon: "server",   sub: "The host itself — collector, CPU, memory, temperature and Docker." },
+  network:    { name: "Network",    icon: "globe",    sub: "Name resolution, the internet and your gateway." },
+  storage:    { name: "Storage",    icon: "database", sub: "Every mount, and drive health where SMART could read it." },
+  containers: { name: "Containers", icon: "box",      sub: "Each container: running, and not reporting itself unhealthy." },
+  apps:       { name: "Apps",       icon: "grid",     sub: "Every app on your Apps page with a local address, checked over HTTP." }
+};
+
+function paintSidebarAreas() {
+  const box = $("#sb-areas");
+  if (!box) return;
+  const areas = CK.data?.areas || Object.keys(AREA_META).map(id => ({ id, status: "empty" }));
+  const html = areas.map(a => {
+    const m = AREA_META[a.id] || { name: a.name, icon: "activity" };
+    const st = statusClass(a.status);
+    return `<button class="nav" type="button" data-page="area" data-area="${esc(a.id)}"
+              data-tip="${esc(m.name)}: ${esc(statusWord(a.status))}${a.total ? ` · ${a.up} of ${a.total} passing` : ""}">
+        ${IC(m.icon)}<span class="nlabel">${esc(m.name)}</span><span class="ndot s-${st}"></span></button>`;
+  }).join("");
+  if (box.dataset.sig !== html) {
+    box.innerHTML = html;
+    box.dataset.sig = html;
+    if (curPage === "area") $$(".nav", box).forEach(n => n.classList.toggle("on", n.dataset.area === curArg));
+  }
+
+  const n = (CK.data?.problems || []).length + extraProblems().length;
+  const badge = $("#nb-problems");
+  if (badge) {
+    badge.hidden = !n;
+    badge.textContent = n;
+    badge.className = "nbadge" + ((CK.data?.problems || []).some(p => p.status === "down") ? "" : " warn");
+  }
+  const ctrs = CK.data?.areas?.find(a => a.id === "containers");
+  const nd = $("#nd-containers");
+  if (nd) nd.className = "ndot s-" + statusClass(ctrs?.status || "empty");
+}
+
+/** The apps you keep: pinned ones if any are pinned, otherwise the first few. */
+function launchList() {
+  const pinned = LP.apps.filter(a => a.pinned);
+  return (pinned.length ? pinned : LP.apps).slice(0, 10);
+}
+
+function appStatus(a) {
+  const c = CK.data?.checks?.find(x => x.id === "app:" + a.id);
+  return c ? c.status : (a.url || a.locked ? "unknown" : "empty");
+}
+
+function paintSidebarLaunch() {
+  const box = $("#sb-launch"), group = $("#sb-launch-group");
+  if (!box || !group) return;
+  const list = launchList();
+  group.hidden = !list.length;
+  const html = list.map(a => `
+    <button class="nav app" type="button" data-launch="${esc(a.id)}" data-tip="Open ${esc(a.name)}${a.locked ? " (needs the PIN)" : ""}">
+      <span class="sb-appico">${appIconHTML(a)}</span><span class="nlabel">${esc(a.name)}</span>
+      <span class="ndot s-${statusClass(appStatus(a))}"></span>
+    </button>`).join("");
+  if (box.dataset.sig !== html) { box.innerHTML = html; box.dataset.sig = html; wireIcons(box); }
+}
+on("#sb-launch", "click", e => {
+  const b = e.target.closest("[data-launch]");
+  if (b) openApp(LP.apps.find(a => a.id === b.dataset.launch));
+});
+
+// Folding a group.
+$$(".sb-group").forEach(g => {
+  const key = "nexus.sb." + g.dataset.group;
+  const head = $(".sb-ghead", g);
+  const set = open => { g.classList.toggle("folded", !open); head?.setAttribute("aria-expanded", String(open)); };
+  try { set(localStorage.getItem(key) !== "0"); } catch { set(true); }
+  head?.addEventListener("click", () => {
+    const open = g.classList.contains("folded");
+    set(open);
+    try { localStorage.setItem(key, open ? "1" : "0"); } catch {}
+  });
+});
+
+function setRailMini(mini, persist = true) {
+  document.body.classList.toggle("rail-mini", !!mini);
+  const t = $("#rail-toggle");
+  t?.setAttribute("aria-label", mini ? "Expand the sidebar" : "Collapse the sidebar");
+  const txt = $("#rail-toggle-txt");
+  if (txt) txt.textContent = mini ? "Expand" : "Collapse";
+  if (persist) { try { localStorage.setItem("nexus.rail.mini", mini ? "1" : "0"); } catch {} }
+  requestAnimationFrame(() => {
+    layout(false);
+    if (term && $("#page-term").classList.contains("on")) fitTerm();
+  });
+}
+on("#rail-toggle", "click", () => setRailMini(!document.body.classList.contains("rail-mini")));
+try { setRailMini(localStorage.getItem("nexus.rail.mini") === "1", false); } catch { setRailMini(false, false); }
+
+// On a phone the sidebar is a drawer over the page.
+function openSidebar() { document.body.classList.add("sb-open"); $("#scrim").hidden = false; }
+function closeSidebar() { document.body.classList.remove("sb-open"); const s = $("#scrim"); if (s) s.hidden = true; }
+on("#sb-open", "click", () => (document.body.classList.contains("sb-open") ? closeSidebar() : openSidebar()));
+on("#scrim", "click", closeSidebar);
+
+/* ============================ top bar ============================ */
+on("#tb-refresh", "click", async e => {
+  const b = e.currentTarget;
+  b.classList.add("spin");
+  setTimeout(() => b.classList.remove("spin"), 700);
+  const p = curPage;
+  if (p === "overview" || p === "area") await loadChecks(true);
+  else if (p === "dash") { api("/system/metrics").then(m => { LIVE.disks = m.disks || []; renderWidgets(); }).catch(() => {}); pollSecurity(); }
+  else if (p === "containers") loadContainers();
+  else if (p === "apps") loadLauncher();
+  else if (p === "files") loadFiles(curDir, { history: false });
+  else if (p === "store") loadStore(true);
+  else if (p === "control") loadControl();
+  else if (p === "settings") loadSettings();
+});
+on("#theme", "click", () => window.NexusAppearance?.toggleMode());
+on("#tb-search", "click", () => openPalette());
+on("#sb-search", "click", () => openPalette());
+on("#tb-kernel", "click", () => toggleKernel());
+if (/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)) {
+  $("#kbd-k") && ($("#kbd-k").textContent = "⌘K");
+}
+
+/* ============================ appearance ============================ */
 function paintAppearance() {
   const a = window.NexusAppearance;
   if (!a) return;
-  $$("[data-palette-choice]").forEach(button => button.setAttribute("aria-pressed", String(!a.classic && button.dataset.paletteChoice === a.palette)));
-  $("#appearance-status").textContent = a.classic ? "Classic GUI is active. Choose a palette to return to Workstation." : a.palettes[a.palette].name + " is active. Saved in this browser.";
-  $("#classic-toggle").textContent = a.classic ? "RETURN TO WORKSTATION" : "USE CLASSIC GUI";
-  $("#classic-toggle").setAttribute("aria-pressed", String(a.classic));
-  $("#motion-toggle").textContent = "REDUCE MOTION: " + (a.motion === "reduced" ? "ON" : "OFF");
-  $("#motion-toggle").setAttribute("aria-pressed", String(a.motion === "reduced"));
+  $$("[data-skin-choice]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.skinChoice === a.skin)));
+  $$("[data-palette-choice]").forEach(b => b.setAttribute("aria-pressed", String(a.skin === "workstation" && b.dataset.paletteChoice === a.palette)));
+  const modern = $("#ap-modern"), ws = $("#ap-workstation");
+  if (modern) modern.hidden = a.skin !== "modern";
+  if (ws) ws.hidden = a.skin !== "workstation";
+  $$("#ap-mode [data-mode]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === a.mode)));
+  const acc = $("#ap-accent");
+  if (acc && !acc.children.length) {
+    acc.innerHTML = Object.entries(a.accents).map(([k, v]) =>
+      `<button type="button" class="accent-dot" data-accent="${k}" style="--sw:${v.swatch}" aria-label="${v.name}" data-tip="${v.name}"></button>`).join("");
+  }
+  $$("#ap-accent [data-accent]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.accent === a.accent)));
+  const sw = (id, on_) => { const b = $(id); if (b) b.setAttribute("aria-checked", String(!!on_)); };
+  sw("#glass-toggle", a.glass);
+  sw("#motion-toggle", a.motion === "reduced");
+  sw("#crt-toggle", document.documentElement.getAttribute("data-crt") === "on");
+  const crtRow = $("#crt-row");
+  if (crtRow) crtRow.hidden = a.skin === "modern";
+  const glassBtn = $("#glass-toggle");
+  if (glassBtn) glassBtn.disabled = a.skin === "classic";
+  const label = a.skin === "modern"
+    ? `Modern · ${a.mode === "system" ? "following your device" : a.mode} · ${a.accents[a.accent].name} accent${a.glass ? " · glass" : ""}`
+    : a.skin === "workstation" ? `Workstation · ${a.palettes[a.palette].name}` : "Classic pixel GUI";
+  const st = $("#appearance-status");
+  if (st) st.textContent = label + ". Saved in this browser.";
+  const theme = $("#theme");
+  if (theme) theme.innerHTML = IC(document.documentElement.dataset.theme === "dark" ? "sun" : "moon");
 }
-on(".palette-list", "click", e => {
-  const choice = e.target.closest("[data-palette-choice]");
-  if (choice) window.NexusAppearance?.setPalette(choice.dataset.paletteChoice);
+on("#appearance-section", "click", e => {
+  const A = window.NexusAppearance;
+  if (!A) return;
+  const t = e.target.closest("[data-skin-choice],[data-palette-choice],[data-mode],[data-accent]");
+  if (!t) return;
+  if (t.dataset.skinChoice) A.setSkin(t.dataset.skinChoice);
+  else if (t.dataset.paletteChoice) A.setPalette(t.dataset.paletteChoice);
+  else if (t.dataset.mode) A.setMode(t.dataset.mode);
+  else if (t.dataset.accent) A.setAccent(t.dataset.accent);
 });
-on("#classic-toggle", "click", () => window.NexusAppearance?.setClassic(!window.NexusAppearance.classic));
+on("#glass-toggle", "click", () => window.NexusAppearance?.setGlass(!window.NexusAppearance.glass));
 on("#motion-toggle", "click", () => window.NexusAppearance?.setMotion(window.NexusAppearance.motion === "reduced" ? "full" : "reduced"));
+on("#crt-toggle", "click", () => { toggleCRT(); paintAppearance(); });
 document.addEventListener("nexus:appearance", () => {
   paintAppearance();
   renderWidgets();
   layout(false);
+  if (curPage === "overview") paintOverview();
   if (term) { term.options.theme = termTheme(); requestAnimationFrame(fitTerm); }
 });
 paintAppearance();
@@ -6413,7 +6701,7 @@ on("#drawer", "click", e => { if (e.target.id === "drawer") e.currentTarget.clas
 on("#tidy", "click", () => {
   tidy();
   layout();
-  toast("TIDIED", "ok");
+  toast("Tidied", "ok");
 });
 
 /* ---------------- dashboard presets ----------------
@@ -6431,20 +6719,20 @@ async function openPresets() {
         <span>${p.widgets.length} widget${p.widgets.length === 1 ? "" : "s"} · saved ${esc(since(p.savedAt))}</span>
       </div>
       <div class="pz-acts">
-        <button class="btn sm" data-pz-use type="button">USE</button>
-        <button class="btn sm" data-pz-over type="button" data-tip="Replace this preset with what is on the dashboard now">OVERWRITE</button>
+        <button class="btn sm" data-pz-use type="button">Use</button>
+        <button class="btn sm" data-pz-over type="button" data-tip="Replace this preset with what is on the dashboard now">Overwrite</button>
         <button class="btn sm danger" data-pz-del type="button">DELETE</button>
       </div>
     </div>`;
 
   openModal({
-    title: "DASHBOARD PRESETS",
+    title: "Dashboard presets",
     icon: ICON("dashboard"),
     body: `<div id="pz-wrap">
       <div class="pz-save">
         <label for="pz-name">Save what is on screen now</label>
         <input id="pz-name" type="text" maxlength="40" placeholder="Media stack, Disk triage, Everything…">
-        <button class="btn primary sm" id="pz-add" type="button">SAVE</button>
+        <button class="btn primary sm" id="pz-add" type="button">Save</button>
       </div>
       <div class="pz-list">${list.length ? list.map(row).join("")
         : `<p class="hint">No presets yet. Arrange the dashboard how you like it, name it above, and it will be here to come back to.</p>`}</div>
@@ -6455,7 +6743,7 @@ async function openPresets() {
   const save = async name => {
     if (!name) return toast("give it a name", "err");
     try { await api("/layout/presets", { method: "POST", body: { name, widgets: items } });
-          toast("PRESET SAVED", "ok"); openPresets(); }
+          toast("Preset saved", "ok"); openPresets(); }
     catch (e) { toast(e.message || "could not save", "err"); }
   };
   on("#pz-add", "click", () => save($("#pz-name").value.trim()));
@@ -6490,7 +6778,7 @@ function applyPreset(p) {
   layout();
   renderDrawer();
   renderWidgets();
-  toast(`PRESET: ${p.name.toUpperCase()}`, "ok");
+  toast(`Preset: ${p.name}`, "ok");
 }
 
 on("#presets", "click", openPresets);
@@ -6559,47 +6847,841 @@ async function start() {
   refreshInstalled();
   mountKernel();
   setInterval(renderWidgets, 1000);
+
+  // The Overview, the sidebar and the search palette all read these, so they
+  // are fetched once at start rather than on first visit to their own pages.
+  api("/automation/alerts?limit=60").then(a => { CP.alerts = a; paintAlertBadge(); }).catch(() => {});
+  paintSidebarAreas();            // the five areas, grey until the first reading
+  loadLauncherQuiet();
+  loadChecks();
+  // Fifteen seconds is half a probe round, and the response is a small JSON
+  // read from memory. Paused while the tab is in the background.
+  setInterval(() => { if (!document.hidden) loadChecks(); }, 15000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) return;
+    loadChecks();
+    renderWidgets();
+    if (curPage === "overview") paintOverview();
+    // A background tab's timers are throttled to about one a minute, so a
+    // Kernel turn followed from a hidden tab is caught up the moment you look.
+    if (KX.run && (KX.busy || !$("#kernel").hidden)) refreshTranscript();
+  });
+
+  const r = routeFromHash();
+  go(r.page, r.arg, { push: false });
 }
 
 
-/* ==================== Nexus Expert — Kernel ====================
- * A floating panel on every page, an agent behind it, and a settings section
- * that decides what that agent is allowed to touch.
- *
- * The robot is drawn here rather than in the HTML because it appears twice (the
- * dock button and the panel header) and must stay one drawing. It is SVG rather
- * than a sprite so it takes its colours from the palette tokens — a PNG would
- * need three versions and would still be wrong on a custom widget tint.
+/* ============================ health checks ============================
+ * The Overview page, the area pages and every status dot in the sidebar read
+ * one object: GET /api/checks, which the server builds from memory.
  */
-const KBOT = `
-<svg class="hbot" viewBox="0 0 16 16" role="img" aria-hidden="true">
-  <g class="kb-body">
-    <rect class="kb-bulb" x="7" y="0" width="2" height="2"/>
-    <rect class="kb-stalk" x="7.5" y="1.6" width="1" height="2.2"/>
-    <rect class="kb-ear" x="0.4" y="6.2" width="1.6" height="3.2"/>
-    <rect class="kb-ear" x="14" y="6.2" width="1.6" height="3.2"/>
-    <rect class="kb-head" x="2" y="3.6" width="12" height="9" rx="1.6"/>
-    <rect class="kb-visor" x="3.4" y="5.4" width="9.2" height="4.2" rx="1.1"/>
-    <g class="kb-eyes">
-      <rect class="kb-eye" x="4.9" y="6.9" width="2.1" height="1.6" rx="0.5"/>
-      <rect class="kb-eye" x="9" y="6.9" width="2.1" height="1.6" rx="0.5"/>
-    </g>
-    <rect class="kb-scan" x="3.4" y="5.4" width="9.2" height="1.1"/>
-    <rect class="kb-tooth" x="5.2" y="10.5" width="1.3" height="1.2"/>
-    <rect class="kb-tooth" x="7.3" y="10.5" width="1.3" height="1.2"/>
-    <rect class="kb-tooth" x="9.4" y="10.5" width="1.3" height="1.2"/>
-  </g>
-</svg>`;
+const CK = { data: null, at: 0, busy: false, open: new Set() };
+
+async function loadChecks(force = false) {
+  if (CK.busy && !force) return;
+  CK.busy = true;
+  try {
+    CK.data = force ? await api("/checks/run", { method: "POST" }) : await api("/checks");
+    CK.at = Date.now();
+  } catch { /* the previous reading stays on screen, marked by its age */ }
+  finally { CK.busy = false; }
+  paintSidebarAreas();
+  paintSidebarLaunch();
+  if (curPage === "overview") paintOverview();
+  if (curPage === "area") paintArea();
+  if (curPage === "apps") paintLauncherStatus();
+}
+
+const statusClass = s => ({ up: "ok", warn: "warn", down: "crit" }[s] || "idle");
+const statusWord = s => ({ up: "Up", warn: "Degraded", down: "Down", off: "Stopped", unknown: "Unknown", empty: "No checks" }[s] || "Unknown");
+const statusIcon = s => ({ up: "check-circle", warn: "half", down: "x-circle", off: "minus" }[s] || "minus");
+
+function ago(t) {
+  if (!t) return "";
+  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.round(s / 60) + " min";
+  if (s < 86400) return Math.floor(s / 3600) + " h " + Math.round(s % 3600 / 60) + " min";
+  return Math.floor(s / 86400) + " d";
+}
+const hhmm = t => fmtTime(new Date(t), false, false);
+
+async function loadLauncherQuiet() {
+  try {
+    const out = await api("/launcher");
+    LP.apps = out.apps || [];
+    LP.groups = out.groups || [];
+  } catch { return; }
+  paintSidebarLaunch();
+  if (curPage === "overview") paintOverview();
+}
+
+/** Problems that are not checks: the link itself, and the security scan. */
+function extraProblems() {
+  const out = [];
+  if (linkState === "polling") {
+    out.push({ id: "x:link", status: "warn", name: "Live updates are polling",
+      areaName: "Nexus", msg: "The WebSocket could not be opened, so readings arrive every few seconds over HTTP.",
+      action: null });
+  } else if (linkState === "offline") {
+    out.push({ id: "x:link", status: "down", name: "Lost the connection to Nexus", areaName: "Nexus",
+      msg: "Reconnecting…", action: null });
+  }
+  const sec = LIVE.security?.[24];
+  for (const f of (sec?.findings || []).filter(f => f.level === "crit" || f.level === "warn").slice(0, 3)) {
+    out.push({ id: "x:sec:" + f.title, status: f.level === "crit" ? "down" : "warn", name: f.title,
+      areaName: "Security", msg: f.detail || "", action: null });
+  }
+  return out;
+}
+
+function allProblems() {
+  const checks = (CK.data?.problems || []).map(p => ({ ...p, areaName: AREA_META[p.area]?.name || p.area }));
+  return [...checks, ...extraProblems()]
+    .sort((a, b) => (a.status === "down" ? 0 : 1) - (b.status === "down" ? 0 : 1));
+}
+
+function paintAlertBadge() {
+  const n = (CP.alerts || []).filter(a => !a.ack).length;
+  const b = $("#nb-alerts");
+  if (b) { b.hidden = !n; b.textContent = n > 99 ? "99+" : n; }
+}
+
+/* ---------- small drawings ---------- */
+
+function sparkPath(vals, w, h, max) {
+  if (!vals || vals.length < 2) return "";
+  const m = max || Math.max(1, ...vals);
+  const step = w / (vals.length - 1);
+  return vals.map((v, i) => `${i ? "L" : "M"}${(i * step).toFixed(1)},${(h - 2 - (clamp(v, 0, m) / m) * (h - 4)).toFixed(1)}`).join("");
+}
+function sparkSVG(vals, max, cls = "") {
+  const w = 200, h = 40, d = sparkPath(vals, w, h, max);
+  if (!d) return `<svg class="ov-spark ${cls}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"></svg>`;
+  return `<svg class="ov-spark ${cls}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
+    <path class="sp-fill" d="${d} L${w},${h} L0,${h} Z"/><path class="sp-line" d="${d}"/></svg>`;
+}
+/** A bar made of weighted segments: [{ w, cls, tip }]. */
+function segBar(parts) {
+  const total = parts.reduce((a, p) => a + (p.w || 0), 0);
+  if (!total) return `<div class="ov-seg empty"></div>`;
+  return `<div class="ov-seg">${parts.filter(p => p.w > 0).map(p =>
+    `<i class="${p.cls || ""}" style="flex:${p.w}"${p.tip ? ` data-tip="${esc(p.tip)}"` : ""}></i>`).join("")}</div>`;
+}
+function meterRow(label, pct, cls = "") {
+  const p = clamp(Number(pct) || 0, 0, 100);
+  return `<div class="ov-mrow"><span>${esc(label)}</span><span class="ov-mtrack"><i class="${cls}" style="width:${p.toFixed(1)}%"></i></span><b>${Math.round(p)}%</b></div>`;
+}
+const lvl = (v, warn, crit) => (v >= crit ? "crit" : v >= warn ? "warn" : "");
+
+/** The last N results as bars, oldest left. Missing slots stay empty. */
+function resultBars(hist, n = 30) {
+  const h = (hist || []).slice(-n);
+  const pad = n - h.length;
+  let out = "";
+  for (let i = 0; i < pad; i++) out += `<i class="rb none"></i>`;
+  for (const r of h) {
+    const tip = `${hhmm(r.t)} · ${statusWord(r.s)}${Number.isFinite(r.ms) ? ` · ${r.ms} ms` : ""}${r.m ? ` · ${r.m}` : ""}`;
+    out += `<i class="rb s-${statusClass(r.s)}" data-tip="${esc(tip)}"></i>`;
+  }
+  return `<span class="rbars" aria-label="last ${n} results">${out}</span>`;
+}
+function ring(up, total, st) {
+  const r = 7, c = 2 * Math.PI * r, f = total ? up / total : 0;
+  return `<svg class="ring s-${statusClass(st)}" viewBox="0 0 18 18" aria-hidden="true">
+    <circle cx="9" cy="9" r="${r}" class="rt"/><circle cx="9" cy="9" r="${r}" class="rf"
+      stroke-dasharray="${(f * c).toFixed(2)} ${c.toFixed(2)}" transform="rotate(-90 9 9)"/></svg>`;
+}
+
+/* ---------- the overview ---------- */
+
+function paintOverview() {
+  if (!$("#page-overview")?.classList.contains("on")) return;
+  paintHero();
+  paintProblems();
+  paintStats();
+  paintAreasTable($("#ov-areas"), CK.data?.areas || []);
+  const sub = $("#page-subtitle");
+  if (sub) sub.textContent = CK.at ? `Checks updated ${ago(CK.at)} ago · ${(CK.data?.checks || []).length} checks across ${(CK.data?.areas || []).filter(a => a.checks).length} areas` : "Running the first checks…";
+}
+
+function heroChips(problems) {
+  const chips = [];
+  const first = problems.find(p => p.action);
+  if (first) {
+    const a = first.action;
+    if (a.kind === "app") {
+      const app = LP.apps.find(x => x.id === a.id);
+      if (app) chips.push(`<button class="ov-chip primary" data-chip-app="${esc(app.id)}">${IC("external")}Open ${esc(app.name)}</button>`);
+    } else if (a.kind === "container") {
+      chips.push(`<button class="ov-chip primary" data-chip-ctr="${esc(a.id)}">${IC("box")}Manage ${esc(a.name)}</button>`);
+    } else if (a.kind === "files") {
+      chips.push(`<button class="ov-chip primary" data-go="files">${IC("folder")}Open Files</button>`);
+    }
+  }
+  for (const app of launchList().slice(0, 6)) {
+    chips.push(`<button class="ov-chip" data-chip-app="${esc(app.id)}"><span class="ov-chipico">${appIconHTML(app)}</span>${esc(app.name)}<span class="ndot s-${statusClass(appStatus(app))}"></span></button>`);
+  }
+  chips.push(`<button class="ov-chip" data-chip-kernel>${IC("sparkles")}Ask Kernel</button>`);
+  chips.push(`<button class="ov-chip" data-chip-search>${IC("search")}Everything else <kbd>${$("#kbd-k")?.textContent || "Ctrl K"}</kbd></button>`);
+  return chips.join("");
+}
+
+function paintHero() {
+  const box = $("#ov-hero");
+  if (!box) return;
+  const problems = allProblems();
+  const down = problems.filter(p => p.status === "down").length;
+  let st, title, line;
+  if (!CK.data?.updatedAt) {
+    st = "idle"; title = "Checking your homelab…";
+    line = "The first round of health checks is running.";
+  } else if (!problems.length) {
+    const checks = CK.data.checks.filter(c => c.status !== "off" && c.status !== "unknown");
+    const ctr = (CK.data.areas.find(a => a.id === "containers") || {});
+    st = "ok"; title = "All systems normal";
+    line = [`${checks.length} check${checks.length === 1 ? "" : "s"} passing`,
+            ctr.total ? `${ctr.up} container${ctr.up === 1 ? "" : "s"} healthy` : null,
+            LIVE.uptimeSec ? `up ${upfmt(LIVE.uptimeSec)}` : null].filter(Boolean).join(" · ");
+  } else {
+    st = down ? "crit" : "warn";
+    title = `${problems.length} problem${problems.length === 1 ? "" : "s"}`;
+    const p = problems[0];
+    line = `${p.areaName} ${p.status === "down" ? "down" : "degraded"} · ${p.name}${p.msg ? " — " + p.msg : ""}`;
+  }
+  const html = `
+    <div class="ov-hero-in s-${st}">
+      <span class="ov-hico">${IC(st === "ok" ? "check-circle" : st === "crit" ? "alert" : st === "warn" ? "half" : "activity")}</span>
+      <div class="ov-htxt"><h2>${esc(title)}</h2><p>${esc(line)}</p></div>
+    </div>
+    <div class="ov-chips">${heroChips(problems)}</div>`;
+  if (box.dataset.sig !== html) {
+    box.innerHTML = html;
+    box.dataset.sig = html;
+    box.className = "ov-hero s-" + st;
+    wireIcons(box);
+  }
+}
+
+on("#ov-hero", "click", e => {
+  const app = e.target.closest("[data-chip-app]");
+  if (app) return openApp(LP.apps.find(a => a.id === app.dataset.chipApp));
+  const ctr = e.target.closest("[data-chip-ctr]");
+  if (ctr) return manageFromAnywhere(ctr.dataset.chipCtr);
+  if (e.target.closest("[data-chip-kernel]")) return toggleKernel(true);
+  if (e.target.closest("[data-chip-search]")) return openPalette();
+});
+
+/** Open a container's manage sheet from a page other than Containers. */
+async function manageFromAnywhere(id) {
+  if (!CT.list.length) {
+    try { const o = await api("/docker/containers"); if (o.available) CT.list = o.containers; } catch {}
+  }
+  manageContainer(id);
+}
+
+function problemAction(p) {
+  const a = p.action;
+  if (!a) return "";
+  if (a.kind === "app") {
+    const app = LP.apps.find(x => x.id === a.id);
+    return app ? `<button class="ov-plink" data-chip-app="${esc(app.id)}">Open ${esc(app.name)} ${IC("external")}</button>` : "";
+  }
+  if (a.kind === "container") return `<button class="ov-plink" data-chip-ctr="${esc(a.id)}">Manage ${IC("chevron-right")}</button>`;
+  if (a.kind === "files") return `<button class="ov-plink" data-go="files">Open Files ${IC("chevron-right")}</button>`;
+  return "";
+}
+
+function paintProblems() {
+  const box = $("#ov-problems"), sec = $("#ov-problems-sec");
+  if (!box) return;
+  const list = allProblems();
+  sec.hidden = !list.length;
+  $("#ov-pcount").textContent = list.length || "";
+  const html = list.map(p => `
+    <div class="ov-prob s-${statusClass(p.status)}">
+      <span class="ov-pico">${IC(p.status === "down" ? "alert" : "half")}</span>
+      <div class="ov-ptxt">
+        <b>${esc(p.name)}</b>
+        <span class="ov-pmeta">${esc(p.areaName)} · ${p.status === "down" ? "down" : "degraded"}${p.since ? ` since ${hhmm(p.since)}, ${ago(p.since)}` : ""}</span>
+        ${p.msg ? `<code class="ov-perr">${esc(p.msg)}</code>` : ""}
+      </div>
+      ${p.area ? `<button class="ov-plink sub" data-go="area" data-arg="${esc(p.area)}">Details</button>` : ""}
+      ${problemAction(p)}
+    </div>`).join("");
+  if (box.dataset.sig !== html) { box.innerHTML = html; box.dataset.sig = html; }
+}
+on("#ov-problems", "click", e => {
+  const app = e.target.closest("[data-chip-app]");
+  if (app) return openApp(LP.apps.find(a => a.id === app.dataset.chipApp));
+  const ctr = e.target.closest("[data-chip-ctr]");
+  if (ctr) return manageFromAnywhere(ctr.dataset.chipCtr);
+});
+
+/* ---------- today ---------- */
+
+function statCard({ key, icon, label, value, unit, sub, foot, attention, go: dest, arg, tip }) {
+  return `<button class="ov-stat${attention ? " att-" + attention : ""}" type="button" data-stat="${key}"
+      ${dest ? `data-go="${dest}"${arg ? ` data-arg="${esc(arg)}"` : ""}` : ""}${tip ? ` data-tip="${esc(tip)}"` : ""}>
+    <span class="ov-slabel">${IC(icon)}${esc(label)}</span>
+    <span class="ov-sval"><b>${value}</b>${unit ? `<i>${esc(unit)}</i>` : ""}</span>
+    <span class="ov-ssub">${sub || "&nbsp;"}</span>
+    <span class="ov-sfoot">${foot || ""}</span>
+  </button>`;
+}
+
+function paintStats() {
+  const box = $("#ov-stats");
+  if (!box) return;
+  const cards = [];
+  const live = !!LIVE.t;
+
+  // CPU
+  const cores = LIVE.info?.cpu?.cores;
+  cards.push(statCard({
+    key: "cpu", icon: "cpu", label: "CPU", go: "dash",
+    value: live ? Math.round(LIVE.cpu) : "—", unit: live ? "%" : "",
+    sub: live ? `${cores ? cores + " cores · " : ""}load ${(LIVE.loadavg || [])[0] ?? "—"}` : "waiting for the first reading",
+    foot: sparkSVG((LIVE.history.cpu || []).slice(-120), 100, "acc"),
+    attention: live ? lvl(LIVE.cpu, 85, 95) : ""
+  }));
+
+  // Memory
+  cards.push(statCard({
+    key: "mem", icon: "memory", label: "Memory", go: "dash",
+    value: LIVE.memTotal ? Math.round(LIVE.mem) : "—", unit: LIVE.memTotal ? "%" : "",
+    sub: LIVE.memTotal ? `${bytes(LIVE.memUsed)} of ${bytes(LIVE.memTotal)}` : "not reported yet",
+    foot: LIVE.memTotal ? meterRow("RAM", LIVE.mem, lvl(LIVE.mem, 80, 92)) +
+      (LIVE.swapTotal ? meterRow("Swap", LIVE.swapUsed / LIVE.swapTotal * 100, lvl(LIVE.swapUsed / LIVE.swapTotal * 100, 50, 80)) : "") : "",
+    attention: LIVE.memTotal ? lvl(LIVE.mem, 88, 95) : ""
+  }));
+
+  // Storage
+  const disks = LIVE.disks || [];
+  if (disks.length) {
+    const used = disks.reduce((a, d) => a + (d.used || 0), 0);
+    const free = disks.reduce((a, d) => a + (d.available || 0), 0);
+    const worst = disks.reduce((a, d) => (d.usage > a.usage ? d : a), disks[0]);
+    const [num, ...u] = bytes(used).split(" ");
+    cards.push(statCard({
+      key: "disk", icon: "drive", label: "Storage", go: "area", arg: "storage",
+      value: num, unit: u.join(" ") + " used",
+      sub: `${bytes(free)} free · ${disks.length} mount${disks.length === 1 ? "" : "s"} · fullest ${esc(worst.mount)} ${Math.round(worst.usage)}%`,
+      foot: segBar(disks.map(d => ({ w: d.size, cls: "c-" + (lvl(d.usage, 85, 95) || "ok"),
+        tip: `${d.mount}: ${Math.round(d.usage)}% used, ${bytes(d.available)} free` }))),
+      attention: lvl(worst.usage, 85, 95)
+    }));
+  } else {
+    cards.push(statCard({ key: "disk", icon: "drive", label: "Storage", value: "—", sub: "no mounts reported yet", go: "area", arg: "storage" }));
+  }
+
+  // Network
+  const [rxN, ...rxU] = rate(LIVE.net?.rx || 0).split(" ");
+  cards.push(statCard({
+    key: "net", icon: "network", label: "Network", go: "area", arg: "network",
+    value: live ? rxN : "—", unit: live ? rxU.join(" ") + " down" : "",
+    sub: live ? `${rate(LIVE.net?.tx || 0)} up` : "waiting for the first reading",
+    foot: sparkSVG((LIVE.history.rx || []).slice(-120), null, "acc2")
+  }));
+
+  // Containers
+  const ctrArea = CK.data?.areas?.find(a => a.id === "containers");
+  const ctrs = LIVE.containers || [];
+  if (ctrs.length) {
+    const running = ctrs.filter(c => c.state === "running").length;
+    const bad = (CK.data?.checks || []).filter(c => c.area === "containers" && c.status === "down").length;
+    cards.push(statCard({
+      key: "ctr", icon: "box", label: "Containers", go: "containers",
+      value: running, unit: `of ${ctrs.length} running`,
+      sub: bad ? `${bad} unhealthy` : "none unhealthy",
+      foot: segBar([{ w: running - bad, cls: "c-ok", tip: `${running - bad} running` }, { w: bad, cls: "c-crit", tip: `${bad} unhealthy` },
+                    { w: ctrs.length - running, cls: "c-idle", tip: `${ctrs.length - running} stopped` }]),
+      attention: bad ? "crit" : ctrArea?.status === "warn" ? "warn" : ""
+    }));
+  } else {
+    cards.push(statCard({ key: "ctr", icon: "box", label: "Containers", value: "—", go: "containers",
+      sub: LIVE.info?.docker && !LIVE.info.docker.available ? "Docker unavailable" : "no containers" }));
+  }
+
+  // Apps
+  const appArea = CK.data?.areas?.find(a => a.id === "apps");
+  if (appArea?.checks) {
+    const appChecks = CK.data.checks.filter(c => c.area === "apps");
+    cards.push(statCard({
+      key: "apps", icon: "grid", label: "Apps", go: "area", arg: "apps",
+      value: appArea.up, unit: `of ${appArea.total} up`,
+      sub: appArea.avgMs != null ? `average response ${appArea.avgMs} ms` : "&nbsp;",
+      foot: segBar(appChecks.map(c => ({ w: 1, cls: "c-" + statusClass(c.status), tip: `${c.name}: ${statusWord(c.status)}` }))),
+      attention: appArea.status === "down" ? "crit" : appArea.status === "warn" ? "warn" : ""
+    }));
+  } else {
+    cards.push(statCard({ key: "apps", icon: "grid", label: "Apps", value: LP.apps.length || "—", unit: LP.apps.length ? "on the board" : "",
+      go: "apps", sub: "add a local address to an app to watch it" }));
+  }
+
+  // Temperature
+  const temps = (LIVE.sensors || []).filter(s => s.kind === "temperature" && Number.isFinite(s.value));
+  if (temps.length) {
+    const hot = temps.reduce((a, b) => (b.value > a.value ? b : a));
+    const crit = hot.critical || 95;
+    cards.push(statCard({
+      key: "temp", icon: "thermo", label: "Temperature", go: "area", arg: "servers",
+      value: Math.round(hot.value), unit: "°C",
+      sub: esc(hot.label) + (temps.length > 1 ? ` · hottest of ${temps.length}` : ""),
+      foot: meterRow("vs limit", hot.value / crit * 100, lvl(hot.value / crit * 100, 85, 95)),
+      attention: lvl(hot.value / crit * 100, 88, 97)
+    }));
+  }
+
+  // Uptime
+  const boot = LIVE.uptimeSec ? new Date(Date.now() - LIVE.uptimeSec * 1000) : null;
+  cards.push(statCard({
+    key: "up", icon: "clock", label: "Uptime",
+    value: LIVE.uptimeSec ? esc(upfmt(LIVE.uptimeSec).split(" ").slice(0, 2).join(" ")) : "—",
+    sub: boot ? `booted ${fmtDate(boot)}, ${fmtTime(boot, false, false)}` : "not reported yet",
+    foot: LIVE.info?.host?.distro ? `<span class="ov-fnote">${esc(LIVE.info.host.distro)}</span>` : ""
+  }));
+
+  // Security
+  const sec = LIVE.security?.[24];
+  if (sec) {
+    const ssh = sec.ssh?.ok ? sec.ssh.count : "?";
+    const upd = sec.updates?.ok ? sec.updates.security || 0 : "?";
+    const ports = sec.ports?.ok ? sec.ports.exposed : "?";
+    cards.push(statCard({
+      key: "sec", icon: "shield", label: "Security", go: "dash",
+      value: ssh, unit: "failed logins · 24 h",
+      sub: `${upd} security update${upd === 1 ? "" : "s"} · ${ports} open port${ports === 1 ? "" : "s"}`,
+      foot: (sec.findings || []).length ? `<span class="ov-fnote">${esc(sec.findings[0].title)}</span>` : "",
+      attention: sec.level === "crit" ? "crit" : sec.level === "warn" ? "warn" : ""
+    }));
+  }
+
+  // Alerts
+  const unread = (CP.alerts || []).filter(a => !a.ack);
+  const last = (CP.alerts || [])[0];
+  cards.push(statCard({
+    key: "alerts", icon: "bell", label: "Alerts", go: "control",
+    value: unread.length, unit: "unread",
+    sub: last ? `last: ${esc(last.title)} · ${ago(new Date(last.ts).getTime())} ago` : "nothing has tripped",
+    attention: unread.some(a => a.level === "crit") ? "crit" : unread.length ? "warn" : ""
+  }));
+
+  const html = cards.join("");
+  if (box.dataset.sig !== html) { box.innerHTML = html; box.dataset.sig = html; }
+}
+
+/* ---------- the areas table ---------- */
+
+function checkTarget(c) {
+  if (!c.target) return "";
+  if (c.kind === "container") return c.target;
+  return c.target;
+}
+
+function checkRow(c, { detail = false } = {}) {
+  const kindLabel = { http: "HTTP", tcp: "TCP", ping: "Ping", dns: "DNS", container: "Container", disk: "Mount", smart: "SMART", derived: "Reading" }[c.kind] || c.kind;
+  return `<div class="ar-row check s-${statusClass(c.status)}" data-check="${esc(c.id)}">
+    <span class="ar-name"><span class="ar-kind">${esc(kindLabel)}</span><span class="ar-nm"><b>${esc(c.name)}</b>
+      ${detail && c.target ? `<small class="mono">${esc(checkTarget(c))}</small>` : c.msg ? `<small>${esc(c.msg)}</small>` : ""}</span></span>
+    <span class="ar-health s-${statusClass(c.status)}">${IC(statusIcon(c.status))}${esc(statusWord(c.status))}</span>
+    <span class="ar-checks">${c.uptime != null ? `${c.uptime}%` : "—"}</span>
+    <span class="ar-resp">${Number.isFinite(c.ms) ? c.ms + " ms" : "—"}</span>
+    <span class="ar-results">${resultBars(c.history)}</span>
+    ${detail ? `<span class="ar-more">
+        ${c.msg ? `<span class="ar-msg">${esc(c.msg)}</span>` : ""}
+        <span class="ar-since">${statusWord(c.status)} since ${hhmm(c.since)} (${ago(c.since)})</span>
+        ${c.custom ? `<button class="ar-act" data-edit-check="${esc(c.id)}" aria-label="Edit">${IC("edit")}</button>
+                      <button class="ar-act danger" data-del-check="${esc(c.id)}" aria-label="Delete">${IC("trash")}</button>` : ""}
+      </span>` : ""}
+  </div>`;
+}
+
+function paintAreasTable(box, areas) {
+  if (!box) return;
+  if (!CK.data) { box.innerHTML = `<div class="ov-empty">Loading checks…</div>`; return; }
+  const checks = CK.data.checks || [];
+  const head = `<div class="ar-row head"><span>Name</span><span>Health</span><span>Checks</span><span>Response</span><span>Results</span></div>`;
+  const rows = areas.map(a => {
+    const m = AREA_META[a.id] || { name: a.name, icon: "activity" };
+    const open = CK.open.has(a.id);
+    const mine = checks.filter(c => c.area === a.id);
+    return `<div class="ar-group${open ? " open" : ""}">
+      <div class="ar-row area" data-toggle-area="${esc(a.id)}" role="button" tabindex="0" aria-expanded="${open}">
+        <span class="ar-name">${IC("chevron-right", "ar-chev")}<span class="ar-tile t-${esc(a.id)}">${IC(m.icon)}</span>
+          <b class="ar-link" data-go="area" data-arg="${esc(a.id)}">${esc(m.name)}</b></span>
+        <span class="ar-health s-${statusClass(a.status)}">${IC(statusIcon(a.status))}${esc(statusWord(a.status))}</span>
+        <span class="ar-checks">${a.checks ? ring(a.up, a.total, a.status) + `${a.up} / ${a.total}` : "—"}</span>
+        <span class="ar-resp">${a.avgMs != null ? a.avgMs + " ms" : "—"}</span>
+        <span class="ar-results">${resultBars(a.history)}</span>
+      </div>
+      ${open ? `<div class="ar-sub">${mine.map(c => checkRow(c)).join("") || `<div class="ov-empty">No checks in this area.</div>`}</div>` : ""}
+    </div>`;
+  }).join("");
+  const html = `<div class="ar-table">${head}${rows}</div>`;
+  if (box.dataset.sig !== html) { box.innerHTML = html; box.dataset.sig = html; }
+}
+
+on("#ov-areas", "click", e => {
+  if (e.target.closest("[data-go]")) return;           // the name is a link to the area page
+  const t = e.target.closest("[data-toggle-area]");
+  if (!t) return;
+  const id = t.dataset.toggleArea;
+  if (CK.open.has(id)) CK.open.delete(id); else CK.open.add(id);
+  paintAreasTable($("#ov-areas"), CK.data?.areas || []);
+});
+on("#ov-areas", "keydown", e => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches("[data-toggle-area]")) { e.preventDefault(); e.target.click(); }
+});
+
+/* ---------- one area ---------- */
+
+function paintArea() {
+  if (!$("#page-area")?.classList.contains("on")) return;
+  const id = curArg;
+  const m = AREA_META[id] || { name: id, icon: "activity", sub: "" };
+  const a = CK.data?.areas?.find(x => x.id === id);
+  const checks = (CK.data?.checks || []).filter(c => c.area === id)
+    .sort((x, y) => (statusClass(y.status) === "crit") - (statusClass(x.status) === "crit") || x.name.localeCompare(y.name));
+  const sum = $("#ar-summary");
+  if (sum) {
+    const html = a ? `
+      <div class="ar-sumcard s-${statusClass(a.status)}">
+        <span class="ar-tile lg t-${esc(id)}">${IC(m.icon)}</span>
+        <div><h2>${esc(m.name)} <span class="ar-health s-${statusClass(a.status)}">${IC(statusIcon(a.status))}${esc(statusWord(a.status))}</span></h2>
+          <p>${a.checks ? `${a.up} of ${a.total} passing${a.checks > a.total ? ` · ${a.checks - a.total} idle or unknown` : ""}${a.avgMs != null ? ` · average response ${a.avgMs} ms` : ""}` : "No checks in this area yet."}</p></div>
+        <span class="spacer"></span>
+        ${resultBars(a.history, 30)}
+      </div>` : `<div class="ov-empty">Loading…</div>`;
+    if (sum.dataset.sig !== html) { sum.innerHTML = html; sum.dataset.sig = html; }
+  }
+  const box = $("#ar-checks");
+  if (box) {
+    const head = `<div class="ar-row head"><span>Check</span><span>Health</span><span>Uptime</span><span>Response</span><span>Results</span></div>`;
+    const html = CK.data
+      ? `<div class="ar-table detail">${head}${checks.map(c => checkRow(c, { detail: true })).join("") ||
+          `<div class="ov-empty">Nothing is checked here yet${id === "apps" ? " — give an app on the Apps page a local address and it will be watched" : ""}. Press <b>Add check</b> to watch a web address, a port, a host or a DNS name.</div>`}</div>`
+      : `<div class="ov-empty">Loading checks…</div>`;
+    if (box.dataset.sig !== html) { box.innerHTML = html; box.dataset.sig = html; }
+  }
+  const note = $("#ar-note");
+  if (note && CK.data) {
+    const n = CK.data.config?.notify;
+    note.innerHTML = `A check that fails three rounds in a row raises an alert${n ? " and is sent to your notification webhook" : ""}; recovery is announced once, and a check that keeps bouncing alerts at most every 15 minutes.
+      <button class="linkbtn" id="ar-notify">${n ? "Stop sending check alerts to the webhook" : "Send check alerts to the webhook too"}</button>`;
+  }
+}
+
+on("#page-area", "click", async e => {
+  if (e.target.closest("#ar-notify")) {
+    try { CK.data = await api("/checks/config", { method: "PUT", body: { notify: !CK.data?.config?.notify } }); paintArea(); toast("Saved", "ok"); }
+    catch (ex) { toast(ex.message, "err"); }
+    return;
+  }
+  const ed = e.target.closest("[data-edit-check]");
+  if (ed) return editCheck(customOf(ed.dataset.editCheck));
+  const del = e.target.closest("[data-del-check]");
+  if (del) {
+    const c = customOf(del.dataset.delCheck);
+    if (!c || !confirm(`Stop checking "${c.name}"?`)) return;
+    saveCustom((CK.data.config.custom || []).filter(x => x.id !== c.id), "Check removed");
+  }
+});
+const customOf = checkId => (CK.data?.config?.custom || []).find(c => "custom:" + c.id === checkId);
+
+async function saveCustom(list, msg) {
+  try {
+    CK.data = await api("/checks/config", { method: "PUT", body: { custom: list } });
+    toast(msg || "Saved", "ok");
+    paintArea(); paintOverview(); paintSidebarAreas();
+    setTimeout(() => loadChecks(), 2500);       // the first probe of a new check
+  } catch (ex) { toast(ex.message, "err"); }
+}
+
+function editCheck(existing) {
+  const c = existing || { kind: "http", area: curPage === "area" ? curArg : "network", name: "", target: "" };
+  const hints = {
+    http: ["https://192.168.1.50:8096", "Any answer below HTTP 500 counts as up — a login page is an app that is running."],
+    tcp: ["192.168.1.1:53", "Up when the port accepts a connection."],
+    ping: ["192.168.1.1", "One ICMP echo, through the system ping."],
+    dns: ["example.com", "Up when the name resolves through this box's DNS."]
+  };
+  const body = document.createElement("div");
+  body.className = "formgrid";
+  body.innerHTML = `
+    <label>Type
+      <select id="ck-kind">${["http", "tcp", "ping", "dns"].map(k => `<option value="${k}"${c.kind === k ? " selected" : ""}>${{ http: "Web address (HTTP)", tcp: "Port (TCP)", ping: "Host (ping)", dns: "DNS name" }[k]}</option>`).join("")}</select></label>
+    <label>Target <input id="ck-target" type="text" spellcheck="false" autocapitalize="none" value="${esc(c.target)}"></label>
+    <p class="hint" id="ck-hint"></p>
+    <label>Name <input id="ck-name" type="text" maxlength="48" value="${esc(c.name)}" placeholder="What to call it"></label>
+    <label>Area
+      <select id="ck-area">${Object.entries(AREA_META).map(([k, v]) => `<option value="${k}"${c.area === k ? " selected" : ""}>${v.name}</option>`).join("")}</select></label>`;
+  openModal({
+    title: existing ? "Edit check" : "Add a check", icon: ICON("network"), body,
+    foot: `<span class="spacer"></span><button class="btn primary" id="ck-save" type="button">${existing ? "Save" : "Add check"}</button>`
+  });
+  const paintHint = () => {
+    const [ph, hint] = hints[$("#ck-kind").value];
+    $("#ck-target").placeholder = ph;
+    $("#ck-hint").textContent = hint;
+  };
+  paintHint();
+  on("#ck-kind", "change", paintHint);
+  on("#ck-save", "click", () => {
+    const next = { id: existing?.id, kind: $("#ck-kind").value, target: $("#ck-target").value.trim(),
+                   name: $("#ck-name").value.trim(), area: $("#ck-area").value };
+    if (!next.target) return toast("Give it a target", "err");
+    const list = (CK.data?.config?.custom || []).filter(x => x.id !== existing?.id);
+    const before = list.length;
+    closeModal();
+    saveCustom([...list, next], existing ? "Check saved" : "Check added").then(() => {
+      if ((CK.data?.config?.custom || []).length === before) toast("That target was not accepted — check its format", "err");
+    });
+  });
+}
+on("#ov-run", "click", async e => { e.currentTarget.disabled = true; await loadChecks(true); e.currentTarget.disabled = false; toast("Checks run", "ok"); });
+on("#ar-run", "click", async e => { e.currentTarget.disabled = true; await loadChecks(true); e.currentTarget.disabled = false; toast("Checks run", "ok"); });
+on("#ar-add", "click", () => editCheck(null));
+
+/* ---------- live repaint ---------- */
+
+let liveRaf = 0, liveLast = 0;
+/** Metrics frames arrive every two seconds; the Overview repaints with them. */
+function onLiveFrame() {
+  if (document.hidden || curPage !== "overview" || liveRaf) return;
+  if (Date.now() - liveLast < 900) return;
+  liveRaf = requestAnimationFrame(() => {
+    liveRaf = 0; liveLast = Date.now();
+    paintStats();
+    paintHero();
+  });
+}
+
+/** Status dots on the launcher tiles. */
+function paintLauncherStatus() {
+  $$("#l-grid .ltile[data-id]").forEach(t => {
+    const a = LP.apps.find(x => x.id === t.dataset.id);
+    if (!a) return;
+    let dot = $(".lstat", t);
+    if (!dot) { dot = document.createElement("span"); dot.className = "lstat"; t.appendChild(dot); }
+    const c = CK.data?.checks?.find(x => x.id === "app:" + a.id);
+    const st = c ? c.status : "empty";
+    dot.className = "lstat s-" + statusClass(st) + (c ? "" : " none");
+    dot.setAttribute("data-tip", c ? `${statusWord(st)}${Number.isFinite(c.ms) ? ` · ${c.ms} ms` : ""}${c.msg ? ` · ${c.msg}` : ""}` : "Not checked — add a local address to watch it");
+  });
+}
+
+/* ============================ command palette ============================
+ * Ctrl/⌘+K anywhere, or "/" when not typing. Everything it searches is already
+ * in memory — pages, areas, apps, containers, checks, actions — so typing never
+ * waits on the network. The last row always offers to ask Kernel instead.
+ */
+const PAL = { items: [], shown: [], sel: 0, open: false, last: null };
+
+function paletteSources() {
+  const out = [];
+  const add = (group, label, opts) => out.push({ group, label, ...opts });
+  for (const [k, v] of Object.entries(PAGES)) {
+    if (k === "area") continue;
+    add("Pages", v.title, { icon: v.icon, hint: v.sub, run: () => go(k) });
+  }
+  for (const [k, v] of Object.entries(AREA_META)) {
+    const a = CK.data?.areas?.find(x => x.id === k);
+    add("Areas", v.name, { icon: v.icon, hint: a ? statusWord(a.status) + (a.total ? ` · ${a.up}/${a.total}` : "") : v.sub,
+      dot: a ? statusClass(a.status) : null, run: () => go("area", k) });
+  }
+  for (const a of LP.apps) {
+    add("Apps", a.name, { iconHTML: appIconHTML(a), hint: a.desc || (a.locked ? "needs the PIN" : a.url || ""),
+      dot: statusClass(appStatus(a)), keys: (a.tags || []).join(" "), run: () => openApp(a) });
+  }
+  for (const c of LIVE.containers || []) {
+    add("Containers", c.title || c.name, { icon: "box", hint: `${c.state} · ${c.image}`,
+      dot: c.state === "running" ? "ok" : "idle", keys: c.name, run: () => manageFromAnywhere(c.id) });
+  }
+  for (const c of (CK.data?.checks || []).filter(c => !c.id.startsWith("ctr:") && !c.id.startsWith("app:"))) {
+    add("Checks", c.name, { icon: AREA_META[c.area]?.icon || "activity", hint: `${AREA_META[c.area]?.name || c.area} · ${c.msg || statusWord(c.status)}`,
+      dot: statusClass(c.status), run: () => go("area", c.area) });
+  }
+  const A = window.NexusAppearance;
+  const acts = [
+    ["Run all health checks now", "refresh", () => loadChecks(true).then(() => toast("Checks run", "ok"))],
+    ["Add a health check", "plus", () => { go("area", curPage === "area" ? curArg : "network"); setTimeout(() => editCheck(null), 50); }],
+    ["Add a widget", "layout", () => { go("dash"); renderDrawer(); $("#drawer").classList.add("open"); }],
+    ["Add an app", "grid", () => { go("apps"); setTimeout(() => editApp(null), 50); }],
+    ["New watch rule", "zap", () => { go("control"); setTimeout(() => $("#cp-new-rule")?.click(), 150); }],
+    ["Install from GitHub", "store", () => { go("store"); setTimeout(() => openGitHubInstall(), 50); }],
+    ["Open Kernel", "sparkles", () => toggleKernel(true)],
+    ["New Kernel conversation", "message", () => { toggleKernel(true); newChat(); }],
+    [document.documentElement.dataset.theme === "dark" ? "Switch to light mode" : "Switch to dark mode", "moon", () => A?.toggleMode()],
+    [A?.glass ? "Turn glass panels off" : "Turn glass panels on", "sparkles", () => A?.setGlass(!A.glass)],
+    [document.body.classList.contains("rail-mini") ? "Expand the sidebar" : "Collapse the sidebar", "sidebar", () => setRailMini(!document.body.classList.contains("rail-mini"))],
+    ["Keyboard shortcuts", "keyboard", () => showShortcuts()],
+    ["Sign out", "logout", () => $("#logout")?.click()]
+  ];
+  for (const [label, icon, run] of acts) add("Actions", label, { icon, run });
+  return out;
+}
+
+/** Higher is better; 0 is no match. Prefix beats word-start beats substring beats scattered letters. */
+function fuzzy(q, s) {
+  if (!q) return 1;
+  s = s.toLowerCase();
+  if (s.startsWith(q)) return 100 - s.length / 100;
+  const at = s.indexOf(q);
+  if (at > 0 && /[\s\-_./·]/.test(s[at - 1])) return 80 - at / 100;
+  if (at >= 0) return 60 - at / 100;
+  let i = 0;
+  for (const ch of s) if (ch === q[i]) i++;
+  return i === q.length ? 20 : 0;
+}
+
+function openPalette(prefill = "") {
+  const box = $("#cmdk");
+  if (!box) return;
+  PAL.items = paletteSources();
+  PAL.open = true;
+  PAL.last = document.activeElement;
+  box.hidden = false;
+  const q = $("#ck-q");
+  q.value = prefill;
+  filterPalette();
+  requestAnimationFrame(() => { q.focus(); q.select(); });
+}
+function closePalette() {
+  const box = $("#cmdk");
+  if (!box || box.hidden) return;
+  box.hidden = true;
+  PAL.open = false;
+  try { PAL.last?.focus?.({ preventScroll: true }); } catch {}
+}
+function filterPalette() {
+  const q = $("#ck-q").value.trim().toLowerCase();
+  const scored = PAL.items
+    .map(it => ({ it, s: Math.max(fuzzy(q, it.label), fuzzy(q, it.keys || "") * 0.8, q.length > 2 ? fuzzy(q, it.hint || "") * 0.5 : 0) }))
+    .filter(x => x.s > 0);
+  if (q) scored.sort((a, b) => b.s - a.s);
+  const order = ["Pages", "Areas", "Apps", "Containers", "Checks", "Actions"];
+  let list = q ? scored.slice(0, 40).map(x => x.it)
+    : order.flatMap(g => scored.filter(x => x.it.group === g).slice(0, g === "Pages" || g === "Areas" ? 10 : 6).map(x => x.it));
+  if (q) list.push({ group: "Kernel", label: `Ask Kernel: “${$("#ck-q").value.trim()}”`, icon: "sparkles",
+    run: () => askKernel($("#ck-q").value.trim()) });
+  PAL.shown = list;
+  PAL.sel = 0;
+  paintPalette();
+}
+function paintPalette() {
+  const box = $("#ck-list");
+  let group = null, i = 0;
+  box.innerHTML = PAL.shown.map(it => {
+    const head = it.group !== group ? `<div class="ck-group">${esc(it.group)}</div>` : "";
+    group = it.group;
+    const idx = i++;
+    return head + `<div class="ck-item${idx === PAL.sel ? " on" : ""}" role="option" id="ck-o${idx}" data-i="${idx}" aria-selected="${idx === PAL.sel}">
+      <span class="ck-ico">${it.iconHTML || IC(it.icon || "chevron-right")}</span>
+      <span class="ck-label">${esc(it.label)}</span>
+      ${it.hint ? `<span class="ck-hint">${esc(it.hint)}</span>` : ""}
+      ${it.dot ? `<span class="ndot s-${it.dot}"></span>` : ""}
+    </div>`;
+  }).join("") || `<div class="ck-empty">Nothing matches.</div>`;
+  wireIcons(box);
+  $("#ck-q").setAttribute("aria-activedescendant", PAL.shown.length ? "ck-o" + PAL.sel : "");
+  $(".ck-item.on", box)?.scrollIntoView({ block: "nearest" });
+}
+function runPalette(i) {
+  const it = PAL.shown[i];
+  if (!it) return;
+  closePalette();
+  try { it.run(); } catch (e) { console.error("[nexus] palette:", e); }
+}
+on("#ck-q", "input", filterPalette);
+on("#ck-q", "keydown", e => {
+  if (e.key === "ArrowDown") { e.preventDefault(); PAL.sel = Math.min(PAL.shown.length - 1, PAL.sel + 1); paintPalette(); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); PAL.sel = Math.max(0, PAL.sel - 1); paintPalette(); }
+  else if (e.key === "Enter") { e.preventDefault(); runPalette(PAL.sel); }
+  else if (e.key === "Escape") { e.preventDefault(); closePalette(); }
+});
+on("#ck-list", "click", e => { const it = e.target.closest(".ck-item"); if (it) runPalette(Number(it.dataset.i)); });
+on("#ck-list", "pointermove", e => {
+  const it = e.target.closest(".ck-item");
+  if (it && Number(it.dataset.i) !== PAL.sel) { PAL.sel = Number(it.dataset.i); $$(".ck-item", $("#ck-list")).forEach(n => n.classList.toggle("on", n === it)); }
+});
+on("#cmdk", "pointerdown", e => { if (e.target.id === "cmdk") closePalette(); });
+
+/* ============================ keyboard ============================ */
+function showShortcuts() {
+  const k = /Mac|iPhone|iPad/.test(navigator.platform || "") ? "⌘" : "Ctrl";
+  const rows = [
+    [`${k} K`, "Search everything"], ["/", "Search everything"], [`${k} J`, "Open or close Kernel"],
+    ["g then o", "Overview"], ["g then d", "Dashboard"], ["g then a", "Apps"], ["g then c", "Containers"],
+    ["g then f", "Files"], ["g then t", "Terminal"], ["g then s", "Settings"], ["g then u", "Automations"],
+    ["r", "Refresh this page"], ["?", "This list"], ["Esc", "Close whatever is open"]
+  ];
+  openModal({
+    title: "Keyboard shortcuts", icon: ICON("settings"),
+    body: `<div class="kbd-list">${rows.map(([a, b]) => `<div><span>${a.split(" ").map(x => x === "then" ? "then" : `<kbd>${esc(x)}</kbd>`).join(" ")}</span><b>${esc(b)}</b></div>`).join("")}</div>`
+  });
+}
+
+let gPending = 0;
+addEventListener("keydown", e => {
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); PAL.open ? closePalette() : openPalette(); return; }
+  if (mod && e.key.toLowerCase() === "j") { e.preventDefault(); toggleKernel(); return; }
+  if (e.key === "Escape" && PAL.open) { closePalette(); return; }
+  if (mod || e.altKey || typingInto(document.activeElement) || $("#app").hidden) return;
+  if (modal.classList.contains("open") || PAL.open) return;
+  const k = e.key;
+  if (gPending && Date.now() - gPending < 1200) {
+    gPending = 0;
+    const map = { o: "overview", d: "dash", a: "apps", c: "containers", f: "files", t: "term", s: "settings", u: "control", p: "store" };
+    if (map[k]) { e.preventDefault(); go(map[k]); }
+    return;
+  }
+  if (k === "g") { gPending = Date.now(); return; }
+  if (k === "/") { e.preventDefault(); openPalette(); return; }
+  if (k === "?") { e.preventDefault(); showShortcuts(); return; }
+  if (k === "r" && curPage !== "term") { e.preventDefault(); $("#tb-refresh")?.click(); }
+});
+
+
+/* ==================== Kernel — the Nexus Expert ====================
+ * A panel on every page, an agent behind it, and a settings section that
+ * decides what that agent is allowed to touch.
+ *
+ * What changed in 0.9, and why:
+ *
+ *  - **Turns run in the background.** The panel used to hold one HTTP request
+ *    open for the whole turn. Behind Nginx Proxy Manager that request is cut at
+ *    60 seconds, so a turn with a few tool calls showed an error while it went on
+ *    and finished unseen. Now `send` returns at once and the panel polls the
+ *    transcript: every tool step appears as it happens, and a reload in the
+ *    middle of a turn picks it back up.
+ *  - **Stop** is a real button, checked by the server between steps.
+ *  - **Rendering is incremental.** Every repaint used to rebuild every message,
+ *    which closed any tool detail you had opened and threw the scroll position
+ *    away. Messages are now appended, and a message is rebuilt only when it
+ *    actually changed.
+ *  - Conversations moved from a cramped tab strip (with a close button nested
+ *    inside each tab button) into a history menu.
+ *  - It can dock to the side as a full-height panel, and it can be glass.
+ */
 
 const KX = {
   run: null,          // current conversation id
-  chats: [],          // the tab strip, newest first
-  busy: false,
+  chats: [],          // newest first
+  busy: false,        // a turn is running on the server
+  sending: false,     // a request is in flight from this browser
   cfg: null,          // last /agent/config payload
   steps: [],
   pending: null,
   atts: [],           // images picked or pasted but not sent yet
-  usage: { in: 0, out: 0, cost: 0 }
+  usage: { in: 0, out: 0, cost: 0 },
+  startedAt: 0,
+  stopping: false,    // Stop was pressed and the server has not finished yet
+  poll: null,
+  keys: [],           // what is on screen: one key per rendered step
+  open: new Set()     // tool details the owner has expanded, by step index
 };
 
 const tok = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n || 0);
@@ -6609,15 +7691,16 @@ const tok = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1000 ? (n / 1000).
 const money = (n, priced = true) =>
   priced === false ? "no rate" : n >= 1 ? "$" + n.toFixed(2) : n > 0 ? "$" + n.toFixed(4) : "$0.00";
 
-/* ---------------- the dock ---------------- */
+/* ---------------- mounting ---------------- */
 
 function mountKernel() {
-  $$(".hbot-art").forEach(el => { el.innerHTML = KBOT; });
-
   on("#kernel-open", "click", () => toggleKernel());
   on("#kx-close", "click", () => toggleKernel(false));
-  on("#kx-config", "click", () => { toggleKernel(false); go("settings"); });
+  on("#kx-config", "click", () => { toggleKernel(false); go("settings"); setTimeout(() => $("#agent-section")?.scrollIntoView({ behavior: "smooth" }), 80); });
   on("#kx-reset", "click", () => resetPanel());
+  on("#kx-add", "click", () => newChat());
+  on("#kx-dock", "click", () => setDock(!$("#kernel").classList.contains("docked")));
+  on("#kx-hist", "click", e => { e.stopPropagation(); toggleHistory(); });
 
   const input = $("#kx-input");
   on("#kx-compose", "submit", e => { e.preventDefault(); kernelSend(); });
@@ -6625,13 +7708,14 @@ function mountKernel() {
     // Enter sends, Shift+Enter is a newline. A chat box that needs a mouse to
     // send is a chat box nobody uses twice.
     input.addEventListener("keydown", e => {
-      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); kernelSend(); }
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); kernelSend(); }
+      if (e.key === "ArrowUp" && !input.value) {
+        // Up on an empty box brings back the last thing you asked, like a shell.
+        const last = [...KX.steps].reverse().find(s => s.kind === "user" && s.text);
+        if (last) { e.preventDefault(); input.value = last.text; growInput(); }
+      }
     });
-    // Grow with the message, up to a point, then scroll.
-    input.addEventListener("input", () => {
-      input.style.height = "auto";
-      input.style.height = Math.min(140, input.scrollHeight) + "px";
-    });
+    input.addEventListener("input", growInput);
     // A screenshot in the clipboard is the common case, so it needs no button.
     input.addEventListener("paste", e => {
       const files = [...(e.clipboardData?.items || [])]
@@ -6648,7 +7732,8 @@ function mountKernel() {
   on("#kx-atts", "click", e => {
     const b = e.target.closest("[data-drop]");
     if (!b) return;
-    KX.atts.splice(Number(b.dataset.drop), 1);
+    const [gone] = KX.atts.splice(Number(b.dataset.drop), 1);
+    if (gone?.url) URL.revokeObjectURL(gone.url);
     paintAttachments();
   });
 
@@ -6663,48 +7748,87 @@ function mountKernel() {
       panel.classList.remove("dropping");
       addAttachments([...e.dataTransfer.files].filter(f => f.type.startsWith("image/")));
     });
+    // Esc closes the panel when the focus is inside it — and closes the
+    // history menu first if that is open.
+    panel.addEventListener("keydown", e => {
+      if (e.key !== "Escape") return;
+      if (!$("#kx-histmenu").hidden) { toggleHistory(false); return; }
+      toggleKernel(false);
+      $("#tb-kernel")?.focus();
+    });
   }
 
-  on("#kx-tabs", "click", e => {
-    const close = e.target.closest("[data-shut]");
-    if (close) { e.stopPropagation(); return shutChat(close.dataset.shut); }
-    if (e.target.closest("#kx-add")) return newChat();
-    const tab = e.target.closest("[data-chat]");
-    if (tab) switchChat(tab.dataset.chat);
-  });
-
-  // Copy a reply. The button is on the message, because "which one" is a
-  // question a single copy button at the bottom cannot answer.
   on("#kx-body", "click", async e => {
     const b = e.target.closest("[data-copy]");
-    if (b) {
-      const src = KX.steps[Number(b.dataset.copy)];
-      try {
-        await navigator.clipboard.writeText(src?.text || "");
-        b.classList.add("done");
-        b.textContent = "COPIED";
-        setTimeout(() => { b.classList.remove("done"); b.textContent = "COPY"; }, 1400);
-      } catch { toast("this browser would not let me copy", "err"); }
+    if (b) return copyText(KX.steps[Number(b.dataset.copy)]?.text || "", b);
+    const cb = e.target.closest("[data-ccopy]");
+    if (cb) return copyText(cb.closest("pre")?.querySelector("code")?.textContent || "", cb);
+    const retry = e.target.closest("[data-retry]");
+    if (retry) {
+      const last = [...KX.steps].reverse().find(s => s.kind === "user" && s.text);
+      if (last) kernelSend(last.text);
       return;
     }
+    const sug = e.target.closest("[data-suggest]");
+    if (sug) return kernelSend(sug.dataset.suggest);
+    if (e.target.closest("[data-kx-setup]")) { toggleKernel(false); go("settings"); return; }
     const img = e.target.closest("[data-shot]");
     if (img) openShot(img.dataset.shot, img.dataset.name);
+  });
+  // Remember which tool details are open, so a repaint cannot close them.
+  $("#kx-body")?.addEventListener("toggle", e => {
+    const d = e.target;
+    if (!d.matches?.("details[data-step]")) return;
+    const i = Number(d.dataset.step);
+    if (d.open) KX.open.add(i); else KX.open.delete(i);
+  }, true);
+
+  on("#kx-status", "click", e => { if (e.target.closest("[data-stop]")) kernelStop(); });
+  on("#kx-histmenu", "click", e => {
+    const del = e.target.closest("[data-shut]");
+    if (del) { e.stopPropagation(); return shutChat(del.dataset.shut); }
+    if (e.target.closest("[data-newchat]")) { toggleHistory(false); return newChat(); }
+    const c = e.target.closest("[data-chat]");
+    if (c) { toggleHistory(false); switchChat(c.dataset.chat); }
+  });
+  document.addEventListener("click", e => {
+    if (!$("#kx-histmenu")?.hidden && !e.target.closest("#kx-histmenu, #kx-hist")) toggleHistory(false);
   });
 
   wirePanelGeometry();
 
   // Remembered per browser, like every other display preference here.
-  try { if (localStorage.getItem("nexus.kernel.open") === "1") toggleKernel(true); } catch {}
+  try {
+    if (localStorage.getItem("nexus.kernel.dock") === "1") $("#kernel").classList.add("docked");
+    if (localStorage.getItem("nexus.kernel.open") === "1") toggleKernel(true);
+  } catch {}
   refreshAgentConfig();
   loadChats();
+}
+
+function growInput() {
+  const input = $("#kx-input");
+  if (!input) return;
+  input.style.height = "auto";
+  input.style.height = Math.min(180, input.scrollHeight) + "px";
+}
+
+async function copyText(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+    btn.classList.add("done");
+    const was = btn.innerHTML;
+    btn.innerHTML = IC("check") + "<span>Copied</span>";
+    setTimeout(() => { btn.classList.remove("done"); btn.innerHTML = was; }, 1400);
+  } catch { toast("This browser would not let me copy", "err"); }
 }
 
 /* ---- where the panel sits, and how big it is ----
  * Both are the owner's, both are remembered per browser, and both are ignored
  * on a small screen where the panel is the page rather than a card on it.
  */
-const PANEL_MIN = { w: 320, h: 360 };
-const floating = () => innerWidth > 560;
+const PANEL_MIN = { w: 340, h: 380 };
+const floating = () => innerWidth > 640 && !$("#kernel")?.classList.contains("docked");
 
 function panelGeom() {
   try { return JSON.parse(localStorage.getItem("nexus.kernel.geom") || "{}"); } catch { return {}; }
@@ -6716,10 +7840,19 @@ function saveGeom(g) {
 function applyGeom() {
   const panel = $("#kernel");
   if (!panel) return;
+  const docked = panel.classList.contains("docked");
+  if (docked && innerWidth > 640) {
+    const w = clamp(panelGeom().dw || 420, 340, Math.min(720, innerWidth - 320));
+    panel.style.cssText = "";
+    document.documentElement.style.setProperty("--kx-dock-w", w + "px");
+    document.body.classList.toggle("kx-docked", !panel.hidden);
+    return;
+  }
+  document.body.classList.remove("kx-docked");
   if (!floating()) { panel.style.cssText = ""; return; }
   const g = panelGeom();
-  const w = Math.max(PANEL_MIN.w, Math.min(g.w || 410, innerWidth - 16));
-  const h = Math.max(PANEL_MIN.h, Math.min(g.h || 620, innerHeight - 16));
+  const w = Math.max(PANEL_MIN.w, Math.min(g.w || 430, innerWidth - 16));
+  const h = Math.max(PANEL_MIN.h, Math.min(g.h || 640, innerHeight - 16));
   panel.style.width = w + "px";
   panel.style.height = h + "px";
   if (g.x != null && g.y != null) {
@@ -6736,14 +7869,30 @@ function applyGeom() {
 
 function resetPanel() {
   saveGeom({});
+  setDock(false);
   applyGeom();
-  toast("PANEL RESET", "ok");
+  toast("Panel back in the corner", "ok");
+}
+
+function setDock(on_) {
+  const panel = $("#kernel");
+  if (!panel) return;
+  panel.classList.toggle("docked", !!on_);
+  try { localStorage.setItem("nexus.kernel.dock", on_ ? "1" : "0"); } catch {}
+  const b = $("#kx-dock");
+  if (b) {
+    b.setAttribute("aria-label", on_ ? "Float the panel" : "Dock to the side");
+    b.setAttribute("data-tip", on_ ? "Float the panel" : "Dock to the side");
+    b.classList.toggle("on", !!on_);
+  }
+  applyGeom();
+  requestAnimationFrame(() => { layout(false); if (term && $("#page-term").classList.contains("on")) fitTerm(); });
 }
 
 function wirePanelGeometry() {
   const panel = $("#kernel"), head = $("#kx-head");
   if (!panel || !head) return;
-  applyGeom();
+  setDock(panel.classList.contains("docked"));
   addEventListener("resize", applyGeom);
 
   // Dragging by the header. Buttons in it are still buttons.
@@ -6756,8 +7905,8 @@ function wirePanelGeometry() {
       if (!moved && Math.abs(ev.clientX - e.clientX) < 3 && Math.abs(ev.clientY - e.clientY) < 3) return;
       moved = true;
       panel.classList.add("moving");
-      const g = { ...panelGeom(), w: r.width, h: r.height, x: ev.clientX - dx, y: ev.clientY - dy };
-      saveGeom(g); applyGeom();
+      saveGeom({ ...panelGeom(), w: r.width, h: r.height, x: ev.clientX - dx, y: ev.clientY - dy });
+      applyGeom();
     };
     const up = () => {
       head.removeEventListener("pointermove", mv);
@@ -6771,15 +7920,19 @@ function wirePanelGeometry() {
   });
 
   // Resizing from the top and left edges — the panel sits in the bottom-right
-  // corner, so those are the two edges with room in front of them.
+  // corner, so those are the two edges with room in front of them. Docked, the
+  // left edge sets the dock's width.
   $$(".kx-grip", panel).forEach(grip => {
     grip.addEventListener("pointerdown", e => {
-      if (!floating() || e.button !== 0) return;
+      if (e.button !== 0 || innerWidth <= 640) return;
+      const docked = panel.classList.contains("docked");
+      if (docked && grip.dataset.grip !== "w") return;
       e.preventDefault();
       const r = panel.getBoundingClientRect();
       const dir = grip.dataset.grip;
       const mv = ev => {
         const g = { ...panelGeom() };
+        if (docked) { g.dw = clamp(innerWidth - ev.clientX, 340, Math.min(720, innerWidth - 320)); saveGeom(g); applyGeom(); return; }
         if (dir.includes("w")) {
           g.w = Math.max(PANEL_MIN.w, Math.min(r.right - ev.clientX, innerWidth - 16));
           g.x = r.right - g.w;
@@ -6798,6 +7951,7 @@ function wirePanelGeometry() {
         removeEventListener("pointerup", up);
         panel.classList.remove("moving");
         try { grip.releasePointerCapture(e.pointerId); } catch {}
+        requestAnimationFrame(() => layout(false));
       };
       try { grip.setPointerCapture(e.pointerId); } catch {}
       grip.addEventListener("pointermove", mv);
@@ -6813,12 +7967,23 @@ function toggleKernel(want) {
   panel.toggleAttribute("hidden", !open);
   btn?.setAttribute("aria-expanded", String(open));
   btn?.classList.toggle("tucked", open);
+  $("#tb-kernel")?.classList.toggle("on", open);
   try { localStorage.setItem("nexus.kernel.open", open ? "1" : "0"); } catch {}
+  applyGeom();
   if (open) {
-    applyGeom();
-    paintKernel();
-    requestAnimationFrame(() => $("#kx-input")?.focus());
-  }
+    paintKernel(true);
+    if (KX.run && !KX.poll) refreshTranscript();
+    requestAnimationFrame(() => { $("#kx-input")?.focus(); scrollKernel(true); });
+  } else toggleHistory(false);
+  requestAnimationFrame(() => layout(false));
+}
+
+/** Open Kernel and ask it something — the palette's last row. */
+function askKernel(text) {
+  toggleKernel(true);
+  if (!text) return;
+  if (KX.busy || KX.sending) { $("#kx-input").value = text; growInput(); return; }
+  kernelSend(text);
 }
 
 async function refreshAgentConfig() {
@@ -6826,14 +7991,19 @@ async function refreshAgentConfig() {
     KX.cfg = await api("/agent/config");
     const s = KX.cfg.settings;
     const model = (KX.cfg.providers.find(p => p.id === s.provider)?.models || []).find(m => m.id === s.model);
+    const prov = KX.cfg.providers.find(p => p.id === s.provider);
     const label = model?.label || s.customModel || s.model || "no model";
     const el = $("#kx-model");
-    if (el) el.textContent = KX.cfg.ready ? label : "needs an API key";
+    if (el) {
+      el.textContent = KX.cfg.ready ? `${prov?.label ? prov.label + " · " : ""}${label}` : "Needs an API key";
+      el.classList.toggle("warn", !KX.cfg.ready);
+    }
     $("#kernel-open")?.classList.toggle("unconfigured", !KX.cfg.ready);
     // The attach button appears only where the chosen model takes images.
     const att = $("#kx-attach");
     if (att) att.hidden = !(s.provider === "custom" || model?.vision);
     paintUsage();
+    if (!KX.steps.length) paintKernel(true);
   } catch { /* not fatal: the panel says so when you try to send */ }
 }
 
@@ -6848,41 +8018,47 @@ async function loadChats() {
   let want = null;
   try { want = localStorage.getItem("nexus.kernel.chat"); } catch {}
   const pick = KX.chats.find(c => c.id === want) || KX.chats[0];
-  if (pick) await switchChat(pick.id, { quiet: true });
+  if (pick && pick.id !== KX.run) await switchChat(pick.id, { quiet: true });
   else paintKernel();
+  paintHistory();
 }
 
 async function switchChat(id, opts = {}) {
-  if (KX.busy) return;
-  if (KX.run === id && !opts.force) { paintTabs(); return; }
+  if (KX.sending) return;
+  if (KX.run === id && !opts.force) return;
+  stopPolling();
   try {
     const t = await api(`/agent/run/${id}`);
     KX.run = id;
-    KX.steps = t.steps || [];
-    KX.pending = t.pending || null;
-    KX.usage = t.usage || { in: 0, out: 0, cost: 0 };
+    applyTurn(t);
     KX.atts = [];
+    KX.open.clear();
     try { localStorage.setItem("nexus.kernel.chat", id); } catch {}
+    if (t.busy) startPolling();
   } catch {
-    // Gone on the server: drop it from the strip rather than showing a tab
+    // Gone on the server: drop it from the list rather than showing a row
     // that does nothing.
     KX.chats = KX.chats.filter(c => c.id !== id);
     if (KX.run === id) { KX.run = null; KX.steps = []; }
   }
-  paintKernel();
+  paintKernel(true);
+  paintHistory();
+  scrollKernel(true);
 }
 
 async function newChat() {
-  if (KX.busy) return;
+  if (KX.sending) return;
+  stopPolling();
   try {
     const out = await api("/agent/run", { method: "POST" });
     KX.run = out.id;
     KX.chats = out.chats || KX.chats;
-    KX.steps = []; KX.pending = null; KX.atts = [];
+    KX.steps = []; KX.pending = null; KX.atts = []; KX.busy = false; KX.open.clear();
     KX.usage = { in: 0, out: 0, cost: 0 };
     try { localStorage.setItem("nexus.kernel.chat", out.id); } catch {}
-  } catch (e) { toast(e.message || "could not start one", "err"); }
-  paintKernel();
+  } catch (e) { toast(e.message || "Could not start one", "err"); }
+  paintKernel(true);
+  paintHistory();
   $("#kx-input")?.focus();
 }
 
@@ -6891,11 +8067,38 @@ async function shutChat(id) {
     KX.chats = (await api(`/agent/run/${id}`, { method: "DELETE" })).chats || [];
   } catch { KX.chats = KX.chats.filter(c => c.id !== id); }
   if (KX.run === id) {
-    KX.run = null; KX.steps = []; KX.pending = null; KX.usage = { in: 0, out: 0, cost: 0 };
+    stopPolling();
+    KX.run = null; KX.steps = []; KX.pending = null; KX.busy = false; KX.usage = { in: 0, out: 0, cost: 0 };
     const next = KX.chats[0];
     if (next) return switchChat(next.id);
   }
-  paintKernel();
+  paintKernel(true);
+  paintHistory();
+}
+
+function toggleHistory(want) {
+  const menu = $("#kx-histmenu"), btn = $("#kx-hist");
+  if (!menu) return;
+  const open = want === undefined ? menu.hidden : want;
+  menu.hidden = !open;
+  btn?.setAttribute("aria-expanded", String(open));
+  btn?.classList.toggle("on", open);
+  if (open) paintHistory();
+}
+
+function paintHistory() {
+  const menu = $("#kx-histmenu");
+  if (!menu || menu.hidden) return;
+  menu.innerHTML = `
+    <button type="button" class="kx-hrow new" data-newchat>${IC("plus")}<span>New conversation</span></button>
+    ${KX.chats.length ? KX.chats.map(c => `
+      <div class="kx-hrow${c.id === KX.run ? " on" : ""}">
+        <button type="button" class="kx-hpick" data-chat="${esc(c.id)}">${IC("message")}
+          <span class="kx-htitle">${esc(c.title)}</span>
+          <span class="kx-hmeta">${c.messages || 0} msg · ${ago(c.at)} ago</span></button>
+        <button type="button" class="kx-hdel" data-shut="${esc(c.id)}" aria-label="Delete this conversation" data-tip="Delete">${IC("trash")}</button>
+      </div>`).join("") : `<p class="kx-hnone">No conversations yet.</p>`}
+    <p class="kx-hnote">The five most recent are kept, on the server, so they follow you between devices.</p>`;
 }
 
 /* ---------------- attachments ---------------- */
@@ -6906,7 +8109,7 @@ async function addAttachments(files) {
   for (const f of files) {
     if (KX.atts.length >= MAX_ATTS) { toast(`${MAX_ATTS} images at a time`, "err"); break; }
     if (!/^image\/(png|jpeg|webp|gif)$/.test(f.type)) { toast("PNG, JPEG, WebP or GIF", "err"); continue; }
-    if (f.size > MAX_ATT_BYTES) { toast(`${f.name || "that image"} is over 5 MB`, "err"); continue; }
+    if (f.size > MAX_ATT_BYTES) { toast(`${f.name || "That image"} is over 5 MB`, "err"); continue; }
     try {
       const data = await new Promise((res, rej) => {
         const fr = new FileReader();
@@ -6916,7 +8119,7 @@ async function addAttachments(files) {
       });
       KX.atts.push({ name: f.name || "pasted image", mime: f.type, size: f.size, data,
                      url: URL.createObjectURL(f) });
-    } catch { toast("could not read that image", "err"); }
+    } catch { toast("Could not read that image", "err"); }
   }
   paintAttachments();
 }
@@ -6929,27 +8132,31 @@ function paintAttachments() {
     <span class="kx-att">
       <img src="${esc(a.url)}" alt="">
       <span class="kx-attname">${esc(a.name)}</span>
-      <button type="button" class="kx-attx" data-drop="${i}" aria-label="Remove">&times;</button>
+      <button type="button" class="kx-attx" data-drop="${i}" aria-label="Remove">${IC("x")}</button>
     </span>`).join("");
 }
 
-/* ---------------- sending ---------------- */
+/* ---------------- sending, and following a turn ---------------- */
 
-async function kernelSend() {
+async function kernelSend(override) {
   const input = $("#kx-input");
-  const text = (input?.value || "").trim();
-  if ((!text && !KX.atts.length) || KX.busy) return;
+  const text = (override ?? input?.value ?? "").trim();
+  if ((!text && !KX.atts.length) || KX.busy || KX.sending) return;
+  if (KX.cfg && !KX.cfg.ready) { toast("Kernel needs an API key first — Settings → Kernel", "err"); return; }
 
   const images = KX.atts.map(a => ({ name: a.name, mime: a.mime, data: a.data }));
   const shown = KX.atts.map(a => ({ url: a.url, name: a.name, local: true }));
-  input.value = "";
-  input.style.height = "auto";
+  const localUrls = KX.atts.map(a => a.url);
+  if (override == null && input) { input.value = ""; growInput(); }
   KX.atts = [];
   paintAttachments();
 
-  KX.busy = true;
+  KX.sending = true;
   KX.steps.push({ kind: "user", text, images: shown });
+  KX.busy = true;
+  KX.startedAt = Date.now();
   paintKernel();
+  scrollKernel(true);
 
   try {
     if (!KX.run) {
@@ -6958,18 +8165,23 @@ async function kernelSend() {
       KX.chats = out.chats || KX.chats;
       try { localStorage.setItem("nexus.kernel.chat", out.id); } catch {}
     }
-    const out = await api(`/agent/run/${KX.run}/send`, { method: "POST", body: { text, images } });
+    const out = await api(`/agent/run/${KX.run}/send`, { method: "POST", body: { text, images, async: true } });
     applyTurn(out);
-    loadChats();
+    if (out.busy) startPolling(); else finishTurn();
   } catch (e) {
     // A run that is gone server-side is recoverable: drop the id so the next
     // message starts a fresh conversation rather than failing forever.
     if (e.status === 404) KX.run = null;
-    KX.steps.push({ kind: "error", text: e.message || "that did not work" });
+    if (e.status === 409) { startPolling(); }
+    else {
+      KX.busy = false;
+      KX.steps.push({ kind: "error", text: e.message || "That did not work" });
+    }
   } finally {
-    KX.busy = false;
+    KX.sending = false;
+    // The server has its own copies of the images now; the browser's are done.
+    setTimeout(() => localUrls.forEach(u => URL.revokeObjectURL(u)), 4000);
     paintKernel();
-    refreshAgentConfig();
   }
 }
 
@@ -6978,21 +8190,85 @@ function applyTurn(out) {
   KX.steps = out.steps || KX.steps;
   KX.pending = out.pending || null;
   KX.usage = out.usage || KX.usage;
+  KX.busy = !!out.busy;
+  if (!KX.busy) KX.stopping = false;
+  if (out.startedAt) KX.startedAt = out.startedAt;
+}
+
+function startPolling() {
+  if (KX.poll) return;
+  KX.busy = true;
+  const tick = async () => {
+    if (!KX.run) return stopPolling();
+    try {
+      const t = await api(`/agent/run/${KX.run}`);
+      applyTurn(t);
+      paintKernel();
+      if (!t.busy) { stopPolling(); finishTurn(); }
+    } catch (e) {
+      if (e.status === 404) { stopPolling(); KX.busy = false; paintKernel(); }
+    }
+  };
+  // Quick at first, then easing off: most turns finish in a few seconds, and a
+  // long one does not need a request every second for minutes.
+  let n = 0;
+  const loop = () => { KX.poll = setTimeout(async () => { await tick(); if (KX.poll) { n++; loop(); } }, n < 20 ? 700 : 1600); };
+  loop();
+  paintKernel();
+}
+function stopPolling() { if (KX.poll) { clearTimeout(KX.poll); KX.poll = null; } }
+
+function finishTurn() {
+  KX.busy = false;
+  paintKernel();
+  refreshAgentConfig();
+  api("/agent/chats").then(o => { KX.chats = o.chats || KX.chats; paintHistory(); }).catch(() => {});
+  // Someone who looked away gets a nudge when Kernel finishes.
+  if (document.hidden || $("#kernel")?.hidden) {
+    const last = [...KX.steps].reverse().find(s => s.kind === "assistant" || s.kind === "error");
+    if (KX.pending) toast("Kernel is waiting for your approval", "warn");
+    else if (last) toast("Kernel replied", "ok");
+  }
+}
+
+/** Re-read the current conversation — on opening the panel, in case a turn
+ *  finished (or started) on another device. */
+async function refreshTranscript() {
+  if (!KX.run) return;
+  try {
+    const t = await api(`/agent/run/${KX.run}`);
+    applyTurn(t);
+    paintKernel();
+    if (t.busy) startPolling();
+  } catch {}
+}
+
+async function kernelStop() {
+  if (!KX.run || KX.stopping) return;
+  KX.stopping = true;
+  paintStatus();
+  try { applyTurn(await api(`/agent/run/${KX.run}/stop`, { method: "POST" })); }
+  catch (e) { KX.stopping = false; toast(e.message || "Could not stop it", "err"); }
+  paintStatus();
 }
 
 async function kernelDecide(decision) {
-  if (!KX.run || KX.busy) return;
-  KX.busy = true;
+  if (!KX.run || KX.busy || KX.sending) return;
+  KX.sending = true;
   KX.pending = null;
+  KX.busy = true;
+  KX.startedAt = Date.now();
   paintKernel();
   try {
-    applyTurn(await api(`/agent/run/${KX.run}/approve`, { method: "POST", body: { decision } }));
+    const out = await api(`/agent/run/${KX.run}/approve`, { method: "POST", body: { decision, async: true } });
+    applyTurn(out);
+    if (out.busy) startPolling(); else finishTurn();
   } catch (e) {
-    KX.steps.push({ kind: "error", text: e.message || "that did not work" });
+    if (e.status === 409) startPolling();
+    else { KX.busy = false; KX.steps.push({ kind: "error", text: e.message || "That did not work" }); }
   } finally {
-    KX.busy = false;
+    KX.sending = false;
     paintKernel();
-    refreshAgentConfig();
   }
 }
 
@@ -7000,91 +8276,151 @@ async function kernelDecide(decision) {
    log says what happened, the approval asks about what has not happened yet.
    One map produced "Kernel wants to ran a command". */
 const TOOL_WORDS = {
-  system_metrics:  ["read the machine's readings", "read the machine's readings"],
-  nexus_config:    ["read the Nexus settings",     "read the Nexus settings"],
-  recall_app_pin:  ["read back an app's PIN",      "read back an app's PIN"],
-  list_dir:        ["listed a folder",             "list a folder"],
-  read_file:       ["read a file",                 "read a file"],
-  write_file:      ["wrote a file",                "write a file"],
-  make_dir:        ["created a folder",            "create a folder"],
-  delete_path:     ["deleted a path",              "delete a path"],
-  run_command:     ["ran a command",               "run a command"],
-  docker_list:     ["listed containers",           "list the containers"],
-  docker_action:   ["controlled a container",      "start, stop or restart a container"]
+  system_metrics:  ["Read the machine's readings", "read the machine's readings"],
+  nexus_config:    ["Read the Nexus settings",     "read the Nexus settings"],
+  recall_app_pin:  ["Read back an app's PIN",      "read back an app's PIN"],
+  load_skill:      ["Loaded a skill",              "load a skill"],
+  list_dir:        ["Listed a folder",             "list a folder"],
+  read_file:       ["Read a file",                 "read a file"],
+  write_file:      ["Wrote a file",                "write a file"],
+  make_dir:        ["Created a folder",            "create a folder"],
+  delete_path:     ["Deleted a path",              "delete a path"],
+  run_command:     ["Ran a command",               "run a command"],
+  docker_list:     ["Listed containers",           "list the containers"],
+  docker_action:   ["Controlled a container",      "start, stop or restart a container"]
 };
 const toolPast = n => TOOL_WORDS[n]?.[0] || n;
 const toolNow  = n => TOOL_WORDS[n]?.[1] || n;
-
-function paintTabs() {
-  const bar = $("#kx-tabs");
-  if (!bar) return;
-  bar.innerHTML = KX.chats.map(c => `
-    <button type="button" role="tab" class="kx-tab${c.id === KX.run ? " on" : ""}"
-            data-chat="${esc(c.id)}" aria-selected="${c.id === KX.run}" title="${esc(c.title)}">
-      <span>${esc(c.title)}</span>
-      <i class="kx-tabx" data-shut="${esc(c.id)}" role="button" aria-label="Close this conversation">&times;</i>
-    </button>`).join("") +
-    `<button type="button" class="kx-tab add" id="kx-add" aria-label="Start a new conversation"
-             data-tip="Start a new conversation. Five are kept.">+</button>`;
-}
-
-function paintKernel() {
-  const body = $("#kx-body");
-  if (!body) return;
-  const stick = body.scrollTop + body.clientHeight >= body.scrollHeight - 40;
-
-  paintTabs();
-
-  if (!KX.steps.length) {
-    const ready = KX.cfg?.ready;
-    const tools = KX.cfg?.capabilities?.tools?.length || 0;
-    body.innerHTML =
-      `<div class="kx-hello">
-         <span class="hbot-art lg">${KBOT}</span>
-         <p class="kx-hi">I'm Kernel.</p>
-         <p class="kx-sub">${ready
-            ? (tools ? `I can use ${tools} tool${tools === 1 ? "" : "s"} on this machine. Ask me something.`
-                     : "No capabilities are switched on yet, so I can only talk. Open Settings to hand me some.")
-            : "Add an API key in Settings &rarr; Nexus Expert and I'll wake up."}</p>
-       </div>`;
-  } else {
-    body.innerHTML = KX.steps.map(stepHTML).join("") +
-      (KX.busy ? `<div class="kx-row bot"><div class="kx-think"><i></i><i></i><i></i></div></div>` : "");
-  }
-
-  const ask = $("#kx-ask");
-  if (ask) {
-    ask.toggleAttribute("hidden", !KX.pending);
-    if (KX.pending) {
-      const p = KX.pending;
-      const level = RISK_WORDS[p.risk] ? p.risk : "high";
-      ask.innerHTML =
-        `<div class="kx-askhead">
-           <span class="kx-risk ${esc(level)}">${RISK_WORDS[level]}</span>
-           <span>Kernel wants to ${esc(toolNow(p.name))}</span>
-         </div>
-         ${p.why?.length ? `<ul class="kx-why">${p.why.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
-         <pre class="kx-preview">${esc(p.preview || "")}</pre>
-         <div class="kx-askrow">
-           <button class="btn sm" id="kx-deny" type="button">DENY</button>
-           <button class="btn primary sm" id="kx-allow" type="button">ALLOW</button>
-         </div>`;
-      on("#kx-allow", "click", () => kernelDecide("allow"));
-      on("#kx-deny", "click", () => kernelDecide("deny"));
-    }
-  }
-
-  const send = $("#kx-send");
-  if (send) send.disabled = KX.busy;
-  if (stick) body.scrollTop = body.scrollHeight;
-  paintUsage();
-}
+const TOOL_ICON = { run_command: "terminal", read_file: "folder", write_file: "edit", list_dir: "folder", make_dir: "folder",
+  delete_path: "trash", docker_list: "box", docker_action: "box", system_metrics: "activity", nexus_config: "settings",
+  recall_app_pin: "lock", load_skill: "sparkles" };
 
 /* Four words for four levels. The colour carries the same meaning as it does
    everywhere else in Nexus — green is fine, red is not. */
-const RISK_WORDS = { low: "LOW", medium: "MEDIUM", high: "HIGH", critical: "CRITICAL" };
+const RISK_WORDS = { low: "Low", medium: "Medium", high: "High", critical: "Critical" };
 
-function shotHTML(s, i) {
+const SUGGEST = [
+  ["How is the machine doing right now?", "activity"],
+  ["Is anything wrong? Go through the problems on the Overview.", "alert"],
+  ["Which containers are using the most memory?", "box"],
+  ["How much disk space is left, and what is filling it?", "drive"]
+];
+
+/** A step's identity on screen. When it changes, that message is redrawn. */
+const stepKey = (s, i) => `${i}|${s.kind}|${(s.text || "").length}|${(s.result || "").length}|${s.denied ? 1 : 0}|${s.error ? 1 : 0}`;
+
+function paintKernel(full = false) {
+  const body = $("#kx-body");
+  if (!body) return;
+  const atBottom = body.scrollTop + body.clientHeight >= body.scrollHeight - 48;
+
+  if (!KX.steps.length) {
+    KX.keys = [];
+    body.innerHTML = helloHTML();
+  } else {
+    let list = $(".kx-msgs", body);
+    if (!list || full) {
+      body.innerHTML = `<div class="kx-msgs"></div>`;
+      list = $(".kx-msgs", body);
+      KX.keys = [];
+    }
+    const keys = KX.steps.map(stepKey);
+    // From the first step that differs, everything after it is redrawn. In the
+    // normal case that is just the new step at the end.
+    let from = 0;
+    while (from < KX.keys.length && from < keys.length && KX.keys[from] === keys[from]) from++;
+    while (list.children.length > from) list.lastElementChild.remove();
+    const lastUser = KX.steps.reduce((a, s, i) => (s.kind === "user" ? i : a), -1);
+    const lastBot = KX.steps.reduce((a, s, i) => (s.kind === "assistant" ? i : a), -1);
+    const tpl = document.createElement("template");
+    tpl.innerHTML = KX.steps.slice(from).map((s, j) => stepHTML(s, from + j, { lastBot, lastUser })).join("");
+    list.append(tpl.content);
+    // The retry/copy row belongs to the last reply only; an older one loses it.
+    $$(".kx-acts.last", list).forEach(el => {
+      if (Number(el.dataset.for) !== lastBot) el.classList.remove("last");
+    });
+    KX.keys = keys;
+    wireIcons(list);
+  }
+
+  paintStatus();
+  paintAsk();
+
+  const send = $("#kx-send");
+  if (send) send.disabled = KX.busy || KX.sending;
+  const input = $("#kx-input");
+  if (input) input.placeholder = KX.busy ? "Kernel is working — you can type your next message…" : "Ask about this machine…";
+  if (atBottom || full) scrollKernel();
+  paintUsage();
+}
+
+function scrollKernel(force) {
+  const body = $("#kx-body");
+  if (!body) return;
+  requestAnimationFrame(() => { body.scrollTop = body.scrollHeight; });
+}
+
+function helloHTML() {
+  const ready = KX.cfg?.ready;
+  const tools = KX.cfg?.capabilities?.tools?.length || 0;
+  return `<div class="kx-hello">
+    <span class="kx-orb lg" aria-hidden="true"></span>
+    <p class="kx-hi">Hi, I'm Kernel.</p>
+    <p class="kx-sub">${ready
+      ? (tools ? `I can use ${tools} tool${tools === 1 ? "" : "s"} on this machine, and I always ask before anything risky.`
+               : "No capabilities are switched on yet, so I can only talk. You can hand me some in Settings.")
+      : "Add an API key and I'll wake up."}</p>
+    ${ready ? `<div class="kx-sugs">${SUGGEST.map(([t, ic]) =>
+        `<button type="button" class="kx-sug" data-suggest="${esc(t)}">${IC(ic)}<span>${esc(t)}</span></button>`).join("")}</div>`
+      : `<button type="button" class="btn primary" data-kx-setup>${IC("settings")}Set up Kernel</button>`}
+  </div>`;
+}
+
+function paintStatus() {
+  const st = $("#kx-status");
+  if (!st) return;
+  const on_ = KX.busy;
+  st.hidden = !on_;
+  if (!on_) { clearInterval(paintStatus.t); paintStatus.t = null; return; }
+  const lastTool = [...KX.steps].reverse().find(s => s.kind === "tool");
+  const since = KX.startedAt ? Math.max(0, Math.round((Date.now() - KX.startedAt) / 1000)) : 0;
+  const what = lastTool && (lastTool.at || 0) >= KX.startedAt - 1000 ? toolPast(lastTool.name).toLowerCase() : null;
+  st.innerHTML = `<span class="kx-shimmer" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span class="kx-stxt">${what ? `Working · ${esc(what)}` : "Thinking"}<em>${since}s</em></span>
+    <span class="spacer"></span>
+    <button type="button" class="kx-stop" data-stop${KX.stopping ? " disabled" : ""}>${IC("stop")}${KX.stopping ? "Stopping…" : "Stop"}</button>`;
+  if (!paintStatus.t) paintStatus.t = setInterval(() => { if (KX.busy) paintStatus(); }, 1000);
+}
+
+function paintAsk() {
+  const ask = $("#kx-ask");
+  if (!ask) return;
+  ask.toggleAttribute("hidden", !KX.pending);
+  if (!KX.pending) { ask.innerHTML = ""; return; }
+  const p = KX.pending;
+  const level = RISK_WORDS[p.risk] ? p.risk : "high";
+  const sig = JSON.stringify([p.id, p.name, level]);
+  if (ask.dataset.sig === sig) return;
+  ask.dataset.sig = sig;
+  ask.innerHTML =
+    `<div class="kx-askhead">
+       <span class="kx-askico">${IC(TOOL_ICON[p.name] || "shield")}</span>
+       <span class="kx-asktitle">Kernel wants to ${esc(toolNow(p.name))}</span>
+       <span class="kx-risk ${esc(level)}">${RISK_WORDS[level]} risk</span>
+     </div>
+     ${p.why?.length ? `<ul class="kx-why">${p.why.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+     <pre class="kx-preview">${esc(p.preview || "")}</pre>
+     <div class="kx-askrow">
+       <span class="kx-askhint">Nothing runs until you choose.</span>
+       <span class="spacer"></span>
+       <button class="btn sm" id="kx-deny" type="button">Deny</button>
+       <button class="btn primary sm" id="kx-allow" type="button">${IC("check")}Allow</button>
+     </div>`;
+  on("#kx-allow", "click", () => kernelDecide("allow"));
+  on("#kx-deny", "click", () => kernelDecide("deny"));
+}
+
+function shotHTML(s) {
   if (!s.images?.length) return "";
   return `<span class="kx-shots">${s.images.map(im => {
     const url = im.local ? im.url : `/api/agent/run/${encodeURIComponent(KX.run)}/image/${encodeURIComponent(im.file)}`;
@@ -7093,26 +8429,42 @@ function shotHTML(s, i) {
   }).join("")}</span>`;
 }
 
-function stepHTML(s, i) {
+function stepHTML(s, i, { lastBot } = {}) {
   if (s.kind === "user") {
-    return `<div class="kx-row me"><div class="kx-bub">${shotHTML(s, i)}${s.text ? esc(s.text) : ""}</div></div>`;
+    return `<div class="kx-row me"><div class="kx-bub">${shotHTML(s)}${s.text ? esc(s.text) : ""}</div></div>`;
   }
   if (s.kind === "assistant") {
+    // Every code block gets its own copy button: the thing you want out of a
+    // reply is usually the command in it, not the whole reply.
+    const body = md(s.text).replace(/<pre class="md-pre">/g,
+      `<pre class="md-pre"><button class="kx-ccopy" type="button" data-ccopy aria-label="Copy this code">${IC("copy")}<span>Copy</span></button>`);
     return `<div class="kx-row bot">
-      <div class="kx-bub md">${md(s.text)}
-        <button class="kx-copy" type="button" data-copy="${i}" aria-label="Copy this reply" data-tip="Copy">COPY</button>
+      <span class="kx-av" aria-hidden="true"></span>
+      <div class="kx-msg">
+        <div class="kx-bub md">${body}</div>
+        <div class="kx-acts${i === lastBot ? " last" : ""}" data-for="${i}">
+          <button class="kx-act" type="button" data-copy="${i}" aria-label="Copy this reply">${IC("copy")}<span>Copy</span></button>
+          <button class="kx-act" type="button" data-retry aria-label="Ask again">${IC("retry")}<span>Retry</span></button>
+        </div>
       </div></div>`;
   }
-  if (s.kind === "error") return `<div class="kx-row"><div class="kx-err">${esc(s.text)}</div></div>`;
+  if (s.kind === "error") {
+    return `<div class="kx-row"><div class="kx-err${s.stopped ? " stopped" : ""}">${IC(s.stopped ? "stop" : "alert")}<span>${esc(s.text)}</span></div></div>`;
+  }
 
   // A tool call is a fact about what happened to the machine, so it is shown
   // as one — name, outcome, and the detail one click away.
-  const label = toolPast(s.name);
+  // A denied call never happened, so it is not described in the past tense.
+  const label = s.denied ? "Wanted to " + toolNow(s.name) : toolPast(s.name);
   const state = s.denied ? "denied" : s.error ? "failed" : "done";
   const detail = s.denied ? "You denied this." : (s.result || "");
-  return `<details class="kx-tool ${state}">
-    <summary><i class="kx-tick"></i><span>${esc(label)}</span><em>${state}</em></summary>
-    <pre>${esc(argLine(s.args))}${detail ? "\n\n" + esc(detail) : ""}</pre>
+  const arg = argLine(s.args);
+  const short = s.args?.command || s.args?.path || s.args?.name || "";
+  return `<details class="kx-tool ${state}" data-step="${i}"${KX.open.has(i) ? " open" : ""}>
+    <summary>${IC(TOOL_ICON[s.name] || "zap", "kx-tico")}<span class="kx-tlabel">${esc(label)}</span>
+      ${short ? `<code class="kx-targ">${esc(String(short).slice(0, 80))}</code>` : ""}
+      <em class="kx-tstate">${state}</em>${IC("chevron-right", "kx-tchev")}</summary>
+    <pre>${esc(arg)}${detail ? (arg ? "\n\n" : "") + esc(detail) : ""}</pre>
   </details>`;
 }
 
@@ -7122,11 +8474,11 @@ function openShot(url, name) {
   wrap.className = "kx-lightbox";
   wrap.innerHTML = `<img src="${esc(url)}" alt="${esc(name)}">`;
   openModal({
-    title: name.toUpperCase().slice(0, 40),
+    title: name.slice(0, 60),
     icon: ICON("files"),
     body: wrap,
     foot: `<span class="spacer"></span>
-           <a class="btn sm" id="kx-dl" href="${esc(url)}" download="${esc(name)}">DOWNLOAD</a>`
+           <a class="btn sm" id="kx-dl" href="${esc(url)}" download="${esc(name)}">Download</a>`
   });
 }
 
@@ -7298,9 +8650,9 @@ async function renderAgentSettings() {
         <label for="ag-key">${esc(prov.label)} key</label>
         <input id="ag-key" type="password" autocomplete="off" spellcheck="false"
                placeholder="${key.set ? "saved — " + esc(key.hint) + ", type to replace" : esc(prov.keyHint || "paste your key")}">
-        <button class="btn sm" id="ag-key-save" type="button">SAVE KEY</button>
-        <button class="btn sm" id="ag-key-test" type="button">TEST</button>
-        ${key.set ? `<button class="btn sm danger" id="ag-key-clear" type="button">REMOVE</button>` : ""}
+        <button class="btn sm" id="ag-key-save" type="button">Save key</button>
+        <button class="btn sm" id="ag-key-test" type="button">Test</button>
+        ${key.set ? `<button class="btn sm danger" id="ag-key-clear" type="button">Remove</button>` : ""}
       </div>
       <p class="ag-test" id="ag-test" role="status" aria-live="polite"></p>
       <p class="hint">Stored on this server only, in a file only root can read, and never sent back to a
@@ -7368,7 +8720,7 @@ async function renderAgentSettings() {
       <h3>Skills <small>what Kernel knows before you tell him</small></h3>
       ${skillSummary(c.skills)}
       <div class="ag-row">
-        <button class="btn" id="ag-skills-open" type="button">OPEN SKILL LIBRARY</button>
+        <button class="btn" id="ag-skills-open" type="button">Open skill library</button>
         <span class="hint">Markdown files. Drop one in, switch it on or off, or delete it for good.</span>
       </div>
     </div>
@@ -7386,7 +8738,7 @@ async function renderAgentSettings() {
             : `You are on <b>full access</b>, so these run unattended and can change the machine.`}</p>
         <div class="cr-list">${(c.crons || []).map(cronRow).join("")
           || `<p class="hint">No scheduled tasks yet.</p>`}</div>
-        <button class="btn sm" id="ag-cron-new" type="button">+ NEW TASK</button>
+        <button class="btn sm" id="ag-cron-new" type="button">+ New task</button>
       </div>
 
       <div class="ag-sub">
@@ -7405,12 +8757,12 @@ async function renderAgentSettings() {
     <div class="ag-block">
       <h3>Usage</h3>
       <dl class="kv ag-usage">
-        <dt>INPUT</dt><dd>${tok(c.usage.inTokens)} tokens</dd>
-        <dt>OUTPUT</dt><dd>${tok(c.usage.outTokens)} tokens</dd>
-        <dt>MESSAGES</dt><dd>${c.usage.runs || 0}</dd>
-        <dt>ESTIMATED COST</dt><dd>${money(c.usage.cost, !allUnpriced(c.usage))}${anyUnpriced(c.usage) ? " <small>(excludes models with no published rate here)</small>" : ""}</dd>
+        <dt>Input</dt><dd>${tok(c.usage.inTokens)} tokens</dd>
+        <dt>Output</dt><dd>${tok(c.usage.outTokens)} tokens</dd>
+        <dt>Messages</dt><dd>${c.usage.runs || 0}</dd>
+        <dt>Estimated cost</dt><dd>${money(c.usage.cost, !allUnpriced(c.usage))}${anyUnpriced(c.usage) ? " <small>(excludes models with no published rate here)</small>" : ""}</dd>
       </dl>
-      <button class="btn sm" id="ag-usage-reset" type="button">RESET COUNTERS</button>
+      <button class="btn sm" id="ag-usage-reset" type="button">Reset counters</button>
     </div>`;
 
   /* ---- wiring ---- */
@@ -7467,7 +8819,7 @@ async function renderAgentSettings() {
   $$("[data-cron-edit]", host).forEach(b => b.addEventListener("click", () =>
     editCron((c.crons || []).find(x => x.id === b.dataset.cronEdit))));
   $$("[data-cron-run]", host).forEach(b => b.addEventListener("click", async () => {
-    b.disabled = true; b.textContent = "RUNNING…";
+    b.disabled = true; b.textContent = "Running…";
     try { await api(`/agent/crons/${encodeURIComponent(b.dataset.cronRun)}/run`, { method: "POST" }); }
     catch (e) { toast(e.message || "the task failed", "err"); }
     renderAgentSettings();
@@ -7552,13 +8904,13 @@ const SK_TAGS_SHOWN = 10;
 
 async function openSkillLibrary() {
   openModal({
-    title: "SKILL LIBRARY",
+    title: "Skill library",
     icon: ICON("terminal"),
     body: `<div id="sk-wrap"><div class="sk-loading">loading…</div></div>`,
     foot: `<span class="hint sk-foothint">Markdown, front matter optional.</span>
            <span class="spacer"></span>
-           <button class="btn sm" id="sk-restore" type="button">RESTORE DEFAULTS</button>
-           <button class="btn primary sm" id="sk-new" type="button">NEW SKILL</button>`,
+           <button class="btn sm" id="sk-restore" type="button">Restore defaults</button>
+           <button class="btn primary sm" id="sk-new" type="button">New skill</button>`,
     // Closing the library is what refreshes the summary behind it.
     onClose: () => renderAgentSettings()
   });
@@ -7596,7 +8948,7 @@ function paintSkills(data) {
       </label>
       <div class="sk-main">
         <div class="sk-name">${esc(k.name)}
-          ${k.seeded ? `<span class="sk-seed" data-tip="Shipped with Nexus — RESTORE DEFAULTS brings it back">STOCK</span>` : ""}
+          ${k.seeded ? `<span class="sk-seed" data-tip="Shipped with Nexus — RESTORE DEFAULTS brings it back">Stock</span>` : ""}
         </div>
         <div class="sk-desc">${esc(k.description || "no description")}</div>
         <div class="sk-meta">
@@ -7606,7 +8958,7 @@ function paintSkills(data) {
       </div>
       <div class="sk-acts">
         <button class="btn sm" data-sk-swap type="button">${k.mode === "always" ? "→ ON DEMAND" : "→ MEMORY"}</button>
-        <button class="btn sm" data-sk-edit type="button">OPEN</button>
+        <button class="btn sm" data-sk-edit type="button">Open</button>
         <button class="btn sm danger" data-sk-del type="button">DELETE</button>
       </div>
     </div>`;
@@ -7713,7 +9065,7 @@ async function addSkillFiles(files) {
       last = await api("/agent/skills", { method: "POST", body: { name: f.name, content } });
     } catch (e) { toast(`${f.name}: ${e.message}`, "err"); }
   }
-  if (last) { toast(md.length === 1 ? "SKILL ADDED" : `${md.length} SKILLS ADDED`, "ok"); paintSkills(last); }
+  if (last) { toast(md.length === 1 ? "Skill added" : `${md.length} SKILLS ADDED`, "ok"); paintSkills(last); }
 }
 
 /** Read or write one skill. The same form for both, because "open" almost always
@@ -7746,8 +9098,8 @@ async function editSkill(id) {
       <label for="sk-e-body">Skill text</label>
       <span class="spacer"></span>
       <div class="sk-tabs" role="group" aria-label="Preview or write">
-        <button type="button" class="sk-tab" data-pane="read">PREVIEW</button>
-        <button type="button" class="sk-tab" data-pane="write">WRITE</button>
+        <button type="button" class="sk-tab" data-pane="read">Preview</button>
+        <button type="button" class="sk-tab" data-pane="write">Write</button>
       </div>
     </div>
     <textarea id="sk-e-body" class="sk-body" spellcheck="false"
@@ -7756,12 +9108,12 @@ async function editSkill(id) {
 
   let mode = k.mode;
   openModal({
-    title: id ? "EDIT SKILL" : "NEW SKILL",
+    title: id ? "Edit skill" : "New skill",
     icon: ICON("terminal"),
     body: form,
     foot: `<span class="spacer"></span>
-           <button class="btn sm" id="sk-e-back" type="button">BACK</button>
-           <button class="btn primary sm" id="sk-e-save" type="button">SAVE</button>`
+           <button class="btn sm" id="sk-e-back" type="button">Back</button>
+           <button class="btn primary sm" id="sk-e-save" type="button">Save</button>`
   });
   $$("[data-m]", form).forEach(b => b.addEventListener("click", () => {
     mode = b.dataset.m;
@@ -7800,7 +9152,7 @@ async function editSkill(id) {
       await api("/agent/skills", { method: "POST", body: {
         id: k.id || name, name, description: $("#sk-e-desc", form).value.trim(), mode,
         tags: $("#sk-e-tags", form).value, content: body } });
-      toast("SKILL SAVED", "ok");
+      toast("Skill saved", "ok");
       openSkillLibrary();
     } catch (e) { toast(e.message || "could not save", "err"); }
   });
@@ -7837,8 +9189,8 @@ function cronRow(cr) {
       <div class="cr-last ${state}">${last}${r?.summary ? ` · ${esc(String(r.summary).slice(0, 120))}` : ""}</div>
     </div>
     <div class="cr-acts">
-      <button class="btn sm" data-cron-run="${esc(cr.id)}" type="button">RUN NOW</button>
-      <button class="btn sm" data-cron-edit="${esc(cr.id)}" type="button">EDIT</button>
+      <button class="btn sm" data-cron-run="${esc(cr.id)}" type="button">Run now</button>
+      <button class="btn sm" data-cron-edit="${esc(cr.id)}" type="button">Edit</button>
       <button class="btn sm danger" data-cron-del="${esc(cr.id)}" type="button">DELETE</button>
     </div>
   </div>`;
@@ -7889,12 +9241,12 @@ function editCron(cr) {
   });
 
   openModal({
-    title: cr ? "EDIT SCHEDULED TASK" : "NEW SCHEDULED TASK",
+    title: cr ? "Edit scheduled task" : "New scheduled task",
     icon: ICON("power"),
     body: form,
     foot: `<span class="spacer"></span>
-           <button class="btn sm" id="cr-cancel" type="button">CANCEL</button>
-           <button class="btn primary sm" id="cr-save" type="button">SAVE</button>`
+           <button class="btn sm" id="cr-cancel" type="button">Cancel</button>
+           <button class="btn primary sm" id="cr-save" type="button">Save</button>`
   });
 
   $$("[data-day]", form).forEach(b => b.addEventListener("click", () => {
@@ -7918,7 +9270,7 @@ function editCron(cr) {
       await api("/agent/crons", { method: "PUT", body: {
         id: row.id || undefined, name: name || "Scheduled task", prompt,
         time: $("#cr-time", form).value || "08:00", days: [...days].sort(), enabled: row.enabled } });
-      toast("TASK SAVED", "ok");
+      toast("Task saved", "ok");
       closeModal();
       AGadvOpen = true;
       renderAgentSettings();

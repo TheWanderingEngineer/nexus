@@ -10,6 +10,7 @@ import * as dockerx from "./dockerx.js";
 import * as skills from "./skills.js";
 import * as automation from "./automation.js";
 import * as pins from "./pins.js";
+import * as health from "./health.js";
 import { classifyCommand, atLeast, LEVELS } from "./risk.js";
 
 /**
@@ -632,6 +633,10 @@ export async function briefing(s) {
         ? `Disk I/O now: ${kb(m.diskIO.read)}/s read, ${kb(m.diskIO.write)}/s write`
         : "Disk I/O: not reported on this platform");
     }
+    // What the Overview page would say is wrong right now. Names and messages
+    // only — never a probe's target, which for a locked app is the address the
+    // PIN is protecting.
+    try { L.push(...health.summaryLines()); } catch {}
   }
 
   if (s.caps.docker) {
@@ -1054,7 +1059,37 @@ function run(id) {
 
 export function transcript(id) {
   const r = runs.get(id);
-  return r ? { id, steps: r.steps, pending: r.pending, usage: r.usage } : null;
+  return r ? { id, steps: r.steps, pending: r.pending, usage: r.usage,
+               busy: !!r.busy, startedAt: r.busy ? r.busyAt : null } : null;
+}
+
+/**
+ * Run a turn in the background and return at once.
+ *
+ * A turn with a few tool calls can take longer than a reverse proxy will hold a
+ * request open — Nginx Proxy Manager gives up after 60 seconds — and when that
+ * happened the panel showed an error while the turn carried on and finished
+ * unseen. Now the request only starts the work; the panel reads progress from
+ * the transcript, which also means each tool step appears as it happens rather
+ * than all at once at the end.
+ */
+function background(r, work) {
+  if (r.busy) throw httpError(409, "Kernel is still working on the last message");
+  r.busy = true;
+  r.busyAt = Date.now();
+  r.stop = false;
+  Promise.resolve()
+    .then(work)
+    .catch(e => { r.steps.push({ kind: "error", text: e?.message || "that did not work", at: Date.now() }); })
+    .finally(() => { r.busy = false; r.stop = false; try { persist(); } catch {} });
+  return transcript(r.id);
+}
+
+/** Ask a running turn to stop at the next safe point. */
+export function stop(runId) {
+  const r = run(runId);
+  if (r.busy) r.stop = true;
+  return transcript(r.id);
 }
 
 /** Whether this call has to stop and ask a human first. */
@@ -1130,9 +1165,10 @@ const imageB64 = (runId, att) => {
   return p ? fs.readFileSync(p).toString("base64") : null;
 };
 
-export async function send(runId, text, req, images) {
+export async function send(runId, text, req, images, opts = {}) {
   const r = run(runId);
   const s = settings();
+  if (r.busy) throw httpError(409, "Kernel is still working on the last message");
 
   // Typing instead of answering the approval card is a legitimate way to say
   // no. Treat it as one: the waiting call is closed off and the model is told,
@@ -1156,17 +1192,26 @@ export async function send(runId, text, req, images) {
                  images: atts.map(a => ({ id: a.id, file: a.file, name: a.name, mime: a.mime, size: a.size })) });
   if (!r.title) r.title = clip(String(text).replace(/\s+/g, " ").trim(), 32) || "New chat";
   const u = db().settings?.agentUsage; if (u) { u.runs = (u.runs || 0) + 1; save(); }
+  if (opts.async) return background(r, () => loop(r, s, req));
   const out = await loop(r, s, req);
   persist();
   return out;
 }
 
-export async function resume(runId, decision, req) {
+export async function resume(runId, decision, req, opts = {}) {
   const r = run(runId);
   const s = settings();
+  if (r.busy) throw httpError(409, "Kernel is still working on the last message");
   const pending = r.pending;
   if (!pending) throw httpError(400, "nothing is waiting for approval");
   r.pending = null;
+  if (opts.async) return background(r, () => decide(r, s, req, pending, decision));
+  const out = await decide(r, s, req, pending, decision);
+  persist();
+  return out;
+}
+
+async function decide(r, s, req, pending, decision) {
 
   if (decision !== "allow") {
     // A denial is a fact the model needs, not a silent no-op: told plainly, it
@@ -1177,9 +1222,7 @@ export async function resume(runId, decision, req) {
       content: [{ type: "tool_result", tool_use_id: pending.id, name: pending.name,
                   content: [{ type: "text", text: "The owner denied this action. Do not retry it; suggest another approach." }] }]
     });
-    const denied = await loop(r, s, req);
-    persist();
-    return denied;
+    return loop(r, s, req);
   }
 
   const out = await execute(pending, s, req);
@@ -1188,9 +1231,7 @@ export async function resume(runId, decision, req) {
     role: "tool",
     content: [{ type: "tool_result", tool_use_id: pending.id, name: pending.name, content: [{ type: "text", text: out.text }] }]
   });
-  const after = await loop(r, s, req);
-  persist();
-  return after;
+  return loop(r, s, req);
 }
 
 async function execute(call, s, req) {
@@ -1222,7 +1263,18 @@ async function loop(r, s, req) {
   // dozen trips to the Docker socket, and the prompt says it is a snapshot.
   const brief = await briefing(s).catch(() => "");
 
+  // Stopping is checked where it is safe: before a model call, and between tool
+  // calls. Anything already asked for but not run is answered "not run" by
+  // `sealed()` on the next request, so a stop can never brick the history.
+  const stopped = () => {
+    if (!r.stop) return false;
+    r.stop = false;
+    r.steps.push({ kind: "error", text: "Stopped. Say \"carry on\" to continue.", stopped: true, at: Date.now() });
+    return true;
+  };
+
   for (let step = 0; step < s.maxSteps; step++) {
+    if (stopped()) return transcript(r.id);
     const res = await callModel(s, r.messages, brief, r.id);
 
     const spend = noteUsage(s.provider, s.model, res.usage.in, res.usage.out);
@@ -1247,6 +1299,7 @@ async function loop(r, s, req) {
     // One approval at a time: a queue of pending actions is a queue nobody reads.
     const results = [];
     for (const call of res.calls) {
+      if (r.stop) break;
       const tool = allTools().find(t => t.name === call.name);
       if (tool && needsApproval(tool, s, call.args)) {
         const risk = riskOf(tool, call.args);
@@ -1264,7 +1317,7 @@ async function loop(r, s, req) {
       r.steps.push({ kind: "tool", name: call.name, args: call.args, result: out.summary, error: out.error, at: Date.now() });
       results.push({ type: "tool_result", tool_use_id: call.id, name: call.name, content: [{ type: "text", text: out.text }] });
     }
-    r.messages.push({ role: "tool", content: results });
+    if (results.length) r.messages.push({ role: "tool", content: results });
   }
 
   r.steps.push({ kind: "error", text: `stopped after ${s.maxSteps} steps — ask again to continue`, at: Date.now() });

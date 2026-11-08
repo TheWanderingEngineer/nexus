@@ -1,11 +1,33 @@
 # Nexus
 
-A retro-pixel homelab dashboard and Docker manager for a single Linux host.
-Live system metrics, container control, a file manager, a web terminal, and a
-drag-and-drop widget canvas — on a design system that looks like a machine from
-1994 and behaves like something from now.
+A homelab dashboard and Docker manager for a single Linux host. It opens on an
+**Overview** that tells you what is wrong first — health checks for your
+servers, network, storage, containers and apps, with their last 30 results —
+and behind it: live metrics, container control, an app launcher, a file
+manager, a web terminal, an app store, automations, and **Kernel**, an AI agent
+that can work on the machine with your permission.
+
+Three looks, switchable per browser: **Modern** (the default — graphite or
+daylight, one accent, optional glass), **Workstation** (warm and retro) and
+**Classic** (the original pixel CRT).
 
 <img src="assets/brand/icons/nexus-128.png" width="96" alt="Nexus">
+
+---
+
+## What's new in 0.9
+
+| | |
+|---|---|
+| **Overview** | Status hero, a list of concrete problems, the day's numbers, and every area's checks with response time and the last 30 results |
+| **Health checks** | Built in, no setup: DNS, internet, gateway, every mount, SMART, every container, every app on your Apps page. Add your own HTTP, TCP, ping or DNS checks. A check that stays down for three rounds raises an alert and the webhook |
+| **Search** | Ctrl/⌘+K (or `/`) finds pages, areas, apps, containers, checks and actions — or asks Kernel |
+| **New shell** | Sidebar with Areas, Workspace and Quick launch (with live status dots), slim-rail and phone-drawer modes, deep links (`#/files`, `#/area/network`) |
+| **Kernel, rebuilt** | Live progress while it works, a Stop button, suggestions, copy per code block, retry, a history menu, dock-to-side, glass. Long turns no longer die behind a reverse proxy |
+| **Faster** | Compressed delivery (app.js 426 KB → 114 KB with brotli), compressed WebSockets, nothing renders on a page or tab you are not looking at |
+
+The design plan and the gap analysis behind it are in
+[`docs/REDESIGN.md`](docs/REDESIGN.md).
 
 ---
 
@@ -37,6 +59,9 @@ To upgrade, pull and re-run — the installer is idempotent and keeps your confi
 ```bash
 cd nexus && git pull && sudo bash scripts/install.sh
 ```
+
+Then hard-refresh the browser once (Ctrl+Shift+R). To check which build is
+running: `curl -s http://localhost:8080/api/health`.
 
 ### Running alongside CasaOS
 
@@ -394,6 +419,52 @@ returned to a browser, and never appears in the audit log. Token usage — in, o
 and an estimated cost — is on the panel footer for the conversation and on the
 settings page for everything since you last reset it. A model with no published
 rate here reports its tokens and says **no rate** rather than claiming $0.00.
+
+## The Overview
+
+The page Nexus opens on, and the answer to "is anything wrong?":
+
+- **The hero** says *All systems normal* or *N problems*, with the first one
+  spelled out, and offers your pinned apps, Kernel and search as one-click chips.
+- **Problems** lists each one with its area, how long it has been wrong, the
+  raw error, and the action that fixes it — open the app, manage the container,
+  open Files.
+- **Today** is the day's numbers: CPU, memory, storage, network, containers,
+  apps, temperature, uptime, security and alerts. A reading that cannot be
+  taken says so instead of showing a zero.
+- **Areas** is every area's health, its checks passing, the average response
+  time and the last 30 results as bars — hover one for the time, the status and
+  the error. Click a row to see its checks; click the name for the area page.
+
+### Health checks
+
+Nexus checks five areas on its own, with nothing to configure:
+
+| Area | Checks |
+|---|---|
+| Servers | the metrics collector, CPU load over a minute, memory, the hottest sensor against its limit, the Docker engine |
+| Network | DNS resolution, the internet (1.1.1.1 / 8.8.8.8), the default gateway (ping) |
+| Storage | every mount (amber at 85 %, red at 95 %), SMART verdicts where they can be read |
+| Containers | each container: running and not reporting itself unhealthy. A container you stopped is *stopped*, not *down* |
+| Apps | every tile on the Apps page with a local address, over HTTP. Any answer below 500 counts as up — a login page is an app that is running |
+
+**Add check** on any area page watches a web address, a port, a host or a DNS
+name of your own. Probes run every 30 seconds (readings every 10), results are
+kept in memory only, and a check must fail **three times in a row** (about a
+minute and a half) before it raises an alert — and, unless you switch it off on
+the area page, sends it to your notification webhook. Recovery is announced
+once, and a check that keeps bouncing alerts at most once every fifteen
+minutes; the bouncing itself stays visible in the result bars.
+
+### Search and shortcuts
+
+| Keys | |
+|---|---|
+| Ctrl/⌘ + K, or `/` | Search pages, areas, apps, containers, checks and actions; the last row asks Kernel |
+| Ctrl/⌘ + J | Open or close Kernel |
+| `g` then `o` `d` `a` `c` `f` `t` `s` `u` | Overview, Dashboard, Apps, Containers, Files, Terminal, Settings, Automations |
+| `r` | Refresh the page you are on |
+| `?` | The list of shortcuts |
 
 ## The dashboard
 
