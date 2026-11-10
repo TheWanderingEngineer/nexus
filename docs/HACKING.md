@@ -1049,6 +1049,18 @@ Three things in that command line are load-bearing:
 - **`history-limit 50000`** (global, since it must be set before a pane
   exists): a long conversation outgrows the default 2000 lines.
 
+Mouse mode has a cost the page pays back: xterm reports every button to the
+program that asked for the mouse, and tmux answers a right-click with its own
+window menu (Split, Kill…) drawn over the browser's. A capturing listener on
+`#xterm-host` stops right-button `mousedown`/`mouseup` before xterm sees them;
+`contextmenu` still reaches xterm, which moves its text box under the pointer
+so the browser's Paste lands in the terminal. Ctrl/⌘+V and Shift+Insert are
+handed back to the browser by `attachCustomKeyEventHandler`; Ctrl+C copies when
+there is a selection (`copyText` falls back to `execCommand("copy")`, because
+the Clipboard API needs https and Nexus is often on a LAN address). The Paste
+button reads the clipboard where it can, and otherwise opens a box to paste
+into, then `term.paste()`s it (bracketed, so lines are not run one by one).
+
 The terminal's own padding sits on `.xterm`, not on `#xterm-host`: the fit
 addon subtracts the padding of `.xterm` from the host's computed height, so
 padding on the host made it ask for one row too many and clip the bottom row.

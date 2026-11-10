@@ -280,7 +280,9 @@ keeps working, and the next press picks it back up — from any device. When
 Claude exits you are left at a shell in the same session, and
 `claude --continue` resumes the conversation. **Plain shell** in the toolbar
 switches back to the ordinary terminal. Scroll with the mouse wheel; hold Shift
-while dragging to select text to copy.
+while dragging to select text, and Ctrl+C copies it. Paste with Ctrl+V,
+right-click → Paste, or the **Paste** button — which on a phone opens a box to
+long-press-paste into, and can press Enter for you (handy for the sign-in code).
 
 Set it up once, **as your own user** (not with sudo), over SSH or in the terminal:
 

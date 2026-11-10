@@ -773,3 +773,6 @@ html #page-term #xterm-host{padding:0;height:clamp(300px,calc(100dvh - 305px),24
 html #page-term #xterm-host .xterm{height:100%;padding:10px 4px 6px 12px;box-sizing:border-box}
 html #page-term #xterm-host .xterm-viewport{overscroll-behavior:contain}
 @media (max-width:560px){ html #page-term #xterm-host{height:clamp(260px,calc(100dvh - 220px),2400px)} }
+/* the Paste box */
+.tpaste{display:flex;flex-direction:column;gap:10px}
+.tpaste textarea{width:100%;min-height:110px;resize:vertical;font-family:var(--mono);font-size:13px}

@@ -6013,6 +6013,36 @@ function ensureTerm() {
   }
   term.onData(d => { if (termWS?.readyState === 1) termWS.send(d); });
 
+  // Right-click belongs to the browser. When the program inside asks for the
+  // mouse (tmux with mouse on, which the Claude session uses), xterm reports
+  // every button to it — and tmux answers a right-click with its own window
+  // menu, drawn over the browser's, so Paste was buried under "Kill". The
+  // right button never reaches xterm's mouse reporting; the contextmenu event
+  // still does, which is what puts the text box under the pointer so the
+  // browser's Paste lands in the terminal.
+  const host = $("#xterm-host");
+  for (const type of ["mousedown", "mouseup", "auxclick"]) {
+    host.addEventListener(type, e => { if (e.button === 2) e.stopPropagation(); }, true);
+  }
+
+  // Clipboard keys. Ctrl/⌘+V, Ctrl+Shift+V and Shift+Insert are left to the
+  // browser, whose paste event xterm takes (and wraps for bracketed paste).
+  // Ctrl+Shift+C copies, and so does Ctrl+C when something is selected —
+  // with nothing selected, Ctrl+C is still an interrupt.
+  term.attachCustomKeyEventHandler(e => {
+    if (e.type !== "keydown") return true;
+    const k = (e.key || "").toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && k === "v") return false;
+    if (e.shiftKey && e.key === "Insert") return false;
+    if ((e.ctrlKey || e.metaKey) && k === "c" && (e.shiftKey || term.hasSelection())) {
+      e.preventDefault();
+      copyText(term.getSelection());
+      term.clearSelection();
+      return false;
+    }
+    return true;
+  });
+
   // Resize is debounced: xterm fires per-frame during a window drag and each one
   // would otherwise become a control frame and an ioctl on the pty.
   let rt = null;
@@ -6029,6 +6059,70 @@ function ensureTerm() {
 function fitTerm() {
   if (!fit) return;
   try { fit.fit(); } catch {}
+}
+
+/** Copy to the clipboard. The Clipboard API exists only on https or
+ *  localhost; Nexus is often reached on a plain LAN address, so fall back to
+ *  the old copy command, which works anywhere from inside a key or click. */
+function copyText(text) {
+  if (!text) return;
+  const done = () => toast("Copied", "ok");
+  if (window.isSecureContext && navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(done, () => legacyCopy(text) && done());
+  } else if (legacyCopy(text)) done();
+}
+function legacyCopy(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "");
+  ta.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0";
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch {}
+  ta.remove();
+  term?.focus();
+  return ok;
+}
+
+/**
+ * The Paste button. Reading the clipboard needs https (or localhost) and the
+ * browser's permission, and a phone has no Ctrl+V at all — so when it cannot
+ * read the clipboard directly it opens a box to long-press-paste into, then
+ * types that into the terminal. term.paste() wraps it for bracketed paste, so
+ * a multi-line paste is not run line by line.
+ */
+async function pasteIntoTerminal() {
+  if (!term || termWS?.readyState !== 1) return toast("The terminal is not connected", "err");
+  if (window.isSecureContext && navigator.clipboard?.readText) {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) { term.paste(text); term.focus(); return; }
+    } catch { /* refused or unsupported: fall through to the box */ }
+  }
+  const body = document.createElement("div");
+  body.className = "tpaste";
+  body.innerHTML = `<p class="hint">Paste here — Ctrl+V, or long-press on a phone — and it is typed into the terminal.</p>
+    <textarea id="tp-text" rows="5" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>`;
+  openModal({
+    title: "Paste into the terminal", icon: ICON("terminal"), body,
+    foot: `<span class="spacer"></span>
+      <button class="btn sm" id="tp-send" type="button">Paste</button>
+      <button class="btn primary sm" id="tp-enter" type="button">Paste and press Enter</button>`
+  });
+  const ta = $("#tp-text", body);
+  setTimeout(() => ta.focus(), 60);
+  const send = enter => {
+    const text = ta.value.replace(/\r?\n$/, "");
+    if (!text) return;
+    closeModal();
+    term.paste(text);
+    if (enter && termWS?.readyState === 1) termWS.send("\r");
+    term.focus();
+  };
+  on("#tp-send", "click", () => send(false));
+  on("#tp-enter", "click", () => send(true));
+  ta.addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(true); } });
 }
 
 function connectTerminal(profile = termProfile) {
@@ -6099,6 +6193,7 @@ function newTerminalSession() {
 }
 
 on("#t-new", "click", newTerminalSession);
+on("#t-paste", "click", pasteIntoTerminal);
 on("#t-mode", "click", () => go("term", termProfile === "claude" ? null : "claude"));
 on("#t-clear", "click", () => { if (term) term.clear(); });
 addEventListener("resize", () => { if (term && $("#page-term").classList.contains("on")) fitTerm(); });
@@ -7211,7 +7306,7 @@ function paintTermPage(arg) {
     }
     $("#term-hint").innerHTML = claude
       ? "tmux session <code>claude</code> as " + esc(c.user || "your user") +
-        " — closing the tab only detaches; Claude keeps working. Scroll with the wheel, Shift+drag to select text. " +
+        " — closing the tab only detaches; Claude keeps working. Scroll with the wheel; Shift+drag selects, Ctrl+C copies it; Ctrl+V or right-click pastes. " +
         "If Claude exits, <code>claude --continue</code> picks the conversation back up."
       : "Full PTY — arrow keys, tab completion, colours and curses apps all work. Every session is written to the audit log.";
     const b = $("#term-backend");
