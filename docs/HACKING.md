@@ -510,6 +510,543 @@ Kernel's briefing through `GET /api/checks`. Rules that are load-bearing:
   the question is "is it answering", not "is it private". Nothing but a GET is
   sent.
 
+## The Claude Code profile
+
+`/ws/terminal?profile=claude` opens Claude Code instead of a shell
+(`claudeCommand()` in `terminal.js`). Nexus runs as root, so the command is
+`runuser -l <user> -c "tmux new-session -A -s claude '<claude>; exec bash -l'"`:
+the user is `terminal.claudeUser` or the one user (uid ≥ 1000, then root) with a
+Claude binary in their home, and it must match `^[a-z_][a-z0-9_-]{0,31}# Hacking on Nexus
+
+Written for whoever picks this up next, including future me. This covers how it
+is *built* and which decisions are load-bearing.
+
+**Which document to read:**
+
+| | |
+|---|---|
+| `docs/HACKING.md` | this file — architecture, invariants, how to extend it |
+| `docs/REDESIGN.md` | the 0.9 plan: the Overview, health checks, the Modern theme, Kernel v2, the gap analysis |
+| `docs/DESIGN.md` | the original pixel design system. Historical in places: it predates the workstation theme and its "no border-radius" rule now governs only the classic look |
+| `PRODUCT.md` | what the product is meant to be |
+| `HANDOFF.md` | a transient note between agents, if one is present. Delete it once settled |
+| `README.md` | install, configure, and what each feature does |
+
+Two things are true of the whole codebase and explain a lot of what follows:
+**nothing is faked when it cannot be measured**, and **no gesture has to guess
+what it is** — each one is decided by where it starts.
+
+---
+
+## Shape of the thing
+
+Node 20, ESM, **no native runtime dependencies** — `npm ci` must never need a
+compiler on the target box. No build step on the frontend: `web/` is served
+straight off disk and loaded by the browser as-is.
+
+```
+server/
+  index.js        express app, static serving, WebSocket upgrade + routing
+  config.js       defaults < /etc/nexus/config.json < env vars
+  store.js        JSON state, atomic writes, audit ring
+  auth.js         scrypt, sessions, CSRF, login throttle, WS origin check
+  metrics.js      1s collector -> in-memory ring buffers
+  sensors.js      hwmon / thermal_zone discovery, smartctl
+  security.js     failed logins, listening ports, pending updates
+  automation.js   watch rules, scheduled tasks, webhooks, power
+  health.js       the Overview's checks: derived readings + HTTP/TCP/ping/DNS probes
+  dockerx.js      container list + control, reads io.casaos.* labels
+  files.js        path-jailed file ops, uploads
+  terminal.js     pty-less shell over a WebSocket
+  library.js      app-store catalogue sync + CasaOS adapter
+  apps.js         compose install/uninstall, port checks, job bus
+  agent.js        Kernel: providers, tools, approvals, usage, crons
+  risk.js         how dangerous a shell command is, and why
+  skills.js       the agent's Markdown skill library
+  pins.js         the PINs on the Apps page, in their own 0600 file
+  netmatch.js     trustedProxies matching (CIDR, exact, prefix, localhost)
+  routes.js       the whole REST surface — including the Apps launcher
+web/
+  app.js          one IIFE, no framework, no bundler
+  appearance.js   loaded before paint; sets the theme attributes on <html>
+  style.css       the original pixel theme, and every older layout rule
+  workstation.css the workstation theme, layered on top of style.css
+  ui.css          the 0.9 shell, Overview, search palette and Kernel — tokens only
+  modern.css      the Modern theme: its tokens, and refinements of everything else
+  vendor/         xterm.js, vendored because CSP forbids CDN scripts
+assets/brand/       pixel art (PixelLab); cat/ holds the Server Cat frames
+assets/workstation/ workbench scene and the theme's fonts
+```
+
+Both stylesheets always load. `workstation.css` is an override layer scoped to
+`[data-gui="workstation"]`, not a replacement, so anything structural — layout,
+positioning, new components — belongs in `style.css` and only the *look* is
+overridden. A rule written only in `workstation.css` disappears for anyone on
+the classic theme.
+
+---
+
+## Invariants — break these and something important breaks quietly
+
+**The WebSocket origin check** (`auth.js` `originAllowed`, called first in the
+`upgrade` handler). Browsers do not apply CORS to WebSockets. Without it, any
+page you visit while logged in can open a root shell on the box. It is the
+highest-consequence line in the codebase.
+
+**The path jail** (`files.js`). Every client path is `realpath`-resolved and
+must land inside a configured root. Traversal is *rejected*, never sanitised
+and retried — "clean it up and continue" is how traversal bugs survive.
+`resolveForCreate` is the one exception and is deliberately careful: it walks up
+to the nearest component that actually exists, jails *that*, then appends the
+missing tail. Components that do not exist cannot be symlinks.
+
+**Metrics live in memory, never on disk.** Fixed ring buffers, 15 minutes at 1s.
+Writing a row per metric per second to an SD card or a consumer SSD kills it.
+
+**Absent is not zero.** If a reading cannot be taken, say so. `diskIO` is `null`
+on platforms that cannot report it and the widget says "not reported on this
+platform"; security checks report `?`, never `0`. A check that quietly says
+all-clear when it failed to look is worse than no check.
+
+**Visibility lists store what is HIDDEN, not what is shown.** A "shown" list
+silently omits any drive or sensor that did not exist when the menu was last
+opened, which is indistinguishable from a bug.
+
+**No inline event handlers, ever.** The CSP is `script-src 'self'`, so
+`onclick=` and `onerror=` written into HTML are *refused silently* — the
+attribute is there, the handler never runs, and it looks like the code path is
+simply wrong. Image fallbacks go through the one document-level capturing
+`error` listener near the top of `app.js`, which reads `data-letter` (draw a
+lettered tile instead) or `data-onfail="hide"`. Two App Store handlers sat dead
+in the tree for months before this was noticed.
+
+**Image `load` events never reach `window`.** The `error` listener above can
+sit on `window` because error events from elements are delivered there; `load`
+events from elements are not (the spec leaves the window out of their path).
+The icon-tint listener is on `document`, capturing, for that reason — on
+`window` it simply never fired.
+
+**Live app data is read-only, on demand, and keyed per tile** (`server/integrations.js`).
+No adapter may send anything but a GET, or the login POST an app needs first.
+Nothing polls in the background: a reading is taken when `GET /integrations/live`
+is called and cached per kind for a few seconds. Keys live in
+`integration-secrets.json` (0600), never in `state.json`, and the browser only
+ever sees `hasSecret`. A tile with a PIN is never read, by the feed or by the
+test endpoint.
+
+**Anything slow gets a `busy` guard, not just a longer interval.** On a slow
+host, un-guarded periodic work queues behind itself until the calls overlap
+permanently. See `procLoop` in `metrics.js`.
+
+---
+
+## Three themes
+
+`appearance.js` runs before first paint — that is why it is a blocking script in
+`<head>` — and stamps these attributes on `<html>`:
+
+| Attribute | Values |
+|---|---|
+| `data-skin` | `modern` (default since 0.9), `workstation` or `classic` — the theme |
+| `data-gui` | `workstation` for Modern *and* Workstation, `classic` for Classic — the geometry |
+| `data-palette` | `graphite` / `daylight` (Modern), `parchment` / `evergreen` / `midnight` (Workstation) |
+| `data-theme` | `light` / `dark`, derived from the above |
+| `data-accent` | `indigo`, `blue`, `teal`, `emerald`, `amber`, `rose` (Modern only reads it) |
+| `data-glass` | `on` / `off` — translucent floating surfaces; always `off` in Classic |
+| `data-motion` | `full` or `reduced` |
+
+**Modern is a refinement layer, not a fourth stylesheet from scratch.** It sets
+`data-gui="workstation"` so every rounded, 1 px rule in `workstation.css`
+applies, and `modern.css` re-keys the tokens and refines components under
+`[data-skin="modern"]`. A component that looks right in Workstation is most of
+the way to right in Modern.
+
+**New components go in `ui.css`, written only against tokens**, so they render
+under all three themes. Where an older rule targets the same element, raise the
+selector (`#app #rail .nav`, `#kernel .kx-head`, `:root #kernel`) rather than
+relying on load order: `[data-gui="workstation"] .x` is (0,2,0) and beats a
+single class however late it is loaded — the same trap as *Two rules that
+outrank yours* below.
+
+**Labels are sentence case in the source.** Classic shouts them back via
+`text-transform` at the bottom of `modern.css`. `toast()` runs every message
+through `human()`, so an all-caps string from older code still reads normally.
+
+The old `nexus.gui` key is deliberately not read for the theme: every browser
+that ever picked a workstation palette stored `workstation` there, and honouring
+it would have kept them all off the new design. The theme lives in `nexus.skin`.
+
+All four are browser-local (`localStorage`), never server state — the same
+account on two machines can look different, deliberately. `window.NexusAppearance`
+is the only supported way to change them; it writes, re-applies and fires a
+`nexus:appearance` event that the rest of the app listens for.
+
+**The two themes disagree about corners, and that is fine.** `docs/DESIGN.md`
+forbids `border-radius` anywhere — that rule belongs to the *classic* pixel
+theme and still holds there. The workstation theme is rounded throughout. Before
+adding a shape, decide which theme you are styling; a radius written into
+`style.css` leaks into the pixel theme and looks wrong there.
+
+Anything that reads colour from JavaScript must read it from the CSS tokens
+(`cssv("--accent")`), never hard-code a hex. Two bugs have come from ignoring
+that: the terminal painted its own near-black frame inside a green panel, and
+the widget charts stopped following the palette.
+
+## Charts, and the crosshair that reads them
+
+`drawChart` (one series) and `drawMirror` (two, mirrored around a centre line)
+draw at the element's real pixel size — the viewBox matches the measured box
+1:1, so nothing is scaled and the line stays crisp on a wide widget.
+
+Both also record a **probe descriptor** on the SVG element, `svg.__probe`, and
+that is what the hover crosshair reads:
+
+```js
+svg.__probe = {
+  w, h, n,                      // viewBox size and number of samples
+  at,                           // when the NEWEST sample was taken (LIVE.t)
+  step,                         // ms between samples — 1000, the collector's tick
+  fmt,                          // value -> string, e.g. rate() or v => v + "%"
+  series: [{ label, vals, color, y }]   // y(v) -> viewBox y for that value
+};
+```
+
+Three things about it are load-bearing:
+
+- **It lives on the element, not in a closure.** Every widget rewrites its
+  chart's `innerHTML` once a second, so a crosshair drawn *inside* the SVG would
+  be erased between one pointer move and the next. `#probe` is a single floating
+  overlay — the same arrangement as `#tip` — that re-reads `svg.__probe` after
+  every redraw, which is also why `renderWidgets()` ends with `refreshProbe()`.
+- **A chart with nothing to draw must call `emptyChart(svg)`,** not
+  `svg.innerHTML = ""`. Clearing the pixels without clearing the descriptor
+  leaves the crosshair quoting samples that are no longer on screen. Disk
+  Activity on a platform that cannot report throughput is the live case.
+- **Series are read right-aligned** (`sampleAt`): the newest sample is the last
+  one, so a series that is one sample short is missing it from the *start*.
+
+The line snaps to a sample rather than tracking the cursor. Between two samples
+there is no reading, and a crosshair that stops where a measurement exists is
+the difference between an exact value and a plausible-looking guess. Time comes
+from `LIVE.t` — the frame's own timestamp — worked backwards a `step` per
+sample, not from the browser clock.
+
+Mouse and pen only, deliberately. A finger has no hover, and a chart sits inside
+a widget body that a long press picks up to drag; scrubbing would have to fight
+both that gesture and the page scroll and would win neither cleanly. The
+crosshair also hides itself while a drag is running: a widget being moved is not
+a widget being read.
+
+Adding a chart to a new widget needs nothing beyond passing `label` and `fmt`:
+
+```js
+drawChart(r.svg, LIVE.history.cpu, 100, colorCss(cfg.color),
+  { label: "LOAD", fmt: v => v.toFixed(1) + "%" });
+```
+
+Structure and the classic look are in `style.css` under `#probe`; the rounded,
+soft-edged reading of the same geometry is in `workstation.css`. The line colour
+is derived from `--text` with `color-mix`, with a `--text-3` fallback, so it
+follows all three palettes without either theme naming a colour for it.
+
+## The canvas has to be measurable
+
+`layout()` returns immediately when `gridEl.clientWidth < 1`, and that one line
+is a whole class of bug. A hidden page measures zero, so `cellW()` returns a
+**negative** cell width and every widget is written to the same broken position
+— and the window `resize` listener fires while you are on another page, because
+opening a long folder listing adds a scrollbar. Geometry that cannot be measured
+is not zero, it is unknown, and the response is to do nothing.
+
+Recovery is a **ResizeObserver on the grid element**, not a hook in `go()`.
+The canvas resizes without the window doing anything: returning to the
+Dashboard, collapsing the rail, an iPad rotating, the browser's own font size.
+The observer catches all of them, including the 0 → real transition the guard is
+waiting for.
+
+Two notes for anyone testing this. A negative `width` is **invalid CSS and is
+silently rejected**, so the first widget (`x: 0`) looks untouched even when the
+layout is destroyed — `left` accepts negatives happily and is what actually
+piles them up, so assert over every widget, not the first. And the observer
+repairs the damage before a round-trip test can see it, so
+`scripts/dashboard-check.js` fires a `resize` on the hidden page and checks that
+nothing was written, which is the invariant rather than a symptom. Run it with
+the guard deleted before trusting a change to it: it should fail.
+
+`tidy()` packs top-left with no gaps in reading order. `compact()` still exists
+and is different — it only pulls a widget straight up its own column, so it
+keeps a hole to the left of something. That is right for RESET and wrong for a
+tidy-up button.
+
+Presets are `settings.presets`, and `POST /layout/presets` runs its widgets
+through the **same** `sanitizeCfg`/clamp path as `PUT /layout`. A preset must
+not be a way to put into the state file what the layout endpoint would refuse.
+
+## The agent
+
+`server/agent.js` is self-contained: a provider catalogue, a tool table, and a
+run loop. `routes.js` only exposes it. Four things in there are load-bearing.
+
+**Capabilities gate the tool list, not just the tool.** `toolsFor(settings)`
+decides which tools are even *described* to the model. A switched-off capability
+does not produce a refusal the model can argue with — the tool does not exist as
+far as it knows. `execute()` re-checks the capability anyway, because a paused
+run can be approved after the switch was turned off.
+
+**Two jails, in series.** `agentPath()` calls the file manager's `resolveSafe`
+(or `resolveForCreate`), which answers "may Nexus touch this", and then checks
+the result against the roots ticked for the agent, which answers "may Kernel".
+`allowedRoots()` intersects the saved list with the *currently configured* roots
+every time, so editing `config.json` can only ever narrow what a stale saved path
+reaches.
+
+**`PUT /settings` must never be a way in.** That endpoint merges whatever it is
+given into `settings`, so it explicitly deletes `agent` and `agentUsage`. Without
+that, the root-shell switch could be set without any of `saveSettings()`'s
+validation. If you add another validated settings island, delete it there too.
+
+**Transcripts stay in memory.** A conversation can contain file contents and
+command output; writing it to `state.json` would quietly turn a chat into a copy
+of the machine. Only the audit entries and the token counters reach disk.
+
+### Skills
+
+`server/skills.js`. A skill is a Markdown file with front matter, living in
+`<dataDir>/agent-skills`. `mode: always` is concatenated into the system prompt
+every turn; `mode: ondemand` contributes only its name and description, and the
+body arrives through the `load_skill` tool when the model asks for it.
+
+- **The file is the skill.** Name, description, mode and body all live in it, so
+  one can be copied to another install and still be itself. Whether it is
+  switched *off* lives in the store, and it stores what is OFF, not what is on —
+  a file dropped into the folder appears rather than being silently ignored.
+- **`slug()` jails by construction.** It takes a filename straight from a
+  dropped file, so it strips to `[a-z0-9._-]` and drops leading dots: what
+  survives is one flat component that cannot address a parent directory. Do not
+  replace it with a check-afterwards.
+- **`memory()` clips to `ALWAYS_BUDGET`** and says in the prompt that it did.
+  Silently dropping a skill the owner switched on would be worse than the token
+  cost.
+- **`load_skill` has `cap: null`** — it is the only tool that is not capability
+  gated, because it returns text the owner put there themselves, not machine
+  access. `execute()` and `allTools()` both account for that.
+
+Seeds live in `assets/agent-skills/` and are copied on first boot and by RESTORE
+DEFAULTS, which is a restore rather than a reset: an edited skill keeps your
+version, a deleted one comes back.
+
+### Scheduled tasks
+
+`saveCron` / `tickCrons` in `agent.js`, deliberately the same shape as the
+Control Panel's schedules — time, days, and a `lastMinute` stamp that stops a
+job firing twice inside one minute. A cron obeys the approval mode like
+everything else, so on "ask me first" a task that wants to write or run stops
+and waits with nobody there to answer. It records `waiting: <tool>` rather than
+reporting success, and the settings page says so next to the switch. A run's
+transcript is deleted once the answer is extracted: it holds file contents and
+command output and has no business sitting in memory for hours.
+
+### The briefing
+
+`briefing()` builds a snapshot of the machine once per user turn — not once per
+model call, or a dozen tool steps would mean a dozen trips to the Docker socket.
+It is stamped with the time and the prompt says it is a snapshot.
+
+It honours the capability switches: no container list without `docker`, no
+folder list without `readFiles`. A switch that does not stop information flowing
+is decorative.
+
+And it states absences rather than omitting them. The collector starts a moment
+*after* the socket opens (deliberately — see `index.js`), so "Memory: not
+reported" is a real state the first few seconds after boot. An empty line where
+a reading should be is something a model will fill in for you.
+
+### Conversations on disk
+
+They used to live only in memory, deliberately, because a transcript holds file
+contents and command output. The owner asked to start a chat on a laptop and
+finish it on a phone, which cannot be done without writing it down — so it is
+written down carefully, and `agent-chats.json` is the result: its own file,
+0600, five conversations at most, oldest dropped, tool output already clipped to
+4 kB a call. Never `state.json`, which is rewritten constantly and ends up in
+backups.
+
+`persist()` runs at the end of every turn, in `send` and in both arms of
+`resume`. The tests assert the file exists, contains what was said, and is
+root-only — so a refactor that quietly stops saving fails, and so does one that
+starts saving world-readable.
+
+Attachments go beside it in `agent-uploads/<runId>/`, and are deleted with the
+conversation. They are referenced from the transcript by id and read back as
+base64 only at call time: a 3 MB screenshot re-serialised into the transcript on
+every message would make the file unusable within a dozen turns.
+
+### Adding a tool
+
+One entry in the `TOOLS` array:
+
+```js
+{
+  name: "read_file", cap: "readFiles", risk: "read",
+  description: "What the model reads to decide whether to call it.",
+  schema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+  preview: a => `${a.path}`,        // only for risk "write"/"exec": what ALLOW is agreeing to
+  async run(args, settings) { return "text the model gets back"; }
+}
+```
+
+`risk` decides the approval gate: `read` never asks, `write` and `exec` ask
+unless the owner has chosen full access. `cap` must be one of the keys in
+`DEFAULTS.caps`, or the tool can never be enabled. The return value is a string
+and is clipped — `clip()` exists because a 200 MB log would otherwise become a
+200 MB request.
+
+**A tool that reads stored state redacts credentials on the way out.** Whatever
+it returns goes into the model's context and, from there, potentially to a
+provider's servers. `nexus_config` reports the owner's watch rules, scheduled
+tasks, alerts and Apps page — but a notification webhook comes back as its host
+only (an ntfy topic or a Discord webhook URL is enough to post as its owner),
+and an app's PIN hash never leaves the server at all. When adding a tool, go
+through what it returns field by field and ask what each one would let someone
+do. `agent-check.js` asserts the redaction with a recognisable secret in the
+URL, so a future refactor that starts returning the whole config fails.
+
+### Classifying a command
+
+`server/risk.js` is a pure function with no dependencies: a command string in,
+`{ level, why[] }` out. It is separate from `agent.js` so it can be tested on
+its own, and it is tested on its own.
+
+Four levels — `low`, `medium`, `high`, `critical` — and three rules that decide
+whether it is worth anything:
+
+1. **Unknown is not safe.** A binary nothing in the tables recognises is
+   `medium`. A classifier that guesses "harmless" is worse than no classifier,
+   because the owner stops reading.
+2. **A pipeline is as dangerous as its worst segment.** The command is split on
+   `;  &&  ||  |  &` and newlines, each segment classified, and the worst wins.
+   `ls | xargs rm -rf` is a delete.
+3. **Every level carries its reasons**, in the owner's words, and the approval
+   card prints them. A level with no argument behind it cannot be disagreed
+   with.
+
+Two path lists, not one: anything *under* `/etc` is the system, but
+`/home/you/tmp` is a folder. Treating everything under `/home` as critical is
+how a classifier becomes noise — that was the first version and it called
+`rm -rf /home/me/tmp` critical.
+
+The owner's threshold lives in `settings.askAt`. `needsApproval` compares the
+call's level against it; a tool whose `risk` is `read` never asks whatever the
+threshold says. This is a *guide*, not a sandbox: it decides how often the owner
+is interrupted, not what is allowed. The approval gate is what stops things.
+
+### Every tool call must come back answered
+
+`sealed(messages)` runs once in `callModel`, before any adapter sees the
+history, and it is the reason a conversation cannot brick itself.
+
+Every provider enforces the same contract: an assistant turn carrying tool calls
+must be followed by a result for each one. Break it and you do not get one bad
+reply — the mismatched pair stays in the history, so the next message fails the
+same way, and the one after that, until the owner starts a new conversation.
+DeepSeek says it plainly: *"An assistant message with 'tool_calls' must be
+followed by tool messages responding to each 'tool_call_id'."*
+
+Two honest ways to break it, both of which happened:
+
+- A model emits three calls in one turn, the second needs approval, so the loop
+  stops — and the third is never reached.
+- The owner ignores the approval card and types something else instead, stacking
+  a user message on top of an open call.
+
+`send()` now closes an ignored approval explicitly (it is a "no", and the model
+is told so), and `sealed` is the backstop: anything still owed a result gets one
+saying it was not run, and results answering no call at all are dropped. A model
+told "not run" asks again. A model told nothing gets a 400 on its owner's behalf.
+
+The stub provider in `scripts/agent-check.js` enforces the same contract, so a
+broken history fails in the test rather than on the owner's box.
+
+### Providers
+
+Three wire shapes behind one normalised `{text, calls, usage}`: `anthropicCall`,
+`openaiCall` (OpenAI, DeepSeek, and every local server that copies them) and
+`googleCall`.
+
+**Anthropic has no `tool` role.** Results are user turns, roles must alternate,
+and it rejects block keys its schema does not name — so `anthropicMessages()`
+rebuilds each block rather than passing the internal shape through, and merges
+same-role turns. Sending the internal shape straight out is a 400 every time. Raw `fetch` rather than the vendors' SDKs, because `npm ci` on the
+target box must never need a compiler and one adapter is less code than three
+SDKs plus the glue to make them interchangeable behind a single model picker.
+
+Prices in `PROVIDERS` carry `PRICING_AS_OF` and a `priced` flag. **Do not invent
+a rate for a model you could not verify** — set `priced: false` and the UI says
+"see pricing" and reports tokens without a dollar figure. Absent is not zero here
+either. Two live consequences of that rule in the current catalogue: DeepSeek
+lists two models rather than three, because its third alias was retired and
+inventing one would be worse than a short list; and `gpt-5.6-sol` is unpriced
+because the sources disagreed about its promotional rate.
+
+Where a provider bills by time of day (DeepSeek's peak/off-peak), quote the
+**peak** rate. Being wrong in the expensive direction is the safe one.
+
+`testKey()` exists so a failure surfaces at the settings page rather than twenty
+seconds into a conversation. It calls the model with capabilities stripped and
+no skills attached, so it measures the connection rather than the configuration
+around it — and it counts the tokens it spends, because they are real.
+
+## Health checks
+
+`server/health.js`, read by the Overview, the area pages, the sidebar dots and
+Kernel's briefing through `GET /api/checks`. Rules that are load-bearing:
+
+- **Results live in memory**, sixty per check — the metrics invariant again.
+  A restart forgets history and that is fine.
+- **Absent is not zero.** A probe that could not run is `unknown`. A thing this
+  platform cannot measure has *no check* — there is no gateway check on Windows
+  and no temperature check on a box with no sensors — rather than a green one. A
+  stopped container is `off`, never `down`: people stop things on purpose.
+  `worst()` ignores `off` and `unknown` when it rolls an area up.
+- **Three strikes and a flap damper.** `noteForAlert()` raises only on the
+  third consecutive failure, announces recovery once, and stays silent for a
+  check that alerted in the last fifteen minutes. The first version alerted on
+  two strikes and, on a congested link, produced 24 down/up alerts in an hour. Derived Servers/Storage readings do not
+  alert at all: the seeded watch rules already cover temperature and disk with
+  sustain and cooldown, and two alert systems for one fact is noise.
+- **A pass in progress is joined, not skipped** (`fastLoop`/`slowLoop` share
+  the running promise). A plain busy flag made "Run checks" return before a
+  just-added check had been probed.
+- **No shell, ever.** `ping` is `execFile` with a host that has matched
+  `HOST_RE`/`IPV6_RE` (which cannot start with `-`); everything else is a socket.
+  Custom targets are validated on the way *in* (`cleanCustom`), and `PUT
+  /settings` deletes `health` so it cannot be written around that check.
+- **A locked app's address stays on the server.** It is probed like any other
+  tile, but its `target` is reported as `locked`, and `summaryLines()` — what
+  Kernel sees — carries names and messages only, never targets.
+- HTTP probes do not verify certificates: homelab services are self-signed, and
+  the question is "is it answering", not "is it private". Nothing but a GET is
+  sent.
+
+.
+**Nothing from the browser reaches that string** — the query parameter only
+chooses between two fixed profiles. Paths are single-quoted with `shq`.
+
+`new-session -A` attaches when the session exists, so a second press (or a
+second device) joins the same Claude. Closing the WebSocket kills only the tmux
+client. Resize works unchanged: the tmux client is the foreground process on the
+pty, so the `stty -F` route and node-pty both reach it.
+
+When nothing can be started, the server writes the reason into the terminal and
+closes with code **4000**; the page shows "Not started" rather than "detached".
+The Terminal page is drawn by `paintTermPage()`, which runs again when
+`/system/info` arrives — a page opened from a link is drawn before the server
+has said whether the terminal is on.
+
+`scripts/claude-setup.sh` (run as the user, refuses root) and `scripts/claude/`
+hold the setup: `CLAUDE.md` house rules and the read-only allow-list. It only
+ever adds: settings are merged with a backup, an existing `CLAUDE.md` is kept.
+
 ## Kernel turns run in the background
 
 `send` and `resume` take `{ async: true }` from the panel: `background()` marks

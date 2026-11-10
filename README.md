@@ -15,6 +15,12 @@ daylight, one accent, optional glass), **Workstation** (warm and retro) and
 
 ---
 
+## What's new in 0.9.2
+
+| | |
+|---|---|
+| **Claude Code in the sidebar** | One click opens [Claude Code](https://claude.com/claude-code) on this box, signed in with your Claude subscription, inside a tmux session that keeps working when you close the tab. See [Claude Code](#claude-code) |
+
 ## What's new in 0.9.1
 
 | | |
@@ -260,6 +266,38 @@ sudo apt-get install -y build-essential python3
 
 Every session open and close is written to the audit log, and the whole feature
 can be switched off with `terminal.enabled: false`.
+
+### Claude Code
+
+**Claude Code** in the sidebar opens the terminal straight into Claude Code — the
+agent from your Claude Pro or Max subscription, no API key — running on this
+box. It can read and change files, organise folders and drives, download things,
+look at images, and check on the machine, asking before it changes anything.
+
+It runs **as your normal user, not root**, inside a tmux session called
+`claude`. Closing the tab, or pressing **New session**, only detaches: Claude
+keeps working, and the next press picks it back up — from any device. When
+Claude exits you are left at a shell in the same session, and
+`claude --continue` resumes the conversation. **Plain shell** in the toolbar
+switches back to the ordinary terminal.
+
+Set it up once, **as your own user** (not with sudo), over SSH or in the terminal:
+
+```bash
+bash ~/nexus/scripts/claude-setup.sh
+```
+
+It installs Claude Code if it is missing, puts `~/.local/bin` on your PATH,
+installs tmux, writes house rules to `~/.claude/CLAUDE.md` (move to `~/.trash`
+instead of deleting, show the drive and ask before formatting, ask before
+stopping containers, keep secrets out of the chat), and adds read-only commands
+(`df`, `docker ps`, `journalctl`…) to the allow-list in
+`~/.claude/settings.json` so Claude stops asking about those. It never
+overwrites a file you already have: settings are merged with a backup, and an
+existing `CLAUDE.md` is left alone. Then run `claude` once to sign in.
+
+Nexus finds the user with Claude Code installed. With more than one, name yours
+in `/etc/nexus/config.json`: `"terminal": { "claudeUser": "yourname" }`.
 
 ## Nexus Expert
 

@@ -99,6 +99,7 @@ const ICONS = {
   eye: P("M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z") + '<circle cx="12" cy="12" r="3"/>',
   "eye-off": P("M10.7 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-2.2 3.2M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a9.7 9.7 0 0 0 5.4-1.6") + P("M2 2l20 20") + P("M9.9 9.9a3 3 0 0 0 4.2 4.2"),
   link: P("M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7") + P("M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"),
+  code: P("m16 18 6-6-6-6") + P("m8 6-6 6 6 6"),
   more: '<circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/>'
 };
 /** An icon as markup. Unknown names draw nothing rather than throwing. */
@@ -5941,6 +5942,10 @@ on("#f-dir-input", "change", e => {
 
 /* ============================ terminal (xterm.js) ============================ */
 let term = null, fit = null, termWS = null, termReady = false;
+/* "shell" or "claude": which command the open session runs. The Claude profile
+   is Claude Code inside a tmux session called "claude", run as the person who
+   installed it (server/terminal.js decides who, never the page). */
+let termProfile = "shell";
 
 function termTheme() {
   // Pull the palette straight from the CSS tokens so the terminal follows the
@@ -6013,13 +6018,17 @@ function fitTerm() {
   try { fit.fit(); } catch {}
 }
 
-function connectTerminal() {
+function connectTerminal(profile = termProfile) {
   if (!ensureTerm()) return;
+  // Switching between the shell and Claude closes the one that is open. For
+  // Claude that only detaches tmux: the session itself keeps running.
+  if (profile !== termProfile && termWS) { try { termWS.close(); } catch {} termWS = null; term.reset(); }
+  termProfile = profile;
   if (termWS && termWS.readyState <= 1) return;
 
   const state = $("#term-state");
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  termWS = new WebSocket(`${proto}//${location.host}/ws/terminal`);
+  termWS = new WebSocket(`${proto}//${location.host}/ws/terminal${profile === "claude" ? "?profile=claude" : ""}`);
   termWS.binaryType = "arraybuffer";
 
   termWS.onopen = () => {
@@ -6035,7 +6044,15 @@ function connectTerminal() {
   termWS.onmessage = ev => {
     term.write(typeof ev.data === "string" ? ev.data : new Uint8Array(ev.data));
   };
-  termWS.onclose = () => {
+  termWS.onclose = ev => {
+    // 4000 is the server saying it could not start anything; its message is
+    // already on screen and says why.
+    if (ev.code === 4000) {
+      termReady = false;
+      state.className = "pill warn";
+      state.innerHTML = '<i class="dot"></i>Not started';
+      return;
+    }
     const opened = termReady;
     termReady = false;
     state.className = "pill crit";
@@ -6043,7 +6060,9 @@ function connectTerminal() {
     // A shell that never opened is not a closed session, and telling someone to
     // press NEW SESSION when the upgrade is being eaten by a proxy just makes
     // them press it again. Say the real thing.
-    if (opened) {
+    if (opened && termProfile === "claude") {
+      term.write("\r\n\x1b[90m[detached — Claude Code keeps running in tmux. Press New session to reattach]\x1b[0m\r\n");
+    } else if (opened) {
       term.write("\r\n\x1b[90m[session closed — press NEW SESSION to reconnect]\x1b[0m\r\n");
     } else {
       term.write("\r\n\x1b[33m[the shell could not be opened]\x1b[0m\r\n");
@@ -6067,6 +6086,7 @@ function newTerminalSession() {
 }
 
 on("#t-new", "click", newTerminalSession);
+on("#t-mode", "click", () => go("term", termProfile === "claude" ? null : "claude"));
 on("#t-clear", "click", () => { if (term) term.clear(); });
 addEventListener("resize", () => { if (term && $("#page-term").classList.contains("on")) fitTerm(); });
 
@@ -7111,13 +7131,16 @@ function go(page, arg = null, { push = true } = {}) {
   curPage = page; curArg = arg;
 
   $$(".nav").forEach(n => {
-    const hit = n.dataset.page === page && (page !== "area" || n.dataset.area === arg);
+    const hit = n.dataset.page === page &&
+      (page === "area" ? n.dataset.area === arg : page === "term" ? (n.dataset.arg || null) === (arg || null) : true);
     n.classList.toggle("on", hit);
     if (hit) n.setAttribute("aria-current", "page"); else n.removeAttribute("aria-current");
   });
   $$(".page").forEach(p => p.classList.toggle("on", p.id === "page-" + page));
 
-  const meta = PAGES[page];
+  const meta = page === "term" && arg === "claude"
+    ? { title: "Claude Code", icon: "code", sub: "Claude Code on this box. Close the tab and it keeps working." }
+    : PAGES[page];
   const areaMeta = page === "area" ? AREA_META[arg] : null;
   $("#page-title").textContent = areaMeta ? areaMeta.name : meta.title;
   $("#tb-pico").innerHTML = IC(areaMeta ? areaMeta.icon : meta.icon);
@@ -7152,22 +7175,39 @@ function go(page, arg = null, { push = true } = {}) {
   if (page === "control") loadControl();
   if (page === "settings") loadSettings();
   if (page === "store") { refreshInstalled().then(() => { loadStoreStatus(); loadStore(true); }); }
-  if (page === "term") {
-    const on = LIVE.info?.terminal?.enabled;
-    $("#term-off").hidden = !!on;
-    $("#term-on").hidden = !on;
-    if (on) {
-      const t = LIVE.info.terminal;
-      $("#term-title").textContent = t.shell || "shell";
-      const b = $("#term-backend");
-      b.className = "pill " + (t.resize ? "ok" : "warn");
-      b.textContent = `${String(t.backend || "script")} · ${t.resize ? "full resize" : "no resize"}`;
-      connectTerminal();
-      // The host has no size until the page is visible, so fit after paint.
-      requestAnimationFrame(() => { fitTerm(); term?.focus(); });
-    }
-  }
+  if (page === "term") paintTermPage(arg);
   $("#main").scrollTop = 0;
+}
+
+/** The Terminal page, as a plain shell or as Claude Code. Run again when the
+ *  server's info arrives: a page opened straight from a link (#/term/claude)
+ *  is drawn before the server has said whether the terminal is on. */
+function paintTermPage(arg) {
+  const on = LIVE.info?.terminal?.enabled;
+  $("#term-off").hidden = !!on;
+  $("#term-on").hidden = !on;
+  if (on) {
+    const t = LIVE.info.terminal;
+    const claude = arg === "claude";
+    const c = t.claude || {};
+    $("#term-title").textContent = claude ? `Claude Code${c.user ? " · " + c.user : ""}${c.available && !c.tmux ? " · no tmux" : ""}` : (t.shell || "shell");
+    const mode = $("#t-mode");
+    if (mode) {
+      mode.innerHTML = claude ? `${IC("terminal")}<span>Plain shell</span>` : `${IC("code")}<span>Claude Code</span>`;
+      mode.dataset.tip = claude ? "Back to an ordinary shell. Claude keeps running in tmux." : "Open Claude Code in its tmux session.";
+    }
+    $("#term-hint").innerHTML = claude
+      ? "Runs inside the tmux session <code>claude</code> as " + esc(c.user || "your user") +
+        ". Closing the tab or pressing New session only detaches — Claude keeps working, and the next visit picks it back up. " +
+        "When Claude exits you are left at a shell in the same session; <code>claude --continue</code> resumes the last conversation."
+      : "Full PTY — arrow keys, tab completion, colours and curses apps all work. Every session is written to the audit log.";
+    const b = $("#term-backend");
+    b.className = "pill " + (t.resize ? "ok" : "warn");
+    b.textContent = `${String(t.backend || "script")} · ${t.resize ? "full resize" : "no resize"}`;
+    connectTerminal(claude ? "claude" : "shell");
+    // The host has no size until the page is visible, so fit after paint.
+    requestAnimationFrame(() => { fitTerm(); term?.focus(); });
+  }
 }
 
 function routeFromHash() {
@@ -7512,7 +7552,7 @@ async function start() {
   items.forEach(it => build(it, false)); layout(false);
   renderDrawer();                 // after items exist, so "added" is accurate
 
-  api("/system/info").then(i => { LIVE.info = i; renderWidgets(); }).catch(() => {});
+  api("/system/info").then(i => { LIVE.info = i; renderWidgets(); if (curPage === "term") paintTermPage(curArg); }).catch(() => {});
   api("/system/metrics").then(m => { LIVE.disks = m.disks || []; renderWidgets(); }).catch(() => {});
   api("/docker/containers").then(o => { if (o.available) { LIVE.containers = o.containers; renderWidgets(); } }).catch(() => {});
   setInterval(() => { api("/system/metrics").then(m => { LIVE.disks = m.disks || []; }).catch(() => {}); }, 30000);
@@ -8204,6 +8244,7 @@ function paletteSources() {
   }
   const A = window.NexusAppearance;
   const acts = [
+    ["Open Claude Code", "code", () => go("term", "claude")],
     ["Run all health checks now", "refresh", () => loadChecks(true).then(() => toast("Checks run", "ok"))],
     ["Add a health check", "plus", () => { go("area", curPage === "area" ? curArg : "network"); setTimeout(() => editCheck(null), 50); }],
     ["Add a widget", "layout", () => { go("dash"); renderDrawer(); $("#drawer").classList.add("open"); }],

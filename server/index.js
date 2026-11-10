@@ -251,9 +251,11 @@ wssMetrics.on("connection", ws => {
 /* ---- terminal ---- */
 wssTerminal.on("connection", (ws, req, auth) => {
   let session;
+  // "claude" opens Claude Code in its tmux session; anything else, the shell.
+  const profile = new URL(req.url, "http://localhost").searchParams.get("profile") === "claude" ? "claude" : "shell";
   try {
     session = terminal.open({
-      cols: 80, rows: 24,
+      cols: 80, rows: 24, profile,
       onData: buf => { if (ws.readyState === ws.OPEN) ws.send(buf); },
       onExit: code => {
         if (ws.readyState === ws.OPEN) {
@@ -264,10 +266,11 @@ wssTerminal.on("connection", (ws, req, auth) => {
     });
   } catch (err) {
     ws.send(Buffer.from(`\r\n[nexus] ${err.message}\r\n`));
-    return ws.close();
+    // 4000: nothing was started, so the page should not say "detached".
+    return ws.close(4000, "not started");
   }
 
-  audit("terminal.open", { sessionId: session.id }, req, auth.user);
+  audit("terminal.open", { sessionId: session.id, profile }, req, auth.user);
 
   ws.on("message", (data, isBinary) => {
     if (!isBinary) {

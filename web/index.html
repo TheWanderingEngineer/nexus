@@ -5,17 +5,17 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#0b0c0f">
-<script src="/appearance.js?v=0.9.1"></script>
+<script src="/appearance.js?v=0.9.2"></script>
 <title>Nexus</title>
 <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/icons/nexus-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/assets/brand/icons/nexus-16.png">
 <link rel="apple-touch-icon" href="/assets/brand/icons/nexus-128.png">
 <link rel="stylesheet" href="/vendor/xterm.css">
-<link rel="stylesheet" href="/style.css?v=0.9.1">
-<link rel="stylesheet" href="/workstation.css?v=0.9.1">
-<link rel="stylesheet" href="/ui.css?v=0.9.1">
-<link rel="stylesheet" href="/modern.css?v=0.9.1">
-<link rel="stylesheet" href="/apps.css?v=0.9.1">
+<link rel="stylesheet" href="/style.css?v=0.9.2">
+<link rel="stylesheet" href="/workstation.css?v=0.9.2">
+<link rel="stylesheet" href="/ui.css?v=0.9.2">
+<link rel="stylesheet" href="/modern.css?v=0.9.2">
+<link rel="stylesheet" href="/apps.css?v=0.9.2">
 </head>
 <body>
 
@@ -78,6 +78,7 @@
           <button class="nav" data-page="containers" type="button"><i class="ic" data-ic="box"></i><span class="nlabel">Containers</span><span class="ndot" id="nd-containers"></span></button>
           <button class="nav" data-page="files" type="button"><i class="ic" data-ic="folder"></i><span class="nlabel">Files</span></button>
           <button class="nav" data-page="term" type="button"><i class="ic" data-ic="terminal"></i><span class="nlabel">Terminal</span></button>
+          <button class="nav" data-page="term" data-arg="claude" type="button" data-tip="Claude Code on this box, in a tmux session that keeps running when you close the tab"><i class="ic" data-ic="code"></i><span class="nlabel">Claude Code</span></button>
           <button class="nav" data-page="store" type="button"><i class="ic" data-ic="store"></i><span class="nlabel">App Store</span></button>
         </div>
       </div>
@@ -163,6 +164,7 @@
           <button class="btn" id="st-libs" data-tip="Add or sync the git repositories the catalogue is built from.">Libraries</button>
         </div>
         <div id="tools-term" hidden>
+          <button class="btn" id="t-mode" type="button"><i class="ic" data-ic="code"></i><span>Claude Code</span></button>
           <button class="btn" id="t-new" data-tip="Close this shell and open a fresh one.">New session</button>
           <button class="btn" id="t-clear" data-tip="Wipe the screen. The session keeps running.">Clear</button>
         </div>
@@ -346,7 +348,7 @@
             </div>
             <div id="xterm-host"></div>
           </div>
-          <p class="hint" style="margin-top:8px">
+          <p class="hint" id="term-hint" style="margin-top:8px">
             Full PTY — arrow keys, tab completion, colours and curses apps all work.
             Every session is written to the audit log.
           </p>
@@ -635,6 +637,6 @@
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/xterm-addon-fit.js"></script>
 <script src="/vendor/xterm-addon-web-links.js"></script>
-<script src="/app.js?v=0.9.1"></script>
+<script src="/app.js?v=0.9.2"></script>
 </body>
 </html>

@@ -20,7 +20,9 @@ const DEFAULTS = {
 
   // Feature switches. The terminal is a root shell over the network; it stays
   // easy to turn off without a redeploy.
-  terminal: { enabled: true, shell: null },
+  // claudeUser: whose Claude Code the sidebar Claude button opens. null finds
+  // the one user with it installed.
+  terminal: { enabled: true, shell: null, claudeUser: null },
   docker: { enabled: true, socket: "/var/run/docker.sock" },
 
   // Roots the file manager may touch. Everything outside these is rejected.

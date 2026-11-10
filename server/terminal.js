@@ -49,7 +49,91 @@ function homeDir() {
   try { return process.env.HOME || os.homedir(); } catch { return "/"; }
 }
 
-export function open({ cols = 80, rows = 24, onData, onExit }) {
+/* ------------------------------------------------ the Claude profile
+ *
+ * The sidebar's Claude button opens the terminal straight into Claude Code,
+ * running inside a tmux session called "claude" as the person who installed
+ * it — not as root, which is what Nexus itself runs as. Closing the tab only
+ * detaches tmux, so a long job keeps going and the next press reattaches.
+ *
+ * Nothing from the browser reaches the command line: the profile is a fixed
+ * name, the user comes from config.json (`terminal.claudeUser`) or from
+ * finding the one home directory with Claude Code installed, and it must look
+ * like a Unix user name before it is used. Whoever can open this already has
+ * a root shell one button away, so this adds no reach; it only saves typing.
+ */
+const USER_RE = /^[a-z_][a-z0-9_-]{0,31}$/;
+const shq = s => `'${String(s).replace(/'/g, `'\\''`)}'`;
+const isRoot = () => typeof process.getuid === "function" && process.getuid() === 0;
+
+function passwd() {
+  try {
+    return fs.readFileSync("/etc/passwd", "utf8").split("\n").map(l => l.split(":"))
+      .filter(f => f.length >= 7).map(f => ({ user: f[0], uid: Number(f[2]), home: f[5] }));
+  } catch { return []; }
+}
+
+function onPath(name, extra = []) {
+  for (const d of [...extra, ...(process.env.PATH || "").split(":"), "/usr/local/bin", "/usr/bin", "/bin"]) {
+    if (!d) continue;
+    const p = `${d}/${name}`;
+    try { fs.accessSync(p, fs.constants.X_OK); return p; } catch {}
+  }
+  return null;
+}
+
+const claudeIn = home => [`${home}/.local/bin/claude`, `${home}/.claude/local/claude`, `${home}/.npm-global/bin/claude`]
+  .find(p => { try { fs.accessSync(p, fs.constants.X_OK); return true; } catch { return false; } }) || null;
+
+/** Where Claude Code is and whose it is, or why it cannot be opened. */
+export function claudeStatus() {
+  if (!cfg.isLinux) return { available: false, linuxOnly: true, reason: "The Claude button works on Linux only." };
+  const tmux = onPath("tmux");
+  const want = cfg.terminal.claudeUser;
+  if (want && !USER_RE.test(want)) return { available: false, reason: `terminal.claudeUser "${want}" is not a valid user name.` };
+  const users = passwd();
+
+  if (isRoot()) {
+    // A named user first; otherwise the real people on the box (uid ≥ 1000),
+    // then root itself.
+    const pool = want ? users.filter(u => u.user === want)
+                      : [...users.filter(u => u.uid >= 1000 && u.uid < 65534), ...users.filter(u => u.uid === 0)];
+    if (want && !pool.length) return { available: false, reason: `There is no user called "${want}" on this box.` };
+    for (const u of pool) {
+      if (!USER_RE.test(u.user)) continue;
+      const bin = claudeIn(u.home);
+      if (bin) return { available: true, user: u.user, home: u.home, bin, tmux, asOther: u.uid !== 0 };
+    }
+  } else {
+    const bin = claudeIn(homeDir()) || onPath("claude");
+    if (bin) return { available: true, user: os.userInfo().username, home: homeDir(), bin, tmux, asOther: false };
+  }
+  return { available: false, tmux, reason: want
+    ? `Claude Code is not installed for ${want}.`
+    : "Claude Code is not installed for any user on this box." };
+}
+
+/** The command line the Claude profile runs, as one string for `sh -c`. */
+function claudeCommand() {
+  const st = claudeStatus();
+  if (!st.available && st.linuxOnly) throw Object.assign(new Error(st.reason), { status: 404 });
+  if (!st.available) {
+    throw Object.assign(new Error(
+      `${st.reason}\r\n\r\nInstall it as your normal user (not root), over SSH or in a plain terminal:\r\n` +
+      `  curl -fsSL https://claude.ai/install.sh | bash\r\n` +
+      `then run "claude" once to sign in, and press Claude again.` +
+      (st.tmux ? "" : `\r\n\r\nAlso install tmux, so a session survives closing the tab:\r\n  sudo apt install tmux`)), { status: 404 });
+  }
+  // When Claude exits you land in a shell in the same tmux window, so the
+  // session stays put and "claude --continue" picks the conversation back up.
+  const inner = `cd ~ && ${shq(st.bin)}; exec bash -l`;
+  const body = st.tmux
+    ? `${shq(st.tmux)} new-session -A -s claude ${shq(inner)}`
+    : `printf '\\033[33m[nexus] tmux is not installed, so this session ends when you close the tab. sudo apt install tmux\\033[0m\\n'; ${inner}`;
+  return st.asOther ? `runuser -l ${st.user} -c ${shq(body)}` : `bash -lc ${shq(body)}`;
+}
+
+export function open({ cols = 80, rows = 24, onData, onExit, profile = "shell" }) {
   if (!cfg.terminal.enabled) {
     throw Object.assign(new Error("terminal is disabled in the server config"), { status: 403 });
   }
@@ -57,11 +141,13 @@ export function open({ cols = 80, rows = 24, onData, onExit }) {
   const id = nextId++;
   const shell = shellName();
   const env = { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor", LANG: process.env.LANG || "C.UTF-8" };
+  // The Claude profile is a fixed command line; the plain shell is the shell.
+  const command = profile === "claude" ? claudeCommand() : null;
 
   let impl;
 
   if (ptyLib) {
-    const p = ptyLib.spawn(shell, [], {
+    const p = ptyLib.spawn(command ? "/bin/sh" : shell, command ? ["-c", command] : [], {
       name: "xterm-256color",
       cols, rows,
       cwd: homeDir(),
@@ -85,7 +171,7 @@ export function open({ cols = 80, rows = 24, onData, onExit }) {
     delete scriptEnv.LINES;
 
     const child = cfg.isLinux
-      ? spawn("script", ["-qfc", shell, "/dev/null"], { cwd: homeDir(), env: scriptEnv })
+      ? spawn("script", ["-qfc", command || shell, "/dev/null"], { cwd: homeDir(), env: scriptEnv })
       : spawn(shell, [], { env });
 
     const resizer = cfg.isLinux ? scriptResizer(child) : null;
@@ -109,7 +195,7 @@ export function open({ cols = 80, rows = 24, onData, onExit }) {
   }
 
   const session = {
-    id, cols, rows, backend: backendName(), startedAt: Date.now(),
+    id, cols, rows, backend: backendName(), startedAt: Date.now(), profile: command ? "claude" : "shell",
     write: impl.write,
     resize(c, r) {
       c = Math.max(2, Math.min(1000, Math.round(Number(c)) || 80));
