@@ -6025,10 +6025,47 @@ function ensureTerm() {
     host.addEventListener(type, e => { if (e.button === 2) e.stopPropagation(); }, true);
   }
 
+  // The left button selects, always — the way a terminal is expected to work.
+  // While the program inside has the mouse (tmux, for wheel scrolling), xterm
+  // would send a left drag to it instead, and tmux's selection never reaches
+  // the browser: Ctrl+C had nothing to copy and right-click Copy was grey.
+  // xterm makes its own selection when Shift (Option on a Mac) is held, so a
+  // left press is handed to it as exactly that. The wheel still goes to tmux.
+  const MAC = /Mac|iPhone|iPad/.test(navigator.platform || "");
+  term.options.macOptionClickForcesSelection = true;
+  const ours = new WeakSet();
+  host.addEventListener("mousedown", e => {
+    if (e.button !== 0 || ours.has(e)) return;
+    const mode = term.modes?.mouseTrackingMode;
+    if (!mode || mode === "none" || e.shiftKey || (MAC && e.altKey)) return;
+    e.stopPropagation();
+    e.preventDefault();
+    term.clearSelection();          // a forced click with a selection would extend it
+    const clone = new MouseEvent("mousedown", {
+      bubbles: true, cancelable: true, view: window, detail: e.detail,
+      clientX: e.clientX, clientY: e.clientY, screenX: e.screenX, screenY: e.screenY,
+      button: 0, buttons: e.buttons, ctrlKey: e.ctrlKey, metaKey: e.metaKey,
+      shiftKey: !MAC, altKey: MAC
+    });
+    ours.add(clone);
+    e.target.dispatchEvent(clone);
+    term.focus();
+  }, true);
+
   // Clipboard keys. Ctrl/⌘+V, Ctrl+Shift+V and Shift+Insert are left to the
   // browser, whose paste event xterm takes (and wraps for bracketed paste).
   // Ctrl+Shift+C copies, and so does Ctrl+C when something is selected —
   // with nothing selected, Ctrl+C is still an interrupt.
+  try { term.parser.registerOscHandler(52, onOsc52); } catch {}
+
+  // Copy on select, like most Linux terminals: let go of a Shift+drag (or any
+  // selection xterm itself makes) and it is on the clipboard. Selections made
+  // in tmux arrive through OSC 52 above instead.
+  host.addEventListener("mouseup", e => {
+    if (e.button !== 0) return;
+    setTimeout(() => { if (term.hasSelection()) copyText(term.getSelection()); }, 0);
+  });
+
   term.attachCustomKeyEventHandler(e => {
     if (e.type !== "keydown") return true;
     const k = (e.key || "").toLowerCase();
@@ -6064,14 +6101,63 @@ function fitTerm() {
 /** Copy to the clipboard. The Clipboard API exists only on https or
  *  localhost; Nexus is often reached on a plain LAN address, so fall back to
  *  the old copy command, which works anywhere from inside a key or click. */
-function copyText(text) {
+function copyText(text, btn) {
   if (!text) return;
-  const done = () => toast("Copied", "ok");
+  // With a button (Kernel's copy buttons) the button says so; otherwise a toast.
+  const done = () => {
+    if (!btn) return toast("Copied", "ok");
+    btn.classList.add("done");
+    const was = btn.innerHTML;
+    btn.innerHTML = IC("check") + "<span>Copied</span>";
+    setTimeout(() => { btn.classList.remove("done"); btn.innerHTML = was; }, 1400);
+  };
+  // If the browser refuses both ways (no recent click or key, which happens
+  // when a copy arrives from the program rather than from you), show the text
+  // with a Copy button — pressing it is the gesture the browser wants.
+  const fallback = () => { if (legacyCopy(text)) done(); else copyBox(text); };
   if (window.isSecureContext && navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(text).then(done, () => legacyCopy(text) && done());
-  } else if (legacyCopy(text)) done();
+    navigator.clipboard.writeText(text).then(done, fallback);
+  } else fallback();
+}
+
+function copyBox(text) {
+  const body = document.createElement("div");
+  body.className = "tpaste";
+  body.innerHTML = `<p class="hint">The browser would not let the page copy on its own. Press Copy, or select the text and press Ctrl+C.</p>
+    <textarea id="cb-text" rows="5" readonly spellcheck="false"></textarea>`;
+  $("#cb-text", body).value = text;
+  openModal({
+    title: "Copy", icon: ICON("terminal"), body,
+    foot: `<span class="spacer"></span><button class="btn primary sm" id="cb-copy" type="button">Copy</button>`
+  });
+  const ta = $("#cb-text", body);
+  setTimeout(() => { ta.focus(); ta.select(); }, 60);
+  on("#cb-copy", "click", () => {
+    const ok = () => { closeModal(); toast("Copied", "ok"); term?.focus(); };
+    if (window.isSecureContext && navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(ok, () => { ta.select(); if (document.execCommand("copy")) ok(); });
+    else { ta.select(); if (document.execCommand("copy")) ok(); }
+  });
+}
+
+/**
+ * OSC 52: a program asking the terminal to put text on the clipboard. That is
+ * how a selection made in tmux leaves tmux (set-clipboard on, set by the
+ * Claude profile) and how Claude's own "c to copy" works. Only writing is
+ * honoured — a request to READ the clipboard ("?") is ignored, so nothing on
+ * the box can lift what you copied elsewhere.
+ */
+function onOsc52(data) {
+  const i = data.indexOf(";");
+  const b64 = (i >= 0 ? data.slice(i + 1) : data).trim();
+  if (!b64 || b64 === "?" || b64.length > 1_400_000) return true;
+  try {
+    const text = new TextDecoder().decode(Uint8Array.from(atob(b64), c => c.charCodeAt(0)));
+    copyText(text);
+  } catch { /* not base64: ignore it, as xterm would */ }
+  return true;
 }
 function legacyCopy(text) {
+  const prev = document.activeElement;
   const ta = document.createElement("textarea");
   ta.value = text;
   ta.setAttribute("readonly", "");
@@ -6081,7 +6167,7 @@ function legacyCopy(text) {
   let ok = false;
   try { ok = document.execCommand("copy"); } catch {}
   ta.remove();
-  term?.focus();
+  try { prev?.focus?.({ preventScroll: true }); } catch {}
   return ok;
 }
 
@@ -7306,7 +7392,7 @@ function paintTermPage(arg) {
     }
     $("#term-hint").innerHTML = claude
       ? "tmux session <code>claude</code> as " + esc(c.user || "your user") +
-        " — closing the tab only detaches; Claude keeps working. Scroll with the wheel; Shift+drag selects, Ctrl+C copies it; Ctrl+V or right-click pastes. " +
+        " — closing the tab only detaches; Claude keeps working. Scroll with the wheel. Drag to select — it is copied as you let go; Ctrl+C and right-click Copy work too. Ctrl+V or right-click pastes. " +
         "If Claude exits, <code>claude --continue</code> picks the conversation back up."
       : "Full PTY — arrow keys, tab completion, colours and curses apps all work. Every session is written to the audit log.";
     const b = $("#term-backend");
@@ -8661,15 +8747,8 @@ function growInput() {
   input.style.height = Math.min(180, input.scrollHeight) + "px";
 }
 
-async function copyText(text, btn) {
-  try {
-    await navigator.clipboard.writeText(text);
-    btn.classList.add("done");
-    const was = btn.innerHTML;
-    btn.innerHTML = IC("check") + "<span>Copied</span>";
-    setTimeout(() => { btn.classList.remove("done"); btn.innerHTML = was; }, 1400);
-  } catch { toast("This browser would not let me copy", "err"); }
-}
+/* Kernel's copy buttons use copyText(text, btn) from the terminal section: the
+   one copy routine, which also works on a plain-http LAN address. */
 
 /* ---- where the panel sits, and how big it is ----
  * Both are the owner's, both are remembered per browser, and both are ignored

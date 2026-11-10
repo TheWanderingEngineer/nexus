@@ -279,8 +279,10 @@ It runs **as your normal user, not root**, inside a tmux session called
 keeps working, and the next press picks it back up — from any device. When
 Claude exits you are left at a shell in the same session, and
 `claude --continue` resumes the conversation. **Plain shell** in the toolbar
-switches back to the ordinary terminal. Scroll with the mouse wheel; hold Shift
-while dragging to select text, and Ctrl+C copies it. Paste with Ctrl+V,
+switches back to the ordinary terminal. Scroll with the mouse wheel. Drag to
+select text and it is copied when you let go, as in most Linux terminals;
+Ctrl+C (with something selected) and right-click → Copy work too, and so does
+Claude's own "c to copy". Paste with Ctrl+V,
 right-click → Paste, or the **Paste** button — which on a phone opens a box to
 long-press-paste into, and can press Enter for you (handy for the sign-in code).
 

@@ -1061,6 +1061,25 @@ the Clipboard API needs https and Nexus is often on a LAN address). The Paste
 button reads the clipboard where it can, and otherwise opens a box to paste
 into, then `term.paste()`s it (bracketed, so lines are not run one by one).
 
+**The left button selects, always.** Left unchanged, xterm sends a left drag to
+tmux, whose selection lives in tmux and never reaches the browser — Ctrl+C had
+nothing to copy and right-click Copy was grey. While mouse tracking is on, a
+left `mousedown` is stopped and re-dispatched with Shift held (Option on a Mac,
+with `macOptionClickForcesSelection`), which is xterm's own "force a
+selection" gesture; the selection is cleared first, or a forced click would
+extend the old one. Only the wheel still reaches tmux. Letting go copies the
+selection (copy-on-select). On a right-click with a selection, xterm puts the
+text in its textarea and selects it, so the browser's Copy is live.
+
+**OSC 52.** The Claude profile sets tmux `set-clipboard on`, so a program's copy
+request — Claude's "c to copy" — leaves tmux, and the page registers an OSC 52
+handler that writes it to the clipboard. Only writes: a read request (`?`) is
+ignored, so nothing on the box can read what you copied elsewhere. A copy that
+arrives without a recent click or key may be refused by the browser; then a
+small box shows the text with a Copy button. There is one `copyText(text, btn)`
+— Kernel's copy buttons use it too (they used to call the Clipboard API alone,
+which does not exist on a plain-http LAN address).
+
 The terminal's own padding sits on `.xterm`, not on `#xterm-host`: the fit
 addon subtracts the padding of `.xterm` from the host's computed height, so
 padding on the host made it ask for one row too many and clip the bottom row.

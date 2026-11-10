@@ -136,9 +136,12 @@ function claudeCommand() {
   // of its own while tmux owns the screen). Set on this session only, and on
   // every attach, so it holds for a session made before this existed. A long
   // Claude conversation outgrows tmux's default 2000 lines of history.
+  // set-clipboard on: a selection made in tmux, and Claude's own "c to copy",
+  // both travel out as OSC 52 — which the page turns into a real clipboard
+  // write. tmux's default ("external") swallows the program's copies.
   const tmux = shq(st.tmux);
   const body = st.tmux
-    ? `${utf8}${tmux} -u start-server \\; set-option -g history-limit 50000 \\; ` +
+    ? `${utf8}${tmux} -u start-server \\; set-option -g history-limit 50000 \\; set-option -s set-clipboard on \\; ` +
       `new-session -A -s claude ${shq(inner)} \\; set-option -t claude mouse on`
     : `${utf8}printf '\\033[33m[nexus] tmux is not installed, so this session ends when you close the tab. sudo apt install tmux\\033[0m\\n'; ${inner}`;
   return st.asOther ? `runuser -l ${st.user} -c ${shq(body)}` : `bash -lc ${shq(body)}`;
