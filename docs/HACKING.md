@@ -1033,7 +1033,26 @@ Kernel's briefing through `GET /api/checks`. Rules that are load-bearing:
 chooses between two fixed profiles. Paths are single-quoted with `shq`.
 
 `new-session -A` attaches when the session exists, so a second press (or a
-second device) joins the same Claude. Closing the WebSocket kills only the tmux
+second device) joins the same Claude.
+
+Three things in that command line are load-bearing:
+
+- **`tmux -u` and a UTF-8 locale.** `runuser -l` gives a fresh login, which on
+  a minimal Ubuntu can have `LANG=C` or none. tmux then decides the terminal
+  cannot show UTF-8 and draws every such character as `_` — Claude's logo and
+  its `❯` pointer came out as underscores. The command exports `LANG=C.UTF-8`
+  when no UTF-8 locale is set and passes `-u`.
+- **`mouse on`, on that session only.** While tmux owns the screen the browser
+  terminal has no scrollback of its own; with mouse mode the wheel scrolls
+  tmux's history. It is set on every attach, so an older session gets it too.
+  Shift+drag still selects text in the browser.
+- **`history-limit 50000`** (global, since it must be set before a pane
+  exists): a long conversation outgrows the default 2000 lines.
+
+The terminal's own padding sits on `.xterm`, not on `#xterm-host`: the fit
+addon subtracts the padding of `.xterm` from the host's computed height, so
+padding on the host made it ask for one row too many and clip the bottom row.
+A `ResizeObserver` refits whenever the box changes size, not only the window. Closing the WebSocket kills only the tmux
 client. Resize works unchanged: the tmux client is the foreground process on the
 pty, so the `stty -F` route and node-pty both reach it.
 

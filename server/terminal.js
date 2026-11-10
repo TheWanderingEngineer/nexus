@@ -127,9 +127,20 @@ function claudeCommand() {
   // When Claude exits you land in a shell in the same tmux window, so the
   // session stays put and "claude --continue" picks the conversation back up.
   const inner = `cd ~ && ${shq(st.bin)}; exec bash -l`;
+  // A login shell under runuser may have no UTF-8 locale, and then tmux draws
+  // every character it thinks the terminal cannot show as "_" — Claude's logo,
+  // its ❯ pointer, box drawing. xterm.js is UTF-8, so say so: a UTF-8 locale if
+  // there is none, and tmux -u.
+  const utf8 = `case "$LC_ALL$LC_CTYPE$LANG" in *UTF-8*|*utf8*|*UTF8*|*utf-8*) ;; *) export LANG=C.UTF-8 ;; esac; `;
+  // mouse on: the wheel scrolls tmux's history (the browser terminal has none
+  // of its own while tmux owns the screen). Set on this session only, and on
+  // every attach, so it holds for a session made before this existed. A long
+  // Claude conversation outgrows tmux's default 2000 lines of history.
+  const tmux = shq(st.tmux);
   const body = st.tmux
-    ? `${shq(st.tmux)} new-session -A -s claude ${shq(inner)}`
-    : `printf '\\033[33m[nexus] tmux is not installed, so this session ends when you close the tab. sudo apt install tmux\\033[0m\\n'; ${inner}`;
+    ? `${utf8}${tmux} -u start-server \\; set-option -g history-limit 50000 \\; ` +
+      `new-session -A -s claude ${shq(inner)} \\; set-option -t claude mouse on`
+    : `${utf8}printf '\\033[33m[nexus] tmux is not installed, so this session ends when you close the tab. sudo apt install tmux\\033[0m\\n'; ${inner}`;
   return st.asOther ? `runuser -l ${st.user} -c ${shq(body)}` : `bash -lc ${shq(body)}`;
 }
 

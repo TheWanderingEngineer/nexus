@@ -759,3 +759,17 @@ html:root body.kx-docked #kernel-open{display:none}
 @media (prefers-reduced-motion:reduce){
   :is(.page.on,.kx-orb.lg,#st-state .dot,.kx-row,.ck-box,#kernel){animation:none!important}
 }
+
+/* ============================================================
+   TERMINAL SIZE
+   xterm's fit addon measures the host's computed height and subtracts the
+   padding of the .xterm element — not the host's. With the padding on the
+   host (and box-sizing: border-box) it asked for a row more than fits, so the
+   bottom row was clipped: the prompt you are typing at, or tmux's status bar.
+   The padding lives on .xterm, where it is subtracted, and the terminal takes
+   the height the window has rather than a fixed 64vh.
+   ============================================================ */
+html #page-term #xterm-host{padding:0;height:clamp(300px,calc(100dvh - 305px),2400px)}
+html #page-term #xterm-host .xterm{height:100%;padding:10px 4px 6px 12px;box-sizing:border-box}
+html #page-term #xterm-host .xterm-viewport{overscroll-behavior:contain}
+@media (max-width:560px){ html #page-term #xterm-host{height:clamp(260px,calc(100dvh - 220px),2400px)} }

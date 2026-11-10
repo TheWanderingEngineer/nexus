@@ -279,7 +279,8 @@ It runs **as your normal user, not root**, inside a tmux session called
 keeps working, and the next press picks it back up — from any device. When
 Claude exits you are left at a shell in the same session, and
 `claude --continue` resumes the conversation. **Plain shell** in the toolbar
-switches back to the ordinary terminal.
+switches back to the ordinary terminal. Scroll with the mouse wheel; hold Shift
+while dragging to select text to copy.
 
 Set it up once, **as your own user** (not with sudo), over SSH or in the terminal:
 

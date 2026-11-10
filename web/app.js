@@ -329,6 +329,9 @@ on("#gate-form", "submit", async e => {
     $("#g-submit").disabled = false;
   }
 });
+// The button ships disabled so the form cannot be submitted natively (a GET
+// with the password in the URL) before this script has loaded.
+const gateBtn = $("#g-submit"); if (gateBtn) gateBtn.disabled = false;
 
 on("#logout", "click", async () => {
   try { await api("/auth/logout", { method: "POST" }); } catch {}
@@ -5988,7 +5991,9 @@ function ensureTerm() {
     lineHeight: 1.25,
     cursorBlink: true,
     cursorStyle: "block",
-    scrollback: 5000,
+    scrollback: 10000,
+    smoothScrollDuration: 110,
+    scrollSensitivity: 1.2,
     allowProposedApi: true,
     macOptionIsMeta: true,
     theme: termTheme()
@@ -5998,6 +6003,14 @@ function ensureTerm() {
   try { term.loadAddon(new WebLinksAddon.WebLinksAddon()); } catch {}
 
   term.open($("#xterm-host"));
+  // Fit whenever the box changes size, not only when the window does: the
+  // sidebar folding, the help line under it wrapping, a phone's toolbar
+  // showing — each moves the box without a window resize, and a stale fit is
+  // a bottom row drawn under the edge.
+  if ("ResizeObserver" in window) {
+    let fr = 0;
+    new ResizeObserver(() => { cancelAnimationFrame(fr); fr = requestAnimationFrame(fitTerm); }).observe($("#xterm-host"));
+  }
   term.onData(d => { if (termWS?.readyState === 1) termWS.send(d); });
 
   // Resize is debounced: xterm fires per-frame during a window drag and each one
@@ -7197,9 +7210,9 @@ function paintTermPage(arg) {
       mode.dataset.tip = claude ? "Back to an ordinary shell. Claude keeps running in tmux." : "Open Claude Code in its tmux session.";
     }
     $("#term-hint").innerHTML = claude
-      ? "Runs inside the tmux session <code>claude</code> as " + esc(c.user || "your user") +
-        ". Closing the tab or pressing New session only detaches — Claude keeps working, and the next visit picks it back up. " +
-        "When Claude exits you are left at a shell in the same session; <code>claude --continue</code> resumes the last conversation."
+      ? "tmux session <code>claude</code> as " + esc(c.user || "your user") +
+        " — closing the tab only detaches; Claude keeps working. Scroll with the wheel, Shift+drag to select text. " +
+        "If Claude exits, <code>claude --continue</code> picks the conversation back up."
       : "Full PTY — arrow keys, tab completion, colours and curses apps all work. Every session is written to the audit log.";
     const b = $("#term-backend");
     b.className = "pill " + (t.resize ? "ok" : "warn");

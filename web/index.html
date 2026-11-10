@@ -5,17 +5,17 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#0b0c0f">
-<script src="/appearance.js?v=0.9.2"></script>
+<script src="/appearance.js?v=0.9.3"></script>
 <title>Nexus</title>
 <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/icons/nexus-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/assets/brand/icons/nexus-16.png">
 <link rel="apple-touch-icon" href="/assets/brand/icons/nexus-128.png">
 <link rel="stylesheet" href="/vendor/xterm.css">
-<link rel="stylesheet" href="/style.css?v=0.9.2">
-<link rel="stylesheet" href="/workstation.css?v=0.9.2">
-<link rel="stylesheet" href="/ui.css?v=0.9.2">
-<link rel="stylesheet" href="/modern.css?v=0.9.2">
-<link rel="stylesheet" href="/apps.css?v=0.9.2">
+<link rel="stylesheet" href="/style.css?v=0.9.3">
+<link rel="stylesheet" href="/workstation.css?v=0.9.3">
+<link rel="stylesheet" href="/ui.css?v=0.9.3">
+<link rel="stylesheet" href="/modern.css?v=0.9.3">
+<link rel="stylesheet" href="/apps.css?v=0.9.3">
 </head>
 <body>
 
@@ -26,7 +26,9 @@
 <div id="gate">
   <div class="gatebox raised">
     <div class="gatehead"><span class="gate-mark" aria-hidden="true"></span><span id="gate-title">Sign in to Nexus</span></div>
-    <form class="gatebody" id="gate-form" autocomplete="on">
+    <!-- method=post and a disabled button until app.js takes over: a form submitted
+         natively before the script loads would put the password in the URL. -->
+    <form class="gatebody" id="gate-form" autocomplete="on" method="post">
       <img class="crt" src="/assets/brand/nexus-logo.png" alt="">
       <p class="gatemsg" id="gate-msg">Welcome back. Sign in to your homelab.</p>
       <div>
@@ -42,7 +44,7 @@
         <input id="g-confirm" type="password" autocomplete="new-password">
       </div>
       <div class="gateerr" id="gate-err"></div>
-      <button class="btn primary" id="g-submit" type="submit">Sign in</button>
+      <button class="btn primary" id="g-submit" type="submit" disabled>Sign in</button>
     </form>
   </div>
 </div>
@@ -637,6 +639,6 @@
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/xterm-addon-fit.js"></script>
 <script src="/vendor/xterm-addon-web-links.js"></script>
-<script src="/app.js?v=0.9.2"></script>
+<script src="/app.js?v=0.9.3"></script>
 </body>
 </html>
