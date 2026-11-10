@@ -5,16 +5,17 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#0b0c0f">
-<script src="/appearance.js?v=0.9.0"></script>
+<script src="/appearance.js?v=0.9.1"></script>
 <title>Nexus</title>
 <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/icons/nexus-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/assets/brand/icons/nexus-16.png">
 <link rel="apple-touch-icon" href="/assets/brand/icons/nexus-128.png">
 <link rel="stylesheet" href="/vendor/xterm.css">
-<link rel="stylesheet" href="/style.css?v=0.9.0">
-<link rel="stylesheet" href="/workstation.css?v=0.9.0">
-<link rel="stylesheet" href="/ui.css?v=0.9.0">
-<link rel="stylesheet" href="/modern.css?v=0.9.0">
+<link rel="stylesheet" href="/style.css?v=0.9.1">
+<link rel="stylesheet" href="/workstation.css?v=0.9.1">
+<link rel="stylesheet" href="/ui.css?v=0.9.1">
+<link rel="stylesheet" href="/modern.css?v=0.9.1">
+<link rel="stylesheet" href="/apps.css?v=0.9.1">
 </head>
 <body>
 
@@ -216,10 +217,26 @@
       </section>
 
       <section class="page" id="page-apps">
-        <div class="lbar" id="l-bar">
-          <input id="l-q" type="search" placeholder="Find an app…" aria-label="Find an app">
+        <div class="lhead" id="l-bar">
+          <label class="lsearch"><i class="ic" data-ic="search"></i>
+            <input id="l-q" type="search" placeholder="Find an app, a tag, a port…" aria-label="Find an app" autocomplete="off"></label>
+          <div class="seg lfilter" id="l-filter" role="group" aria-label="Show">
+            <button type="button" data-lf="all" aria-pressed="true">All <i>0</i></button>
+            <button type="button" data-lf="up" aria-pressed="false">Up <i>0</i></button>
+            <button type="button" data-lf="down" aria-pressed="false">Problems <i>0</i></button>
+            <button type="button" data-lf="live" aria-pressed="false">Live <i>0</i></button>
+          </div>
           <span class="spacer"></span>
-          <span class="lcount" id="l-count"></span>
+          <div class="lhead-r">
+            <div class="seg lview" id="l-view" role="group" aria-label="View">
+              <button type="button" data-lv="grid" aria-pressed="true" data-tip="Tiles" aria-label="Tiles"><i class="ic" data-ic="grid"></i></button>
+              <button type="button" data-lv="list" aria-pressed="false" data-tip="List" aria-label="List"><i class="ic" data-ic="menu"></i></button>
+            </div>
+            <div class="lsw" data-tip="Read live numbers — speeds, queues, what is playing — from the apps that support it. Turn it off and Nexus stops asking them.">
+              <span>Live data</span>
+              <button class="switch" id="l-live-on" type="button" role="switch" aria-checked="true" aria-label="Live data"><span></span></button>
+            </div>
+          </div>
         </div>
         <div class="ltagbar" id="l-tags" hidden></div>
         <div class="lselbar" id="l-selbar" hidden>
@@ -231,10 +248,22 @@
           <button class="btn sm danger" id="l-selremove">Remove</button>
           <button class="btn sm" id="l-selclear">Clear</button>
         </div>
+        <section class="lvstrip" id="l-live" hidden aria-label="Live">
+          <header class="lvhead">
+            <button type="button" class="lvfold" id="l-live-fold" aria-expanded="true" data-tip="Fold the live cards away. The numbers on the tiles stay.">
+              <span class="lsecchev"><i class="ic" data-ic="chevron-down"></i></span><span class="lvpulse"></span><b>Live</b><span class="lseccount" id="l-live-n">0</span></button>
+            <span class="lvago" id="l-live-ago"></span></header>
+          <div class="lvgrid" id="l-live-grid"></div>
+        </section>
         <div class="lgrid" id="l-grid"></div>
-        <div class="empty" id="l-empty" hidden>
-          Nothing here yet &mdash; press &ldquo;Pull all&rdquo; to find what is running, or add one by hand
+        <div class="lempty" id="l-empty" hidden>
+          <span class="lempty-ico"><i class="ic" data-ic="grid"></i></span>
+          <b>No apps yet</b>
+          <p>Press <em>Pull all</em> to find what is running in Docker, or add one by hand.</p>
+          <div class="lempty-acts"><button class="btn primary" type="button" data-lempty="pull">Pull all</button>
+            <button class="btn" type="button" data-lempty="add">Add app</button></div>
         </div>
+        <p class="lnone" id="l-none" hidden>Nothing matches. <button type="button" class="linkbtn" id="l-none-clear">Clear the filters</button></p>
       </section>
 
       <!-- files -->
@@ -606,6 +635,6 @@
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/xterm-addon-fit.js"></script>
 <script src="/vendor/xterm-addon-web-links.js"></script>
-<script src="/app.js?v=0.9.0"></script>
+<script src="/app.js?v=0.9.1"></script>
 </body>
 </html>

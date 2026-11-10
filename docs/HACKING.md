@@ -102,6 +102,20 @@ simply wrong. Image fallbacks go through the one document-level capturing
 lettered tile instead) or `data-onfail="hide"`. Two App Store handlers sat dead
 in the tree for months before this was noticed.
 
+**Image `load` events never reach `window`.** The `error` listener above can
+sit on `window` because error events from elements are delivered there; `load`
+events from elements are not (the spec leaves the window out of their path).
+The icon-tint listener is on `document`, capturing, for that reason — on
+`window` it simply never fired.
+
+**Live app data is read-only, on demand, and keyed per tile** (`server/integrations.js`).
+No adapter may send anything but a GET, or the login POST an app needs first.
+Nothing polls in the background: a reading is taken when `GET /integrations/live`
+is called and cached per kind for a few seconds. Keys live in
+`integration-secrets.json` (0600), never in `state.json`, and the browser only
+ever sees `hasSecret`. A tile with a PIN is never read, by the feed or by the
+test endpoint.
+
 **Anything slow gets a `busy` guard, not just a longer interval.** On a slow
 host, un-guarded periodic work queues behind itself until the calls overlap
 permanently. See `procLoop` in `metrics.js`.
@@ -611,7 +625,7 @@ bearing decision on this page. The same board is opened on a desktop, an iPad
 and a phone, and absolute positions cannot make that trip — three columns become
 one and the arrangement is gone, or worse, is silently kept per-device and
 diverges. Flow plus a named size (`s`/`m`/`l`/`xl`, spans in a `repeat(auto-fill,
-minmax(168px,1fr))` grid) reflows into any width with the order and the relative
+minmax(150px,1fr))` grid) reflows into any width with the order and the relative
 weight intact. Groups carry the structure that positions used to imply.
 
 `grid-auto-flow: dense` closes the holes a tall tile leaves, and a span wider
@@ -651,7 +665,37 @@ box with no outbound access is the normal case, not the error case, so the
 failure path draws a lettered tile — via the delegated `error` listener, because
 `onerror=` would be refused (see the invariants).
 
+### Live data — adding an app
+
+`server/integrations.js` holds one adapter per app in `KINDS`. An adapter is
+`{ label, group, auth, ttl, help, read(ctx) }` and `read` returns
+`{ stats, items, itemsLabel, rate?, caption?, notes? }`:
+
+- `stats` — up to four `{ k, v, fmt, tone }`; `fmt` is `num`, `rate`
+  (bytes/s), `bytes` or `text`, and `tone` (`ok`/`warn`/`crit`/`accent`)
+  colours the number. The first one, or the first with a tone, is the tile's chip.
+- `items` — a short list `{ t, s, p, eta, st, speed }`: title, subtitle,
+  progress 0–1, seconds left, a state (`play`, `paused`, `warn`, `ok`…).
+- `rate` — `{ down, up }` in bytes/s; the server keeps the last 40 in memory
+  for the sparkline. Set `rate: true` on the kind so the page polls it fast.
+
+`ctx` carries `url` (the API address, or the tile's local one), `user`,
+`secret`, a `headers` object, and `basic` for HTTP Basic. Use `getJSON` for
+a call that must work and `maybe` for one whose failure just means "no number".
+Throw `fail(message, "AUTH")` for a refused login so the page offers to fix the
+key. A login that hands back a session goes in `sessions` keyed by tile id, so
+a reading every three seconds is not a login every three seconds — Pi-hole in
+particular has a limited number of seats.
+
+Paths beginning with `/` keep a reverse-proxy prefix (`http://host/sonarr` +
+`/api/v3/queue` → `/sonarr/api/v3/queue`); `request` handles that. Then add
+the kind to `GUESS` (and the page's `KIND_GUESS`) so the editor can detect it.
+
 ### The check box that came in twos
+
+(Pinned is a switch in the 0.9.1 editor, but the rule stands for any form that
+still uses a real check box.)
+
 
 `.ctxcheck .tick` is the box drawn for **button** rows (`role="switch"`), which
 have no input to draw one. A real `<input type=checkbox>` already draws its own,

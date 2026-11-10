@@ -15,6 +15,14 @@ daylight, one accent, optional glass), **Workstation** (warm and retro) and
 
 ---
 
+## What's new in 0.9.1
+
+| | |
+|---|---|
+| **Live data on the Apps page** | Download speed and what is downloading (qBittorrent, Transmission, SABnzbd), the queue and what is missing (Sonarr, Radarr, Lidarr, Readarr), what is playing (Jellyfin, Emby, Plex), requests (Jellyseerr, Overseerr), and the numbers from Prowlarr, Bazarr, Immich, Kavita, Nginx Proxy Manager, Pi-hole, AdGuard Home and Crafty. On or off per app, and for the whole page |
+| **Apps, redesigned** | Status on every tile, filters for Up / Problems / Live, a list view, folding groups, tiles tinted with their icon's colour |
+| **A better editor** | Add / Edit app is four short tabs with a live preview of the tile, a tag box, a connection test, and errors shown on the field that has them |
+
 ## What's new in 0.9
 
 | | |
@@ -585,7 +593,10 @@ things running *on* it — Jellyfin, Sonarr, Nginx Proxy Manager, whatever you h
 — as tiles you click to open.
 
 Each tile carries a name, an icon, a description, the ports it publishes, tags,
-and two addresses:
+and two addresses. The editor puts these in four short tabs — **Basics**, **Tile**,
+**Live data** and **PIN** — beside a preview of the tile that redraws as you type;
+Ctrl/⌘+Enter saves from any field, and a mistake is marked on the field and its
+tab rather than in a toast. The addresses:
 
 - **Local** — `http://192.168.1.50:8096`, the one that works on your own network.
 - **External** — your DuckDNS hostname, for when you are not on it.
@@ -603,6 +614,52 @@ cleanly (`npm` → Nginx Proxy Manager, `qbit` → qBittorrent). You can paste a
 image URL instead. If the icon cannot be fetched — no internet, a name nothing
 matches — the tile falls back to a lettered square rather than a broken-image
 glyph, so a box with no outbound access still gets a usable launcher.
+
+### Live data
+
+Many of the apps on a homelab have an API, and the useful numbers are a request
+away: how fast qBittorrent is downloading and what, what Sonarr is grabbing and
+what it is missing, who is watching what on Jellyfin. Nexus reads those and
+draws them in a **Live** section at the top of the Apps page, with a summary on
+each tile (`↓ 12.4 MB/s`, `2 streaming`, `12 missing`).
+
+To turn it on for an app, open **Edit → Live data**, switch it on, pick which
+app it is (Nexus guesses from the name), and give it the API key or login it
+needs — each app's form says where to find it. **Test connection** tries what
+you typed before you save. The **Live data** switch in the page header turns
+the whole thing off.
+
+| App | What it shows | It needs |
+|---|---|---|
+| qBittorrent, Transmission | Download and upload speed with a sparkline, what is downloading, progress and time left | Web UI login (optional if Nexus is on a trusted subnet) |
+| SABnzbd | Speed, queue, what is left | API key |
+| Sonarr, Radarr, Lidarr, Readarr | Queue with progress, missing, airing this week, health warnings | API key |
+| Prowlarr | Indexers, failing indexers, health | API key |
+| Bazarr | Episodes and movies wanting subtitles, throttled providers | API key |
+| Jellyfin, Emby, Plex | Who is playing what, and where; library counts | API key / Plex token |
+| Jellyseerr, Overseerr | Pending, processing and available requests, open issues | API key |
+| Immich | Photos, videos, library size, disk use | An admin's API key |
+| Kavita | Series, volumes, files, size | API key |
+| Nginx Proxy Manager | Proxy hosts, streams, certificates and which expire soon | Login |
+| Pi-hole (5 and 6), AdGuard Home | Queries, blocked, blocking on or off | Password / token, or login |
+| Crafty Controller | Servers running and players online | API token |
+
+Three things it will not do:
+
+- **Change anything.** Every request is a read (plus the login some apps need
+  first). There is no pause button here on purpose.
+- **Ask when nobody is looking.** Readings are taken while the Apps page is open
+  in a visible tab — every 3 seconds when a downloader is on the page, every 15
+  otherwise — and cached on the server for a few seconds more, so two open tabs
+  do not double the traffic.
+- **Show the key.** Keys and passwords are kept in their own root-only file
+  (`integration-secrets.json` in the data directory), never in `state.json`,
+  and the browser is only ever told that one is set. Removing a tile removes its
+  key. A tile with a PIN is never read at all — what it is playing would say
+  what is behind the PIN.
+
+Kernel sees the latest readings in its briefing, so "is anything downloading?"
+gets a real answer.
 
 ### Arranging it
 
@@ -633,6 +690,16 @@ ports and tags.
 
 With something selected, a bar offers the bulk actions: move to a group, change
 size, pin, remove.
+
+**Filters and views.** The row above the board counts what is shown — All, Up,
+Problems, Live — and narrows the board to one of them. The two buttons beside it
+switch between tiles and a **list**, which puts the address, tags, live number
+and status in columns; this browser remembers which you prefer. Each group folds
+with the arrow beside its name.
+
+**Status on every tile.** The dot on the icon is the app's health check (Overview →
+Apps): green up, amber slow, red down, with the response time on hover. A group's
+header says when something in it needs a look.
 
 **Four tile sizes**, not free resizing. Small is an icon and a name; medium adds
 the description and ports; large and huge are twice the height for the two or

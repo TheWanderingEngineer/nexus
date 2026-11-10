@@ -89,7 +89,17 @@ const ICONS = {
   "arrow-down": P("M12 5v14") + P("m19 12-7 7-7-7"),
   wifi: P("M12 20h.01") + P("M2 8.8a15 15 0 0 1 20 0") + P("M5 12.9a10 10 0 0 1 14 0") + P("M8.5 16.4a5 5 0 0 1 7 0"),
   image: '<rect x="3" y="3" width="18" height="18" rx="2.5"/><circle cx="9" cy="9" r="2"/>' + P("m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"),
-  power: P("M12 2v10") + P("M18.4 6.6a9 9 0 1 1-12.8 0")
+  power: P("M12 2v10") + P("M18.4 6.6a9 9 0 1 1-12.8 0"),
+  list: P("M8 6h13M8 12h13M8 18h13") + P("M3.5 6h.01M3.5 12h.01M3.5 18h.01"),
+  play: P("M7 4.5v15a1 1 0 0 0 1.5.9l12-7.5a1 1 0 0 0 0-1.8l-12-7.5A1 1 0 0 0 7 4.5Z"),
+  pause: '<rect x="6" y="4.5" width="4" height="15" rx="1"/><rect x="14" y="4.5" width="4" height="15" rx="1"/>',
+  pin: P("M12 17v5") + P("M9 10.8a2 2 0 0 1-1.1 1.8l-1.8.9A2 2 0 0 0 5 15.2V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.8a2 2 0 0 0-1.1-1.8l-1.8-.9a2 2 0 0 1-1.1-1.8V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"),
+  tag: P("M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z") + '<circle cx="7.5" cy="7.5" r="1.2" fill="currentColor"/>',
+  key: '<circle cx="7.5" cy="15.5" r="5"/>' + P("m21 2-9.6 9.6") + P("m15.5 7.5 3 3L22 7l-3-3"),
+  eye: P("M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z") + '<circle cx="12" cy="12" r="3"/>',
+  "eye-off": P("M10.7 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-2.2 3.2M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a9.7 9.7 0 0 0 5.4-1.6") + P("M2 2l20 20") + P("M9.9 9.9a3 3 0 0 0 4.2 4.2"),
+  link: P("M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7") + P("M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"),
+  more: '<circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/>'
 };
 /** An icon as markup. Unknown names draw nothing rather than throwing. */
 function IC(name, cls = "") {
@@ -3272,7 +3282,14 @@ on("#c-refresh", "click", loadContainers);
  * sizes, fewer columns. Groups are the structure instead, which is what "put
  * the watching things together" actually means.
  */
-const LP = { apps: [], groups: [], q: "", tag: "", sel: new Set() };
+const LP = { apps: [], groups: [], q: "", tag: "", sel: new Set(), filter: "all", view: "grid", collapsed: new Set() };
+
+/* How this browser likes to look at the board: tiles or a list, and which
+   groups are folded. Not part of the board, so not saved to the server. */
+const lPref = (k, d) => { try { return localStorage.getItem("nexus.apps." + k) ?? d; } catch { return d; } };
+const lSetPref = (k, v) => { try { localStorage.setItem("nexus.apps." + k, v); } catch {} };
+LP.view = lPref("view", "grid") === "list" ? "list" : "grid";
+try { LP.collapsed = new Set(JSON.parse(lPref("folded", "[]"))); } catch {}
 
 const L_SIZES = [
   { key: "s",  label: "Small", hint: "Icon and name" },
@@ -3306,7 +3323,9 @@ const ICON_ALIASES = {
   homeassistant: "home-assistant", "home-assistant": "home-assistant",
   pihole: "pi-hole", "pi-hole": "pi-hole",
   adguardhome: "adguard-home", vaultwarden: "vaultwarden",
-  portainer: "portainer", uptimekuma: "uptime-kuma", "uptime-kuma": "uptime-kuma"
+  portainer: "portainer", uptimekuma: "uptime-kuma", "uptime-kuma": "uptime-kuma",
+  nginxproxymanager: "nginx-proxy-manager", crafty: "crafty-controller", "crafty-controller": "crafty-controller",
+  adguard: "adguard-home", "adguard-home": "adguard-home", sabnzbd: "sabnzbd", plex: "plex", emby: "emby"
 };
 
 function iconSlug(app) {
@@ -3316,17 +3335,78 @@ function iconSlug(app) {
   return ICON_ALIASES[key] || key;
 }
 
+const ICON_CDN = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/";
+
+/** The address a tile's picture comes from, or null for a letter. */
+function iconSrc(app) {
+  if (/^https?:/.test(app.icon || "")) return app.icon;
+  const slug = iconSlug(app);
+  return slug ? ICON_CDN + slug + ".png" : null;
+}
+
 function appIconHTML(app) {
   const letter = esc(((app.name || "?").trim()[0] || "?").toUpperCase());
-  const src = /^https?:/.test(app.icon || "")
-    ? app.icon
-    : (iconSlug(app) ? `https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/${iconSlug(app)}.png` : null);
+  const src = iconSrc(app);
   if (!src) return `<span class="lico-letter">${letter}</span>`;
   // The fallback is wired by wireIcons() rather than an inline onerror: the
   // CSP here is `script-src 'self'`, which refuses inline handlers outright —
   // so an inline one would never run and a missing icon would stay broken.
-  return `<img class="lico-img" loading="lazy" alt="" data-letter="${letter}" src="${esc(src)}">`;
+  // The icon CDN answers CORS, so its images are fetched that way and can be
+  // read back for their colour; any other address is left alone, because
+  // asking for CORS from a server that does not answer it breaks the image.
+  const cors = src.startsWith(ICON_CDN) ? ` crossorigin="anonymous"` : "";
+  return `<img class="lico-img" loading="lazy" alt="" data-letter="${letter}"${cors} src="${esc(src)}">`;
 }
+
+/**
+ * A tile's tint: the colour of its icon, laid faintly behind it.
+ *
+ * Read once per icon from a 24×24 copy on a canvas — saturated pixels count
+ * most, near-white and near-black hardly at all — and remembered in this
+ * browser, so a board of thirty icons is measured once, not on every paint.
+ */
+const TINT = new Map((() => { try { return Object.entries(JSON.parse(localStorage.getItem("nexus.tints") || "{}")); } catch { return []; } })());
+const tintStyle = src => { const t = src && TINT.get(src); return t && t !== "none" ? ` style="--tint:${t}"` : ""; };
+
+function measureTint(img) {
+  try {
+    const c = document.createElement("canvas");
+    c.width = c.height = 24;
+    const x = c.getContext("2d", { willReadFrequently: true });
+    x.drawImage(img, 0, 0, 24, 24);
+    const d = x.getImageData(0, 0, 24, 24).data;
+    let r = 0, g = 0, b = 0, w = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] < 140) continue;
+      const R = d[i], G = d[i + 1], B = d[i + 2];
+      const mx = Math.max(R, G, B), mn = Math.min(R, G, B);
+      const lum = (mx + mn) / 510, sat = mx ? (mx - mn) / mx : 0;
+      if (lum > .94 || lum < .07) continue;
+      const k = .08 + sat * sat * 3;
+      r += R * k; g += G * k; b += B * k; w += k;
+    }
+    if (w <= 2) return "none";
+    const R = Math.round(r / w), G = Math.round(g / w), B = Math.round(b / w);
+    // A grey icon would lay a grey wash over the tile: leave it untinted.
+    return Math.max(R, G, B) - Math.min(R, G, B) < 28 ? "none" : `rgb(${R} ${G} ${B})`;
+  } catch { return "none"; }            // a tainted canvas: no CORS on that image
+}
+
+// On the document, not the window: a load event from an element never reaches
+// the window (the spec leaves it out of the path), unlike "error" above.
+document.addEventListener("load", e => {
+  const img = e.target;
+  if (!(img instanceof HTMLImageElement) || !img.classList.contains("lico-img")) return;
+  const src = img.getAttribute("src");
+  if (!src || TINT.has(src) || !img.crossOrigin) return;
+  const t = measureTint(img);
+  TINT.set(src, t);
+  if (t !== "none") $$("[data-tint]").forEach(el => { if (el.dataset.tint === src) el.style.setProperty("--tint", t); });
+  clearTimeout(measureTint.t);
+  measureTint.t = setTimeout(() => {
+    try { localStorage.setItem("nexus.tints", JSON.stringify(Object.fromEntries([...TINT].slice(-300)))); } catch {}
+  }, 800);
+}, true);
 
 /**
  * What an image does when it cannot load.
@@ -3376,7 +3456,7 @@ async function loadLauncher() {
     const out = await api("/launcher");
     LP.apps = out.apps || [];
     LP.groups = out.groups || [];
-  } catch { LP.apps = []; LP.groups = []; }
+  } catch { /* keep what is on screen — a failed read is not an empty board */ }
   LP.sel.clear();
   paintLauncher();
 }
@@ -3391,12 +3471,22 @@ function saveLauncher() {
 
 /* ---- what is on screen ---- */
 
-const lMatches = a => {
+/** Search and tag — what the filter counts are counted over. */
+const lMatchesText = a => {
   const q = LP.q.trim().toLowerCase();
   if (LP.tag && !(a.tags || []).includes(LP.tag)) return false;
   if (!q) return true;
-  return (a.name + " " + (a.desc || "") + " " + (a.url || "") + " " +
+  return (a.name + " " + (a.desc || "") + " " + (a.url || "") + " " + (a.live?.kind || "") + " " +
           (a.tags || []).join(" ") + " " + (a.ports || []).join(" ")).toLowerCase().includes(q);
+};
+/** …and then the All / Up / Problems / Live filter. */
+const lMatches = a => {
+  if (!lMatchesText(a)) return false;
+  const st = appStatus(a);
+  if (LP.filter === "up") return st === "up";
+  if (LP.filter === "down") return st === "warn" || st === "down";
+  if (LP.filter === "live") return !!(a.live?.on && !a.locked);
+  return true;
 };
 
 /**
@@ -3413,7 +3503,7 @@ function lSections() {
   if (pinned.length) out.push({ key: "__pinned", name: "Pinned", pinned: true, apps: pinned });
 
   const rest = shown.filter(a => !a.pinned);
-  const filtering = !!(LP.q.trim() || LP.tag);
+  const filtering = !!(LP.q.trim() || LP.tag || LP.filter !== "all");
   for (const g of LP.groups) {
     const apps = rest.filter(a => a.group === g.id);
     // An empty group still shows while you are arranging, because it is a
@@ -3427,60 +3517,126 @@ function lSections() {
   return out;
 }
 
+/* ---- the board ----
+ * Two views of the same ordered list. Tiles keep the sizes and the groups;
+ * the list is for a long board read top to bottom, with the address, tags,
+ * status and live numbers in columns. Which one you look at is a preference
+ * of this browser, not part of the board, so it lives in localStorage.
+ */
+const hostOf = a => {
+  if (a.locked) return "";
+  try { return new URL(a.url || a.externalUrl).host; } catch { return ""; }
+};
+const isLive = a => !!(a.live?.on && !a.locked);
+
+function statusTip(a) {
+  const c = CK.data?.checks?.find(x => x.id === "app:" + a.id);
+  if (!c) return a.locked ? "Not checked while it has a PIN" : "Not checked — add a local address to watch it";
+  return `${statusWord(c.status)}${Number.isFinite(c.ms) ? ` · ${c.ms} ms` : ""}${c.msg ? ` · ${c.msg}` : ""}`;
+}
+
 function tileHTML(a) {
-  const tags = (a.tags || []).slice(0, 4);
+  const list = LP.view === "list";
+  const size = a.size || "m";
+  const st = appStatus(a);
+  const host = hostOf(a);
+  const tags = (a.tags || []).slice(0, list ? 3 : size === "s" ? 0 : 3);
+  const live = isLive(a) && LV.on;
+  const src = iconSrc(a);
+  // In the list the address has its own column, so the line under the name is
+  // the description or nothing.
+  const sub = a.desc ? esc(a.desc) : list ? "" : host ? `<span class="laddr">${esc(host)}</span>` : a.locked ? "Opens with a PIN" : "No address yet";
   return `
-    <article class="ltile ${esc(a.size || "m")}${LP.sel.has(a.id) ? " on" : ""}"
-             data-id="${esc(a.id)}" tabindex="0" role="link"
+    <article class="ltile ${list ? "row" : esc(size)}${LP.sel.has(a.id) ? " on" : ""}${live ? " haslive" : ""}"
+             data-id="${esc(a.id)}"${src ? ` data-tint="${esc(src)}"` : ""}${tintStyle(src)} tabindex="0" role="link"
              aria-label="${esc(a.name)}${a.desc ? " — " + esc(a.desc) : ""}${a.locked ? " (needs a PIN)" : ""}">
-      <span class="lico">${appIconHTML(a)}</span>
+      <span class="licow"><span class="lico">${appIconHTML(a)}</span>
+        <i class="lstat s-${statusClass(st)}${st === "empty" ? " none" : ""}" data-tip="${esc(statusTip(a))}"></i></span>
       <span class="lbody">
-        <b class="lname">${esc(a.name)}</b>
-        ${a.desc ? `<span class="ldesc">${esc(a.desc)}</span>` : ""}
-        ${a.ports?.length ? `<span class="lports">${a.ports.map(p => `:${p}`).join(" ")}</span>` : ""}
-        ${tags.length ? `<span class="ltags">${tags.map(t =>
-          `<span class="ltag wc-${tagHue(t)}">${esc(t)}</span>`).join("")}</span>` : ""}
+        <span class="ltop"><b class="lname">${esc(a.name)}</b>${a.pinned ? `<span class="lflag" title="Pinned">${IC("pin")}</span>` : ""}${a.locked ? `<span class="lflag lk" title="Opens with a PIN">${IC("lock")}</span>` : ""}</span>
+        ${sub ? `<span class="ldesc">${sub}</span>` : ""}
+        ${!list && size !== "s" ? `<span class="lmeta">${a.desc && host ? `<span class="laddr">${esc(host)}</span>` : ""}${tags.map(t =>
+          `<span class="ltag wc-${tagHue(t)}">${esc(t)}</span>`).join("")}${live ? `<span class="llive" data-llive="${esc(a.id)}">${liveChip(a)}</span>` : ""}</span>` : ""}
       </span>
-      <span class="lflags">
-        ${a.pinned ? `<span class="lflag" title="Pinned">${SVG_PIN}</span>` : ""}
-        ${a.locked ? `<span class="lflag lk" title="Opens with a PIN">${SVG_LOCK}</span>` : ""}
-      </span>
+      ${list ? `
+        <span class="lcol laddrc">${host ? `<span class="laddr">${esc(host)}</span>` : a.locked ? `<span class="lmuted">${IC("lock")} hidden</span>` : ""}</span>
+        <span class="lcol ltagc">${tags.map(t => `<span class="ltag wc-${tagHue(t)}">${esc(t)}</span>`).join("")}</span>
+        <span class="lcol llivec">${live ? `<span class="llive" data-llive="${esc(a.id)}">${liveChip(a)}</span>` : ""}</span>
+        <span class="lcol lstc"><span class="lpill s-${statusClass(st)}" data-lpill="${esc(a.id)}">${esc(pillText(a))}</span></span>` : ""}
+      ${!list && live && (size === "l" || size === "xl") ? `<span class="ltlive" data-ltlive="${esc(a.id)}">${liveMini(a)}</span>` : ""}
       <span class="lacts">
         ${a.externalUrl || (a.locked && a.hasExternal) ? `<button class="lact" data-ext="${esc(a.id)}"
-           data-tip="Open the outside address" aria-label="Open externally">${SVG_GLOBE}</button>` : ""}
-        <button class="lact" data-edit="${esc(a.id)}" data-tip="Edit this app" aria-label="Edit">${SVG_GEAR}</button>
+           data-tip="Open the outside address" aria-label="Open externally">${IC("globe")}</button>` : ""}
+        <button class="lact" data-edit="${esc(a.id)}" data-tip="Edit" aria-label="Edit ${esc(a.name)}">${IC("edit")}</button>
       </span>
     </article>`;
 }
 
+function pillText(a) {
+  const st = appStatus(a);
+  const c = CK.data?.checks?.find(x => x.id === "app:" + a.id);
+  if (st === "empty") return "—";
+  return statusWord(st) + (st === "up" && Number.isFinite(c?.ms) ? ` · ${c.ms} ms` : "");
+}
+
 function paintLauncher() {
-  const grid = $("#l-grid"), empty = $("#l-empty");
+  const grid = $("#l-grid"), empty = $("#l-empty"), none = $("#l-none");
   if (!grid) return;
 
   const shown = LP.apps.filter(lMatches);
   empty.hidden = LP.apps.length > 0;
-  $("#l-count").textContent = LP.apps.length
-    ? `${shown.length}${shown.length === LP.apps.length ? "" : " of " + LP.apps.length} app${LP.apps.length === 1 ? "" : "s"}`
-    : "";
+  none.hidden = !LP.apps.length || shown.length > 0;
+  const filtering = !!(LP.q.trim() || LP.tag || LP.filter !== "all");
 
-  grid.innerHTML = lSections().map(s => `
-    <section class="lsec${s.pinned ? " pinned" : ""}" data-sec="${esc(s.key)}">
+  grid.classList.toggle("list", LP.view === "list");
+  grid.innerHTML = !LP.apps.length ? "" : lSections().map(s => {
+    const folded = LP.collapsed.has(s.key || "__loose") && !filtering;
+    const up = s.apps.filter(a => appStatus(a) === "up").length;
+    const bad = s.apps.filter(a => ["warn", "down"].includes(appStatus(a))).length;
+    return `
+    <section class="lsec${s.pinned ? " pinned" : ""}${folded ? " folded" : ""}" data-sec="${esc(s.key)}">
       ${s.name ? `<header class="lsechead${s.color ? " wc-" + esc(s.color) : ""}">
-        <span class="lsecmark"></span>
-        <b>${esc(s.name)}</b>
-        <span class="lseccount">${s.apps.length}</span>
+        <button type="button" class="lsecfold" data-fold="${esc(s.key || "__loose")}" aria-expanded="${!folded}">
+          <span class="lsecchev">${IC("chevron-down")}</span>
+          ${s.pinned ? `<span class="lsecpin">${IC("pin")}</span>` : `<span class="lsecmark"></span>`}
+          <b>${esc(s.name)}</b><span class="lseccount">${s.apps.length}</span>
+        </button>
+        <span class="lsecsum">${bad ? `<span class="s-crit"><i class="ndot"></i>${bad} need${bad === 1 ? "s" : ""} a look</span>` : s.apps.length && up === s.apps.length ? `<span class="s-ok"><i class="ndot"></i>All up</span>` : ""}</span>
         ${s.group ? `<button class="lact" data-group="${esc(s.group.id)}" data-tip="Rename, recolour or remove this group"
-                       aria-label="Edit group">${SVG_GEAR}</button>` : ""}
+                       aria-label="Edit group">${IC("edit")}</button>` : ""}
       </header>` : ""}
       <div class="lsecgrid">${s.apps.map(tileHTML).join("") ||
         `<p class="lsecempty">${s.pinned ? "" : "Drag an app here"}</p>`}</div>
-    </section>`).join("");
+    </section>`;
+  }).join("");
 
+  paintFilter();
   paintTagBar();
   paintSelBar();
   wireIcons(grid);
-  paintLauncherStatus();
   paintSidebarLaunch();
+  paintLive();
+}
+
+/** The All / Up / Problems / Live counts, over whatever the search leaves. */
+function paintFilter() {
+  const base = LP.apps.filter(lMatchesText);
+  const n = {
+    all: base.length,
+    up: base.filter(a => appStatus(a) === "up").length,
+    down: base.filter(a => ["warn", "down"].includes(appStatus(a))).length,
+    live: base.filter(isLive).length
+  };
+  $$("#l-filter [data-lf]").forEach(b => {
+    const k = b.dataset.lf;
+    b.setAttribute("aria-pressed", String(LP.filter === k));
+    $("i", b).textContent = n[k];
+    b.classList.toggle("bad", k === "down" && n.down > 0);
+    b.hidden = k === "live" && !n.live && LP.filter !== "live";
+  });
+  $$("#l-view [data-lv]").forEach(b => b.setAttribute("aria-pressed", String(LP.view === b.dataset.lv)));
+  const sw = $("#l-live-on");
+  if (sw) sw.setAttribute("aria-checked", String(LV.on));
 }
 
 function paintTagBar() {
@@ -3505,8 +3661,263 @@ function paintSelBar() {
   for (const id of [...LP.sel]) if (!LP.apps.some(a => a.id === id)) LP.sel.delete(id);
   bar.hidden = LP.sel.size === 0;
   if (!LP.sel.size) return;
-  $("#l-selcount").textContent = `${LP.sel.size} SELECTED`;
+  $("#l-selcount").textContent = `${LP.sel.size} selected`;
 }
+
+/* ============================ live data ============================
+ * Numbers read from the apps themselves through the server (integrations.js):
+ * download speeds, queues, what is playing. Polled only while the Apps page
+ * is on screen and the tab is visible — every three seconds when a downloader
+ * is on the board, every fifteen otherwise — and the server caches each app
+ * for a few seconds more, so two open tabs do not double the requests.
+ */
+const LV = { kinds: null, on: true, data: {}, at: 0, timer: 0, busy: false, folded: lPref("liveFolded", "0") === "1" };
+
+async function loadLiveKinds() {
+  if (LV.kinds) return LV.kinds;
+  try { const o = await api("/integrations/kinds"); LV.kinds = o.kinds; LV.on = o.on; }
+  catch { LV.kinds = []; }
+  return LV.kinds;
+}
+const kindOf = id => (LV.kinds || []).find(k => k.id === id) || null;
+
+/** The same guess the server makes, for the editor's "Detected" line. */
+const KIND_GUESS = [
+  [/qbit/, "qbittorrent"], [/transmission/, "transmission"], [/sabnzbd/, "sabnzbd"],
+  [/sonarr/, "sonarr"], [/radarr/, "radarr"], [/lidarr/, "lidarr"], [/readarr/, "readarr"],
+  [/prowlarr/, "prowlarr"], [/bazarr/, "bazarr"], [/jellyseerr/, "jellyseerr"], [/overseerr/, "overseerr"],
+  [/jellyfin/, "jellyfin"], [/emby/, "emby"], [/plex/, "plex"], [/immich/, "immich"], [/kavita/, "kavita"],
+  [/nginx.?proxy|^npm$/, "npm"], [/pi.?hole/, "pihole"], [/adguard/, "adguard"], [/crafty/, "crafty"]
+];
+function guessKind(a) {
+  const hay = [a.icon, a.name].filter(Boolean).join(" ").toLowerCase();
+  for (const [re, k] of KIND_GUESS) if (re.test(hay)) return k;
+  return "";
+}
+
+async function pollLive() {
+  clearTimeout(LV.timer);
+  if (curPage !== "apps" || document.hidden) return;
+  const any = LP.apps.some(isLive);
+  if (any && LV.on && !LV.busy) {
+    LV.busy = true;
+    try {
+      await loadLiveKinds();
+      const o = await api("/integrations/live");
+      LV.on = o.on; LV.data = o.apps || {}; LV.at = Date.now();
+    } catch { /* the last reading stays, aged by its timestamp */ }
+    finally { LV.busy = false; }
+  }
+  paintLive();
+  const fast = LP.apps.some(a => isLive(a) && kindOf(a.live.kind)?.rate);
+  LV.timer = setTimeout(pollLive, fast ? 3000 : 15000);
+}
+
+function fmtStat(s) {
+  if (s.v == null) return "—";
+  if (s.fmt === "rate") return rate(s.v);
+  if (s.fmt === "bytes") return bytes(s.v);
+  if (s.fmt === "num") return Number(s.v).toLocaleString();
+  return String(s.v);
+}
+function fmtEta(s) {
+  if (!Number.isFinite(s) || s <= 0) return "";
+  if (s < 60) return `${s}s left`;
+  if (s < 3600) return `${Math.round(s / 60)}m left`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ${Math.round(s % 3600 / 60)}m left`;
+  return `${Math.round(s / 86400)}d left`;
+}
+/** A big number and its unit, split so the unit can be drawn smaller. */
+function bigRate(v) {
+  const [n, u] = rate(v || 0).split(" ");
+  return `${esc(n)}<small>${esc(u || "")}</small>`;
+}
+
+/** The one-line summary on a tile. */
+function liveChip(a) {
+  const d = LV.data[a.id];
+  if (!d) return `<i class="lvdot wait"></i><span>Reading…</span>`;
+  if (!d.ok) return `${IC("alert")}<span>${d.auth ? "Needs a key" : "No reading"}</span>`;
+  if (d.rate) return `${IC("arrow-down")}<span>${esc(rate(d.rate.down))}</span>`;
+  const s = (d.stats || []).find(x => x.tone === "accent" || x.tone === "warn" || x.tone === "crit") || (d.stats || [])[0];
+  return s ? `<i class="lvdot"></i><span>${esc(fmtStat(s))} ${esc(s.k.toLowerCase())}</span>` : `<i class="lvdot"></i><span>Live</span>`;
+}
+
+/** The numbers inside a large tile. */
+function liveMini(a) {
+  const d = LV.data[a.id];
+  if (!d) return "";
+  if (!d.ok) return `<span class="lvminierr">${IC("alert")}${esc(d.error || "No reading")}</span>`;
+  return (d.stats || []).slice(0, 4).map(s =>
+    `<span class="lvm${s.tone ? " t-" + esc(s.tone) : ""}"><b>${esc(fmtStat(s))}</b><span>${esc(s.k)}</span></span>`).join("");
+}
+
+function spark(h) {
+  if (!h || h.down.length < 2) return `<div class="lvspark wait"></div>`;
+  const W = 300, H = 46, N = 40, step = W / (N - 1);
+  const max = Math.max(1, ...h.down, ...h.up) * 1.15;
+  const pts = arr => arr.map((v, i) => [W - (arr.length - 1 - i) * step, H - 2 - (v / max) * (H - 6)]);
+  const line = p => p.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`).join("");
+  const d = pts(h.down), u = pts(h.up);
+  return `<svg class="lvspark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+    <path class="a" d="${line(d)}L${W} ${H}L${d[0][0].toFixed(1)} ${H}Z"/>
+    <path class="d" d="${line(d)}"/><path class="u" d="${line(u)}"/></svg>`;
+}
+
+function liveItemHTML(it) {
+  const pct = it.p != null && Number.isFinite(it.p) ? Math.max(0, Math.min(100, Math.round(it.p * 100))) : null;
+  const meta = [pct != null ? pct + "%" : null, it.speed ? rate(it.speed) : null, it.eta ? fmtEta(it.eta) : null].filter(Boolean).join(" · ");
+  const ico = it.st === "play" ? IC("play") : it.st === "paused" ? IC("pause") : "";
+  return `<div class="lvrow st-${esc(it.st || "")}">
+    <div class="lvrt">${ico}<span class="lvname" title="${esc(it.t)}">${esc(it.t)}</span><span class="lvmeta">${esc(meta)}</span></div>
+    ${pct != null ? `<div class="lvbar"><i style="width:${pct}%"></i></div>` : ""}
+    ${it.s ? `<div class="lvsub">${esc(it.s)}</div>` : ""}
+  </div>`;
+}
+
+function liveCardBody(a) {
+  const d = LV.data[a.id];
+  if (!d) return `<div class="lvskel"><i></i><i></i><i></i></div>`;
+  if (!d.ok) {
+    return `<div class="lverr">${IC("alert")}<div><b>${d.auth ? "Nexus could not sign in" : "No reading"}</b>
+      <span>${esc(d.error || "")}</span></div>
+      <button class="btn sm" type="button" data-lvfix="${esc(a.id)}">${d.auth ? "Add the key" : "Settings"}</button></div>`;
+  }
+  let h = "";
+  const stats = d.stats || [];
+  if (d.rate) {
+    h += `<div class="lvrate">
+      <div class="lvr dn"><span>${IC("arrow-down")}Download</span><b>${bigRate(d.rate.down)}</b></div>
+      <div class="lvr up"><span>${IC("arrow-up")}Upload</span><b>${bigRate(d.rate.up)}</b></div></div>`;
+    h += spark(d.hist);
+    const rest = stats.filter(s => s.fmt !== "rate");
+    if (rest.length) h += `<div class="lvchips">${rest.map(s => `<span class="${s.tone ? "t-" + esc(s.tone) : ""}"><b>${esc(fmtStat(s))}</b> ${esc(s.k.toLowerCase())}</span>`).join("")}</div>`;
+  } else if (stats.length) {
+    if (d.caption) h += `<div class="lvcap">${esc(d.caption)}</div>`;
+    h += `<div class="lvstats n${Math.min(stats.length, 4)}">${stats.slice(0, 4).map(s =>
+      `<div class="lvs${s.tone ? " t-" + esc(s.tone) : ""}${s.fmt === "text" ? " txt" : ""}" title="${esc(s.k)}: ${esc(fmtStat(s))}"><b>${esc(fmtStat(s))}</b><span>${esc(s.k)}</span></div>`).join("")}</div>`;
+  }
+  const items = d.items || [];
+  if (items.length) {
+    h += `<div class="lvitems">${d.itemsLabel ? `<div class="lvih">${esc(d.itemsLabel)}<i>${items.length}</i></div>` : ""}
+      ${items.slice(0, 4).map(liveItemHTML).join("")}</div>`;
+  } else if (d.itemsLabel === "Downloading" || d.itemsLabel === "Now playing" || d.itemsLabel === "Queue") {
+    h += `<p class="lvquiet">${d.itemsLabel === "Now playing" ? "Nothing playing right now" : d.itemsLabel === "Queue" ? "The queue is empty" : "Nothing downloading"}</p>`;
+  }
+  if (d.notes?.length) h += `<ul class="lvnotes">${d.notes.map(n => `<li>${IC("alert")}${esc(n)}</li>`).join("")}</ul>`;
+  return h;
+}
+
+function liveCardHead(a) {
+  const k = kindOf(a.live.kind);
+  return `<header class="lvch">
+    <span class="lico sm">${appIconHTML(a)}</span>
+    <span class="lvct"><b>${esc(a.name)}</b><span>${esc(k?.label || a.live.kind)}${a.desc && k?.label !== a.desc ? " · " + esc(a.desc) : ""}</span></span>
+    <span class="lvstate"></span>
+    <button class="lact" type="button" data-lvopen="${esc(a.id)}" data-tip="Open ${esc(a.name)}" aria-label="Open ${esc(a.name)}">${IC("external")}</button>
+    <button class="lact" type="button" data-lvfix="${esc(a.id)}" data-tip="Live data settings" aria-label="Live data settings">${IC("settings")}</button>
+  </header>`;
+}
+
+function paintLive() {
+  const strip = $("#l-live"), grid = $("#l-live-grid");
+  if (!strip || !grid) return;
+  const apps = LV.on ? LP.apps.filter(a => isLive(a) && lMatchesText(a)) : [];
+  strip.hidden = !apps.length;
+  strip.classList.toggle("folded", LV.folded);
+  $("#l-live-fold")?.setAttribute("aria-expanded", String(!LV.folded));
+  const n = $("#l-live-n");
+  if (n) n.textContent = apps.length;
+
+  const keep = new Set(apps.map(a => a.id));
+  $$(".lvcard", grid).forEach(c => { if (!keep.has(c.dataset.live)) c.remove(); });
+  apps.forEach((a, i) => {
+    let card = $$(".lvcard", grid).find(c => c.dataset.live === a.id);
+    const src = iconSrc(a);
+    if (!card) {
+      card = document.createElement("article");
+      card.className = "lvcard";
+      card.dataset.live = a.id;
+      card.innerHTML = `<div class="lvhead-slot"></div><div class="lvbody"></div>`;
+    }
+    if (grid.children[i] !== card) grid.insertBefore(card, grid.children[i] || null);
+    if (src) { card.dataset.tint = src; const t = TINT.get(src); if (t && t !== "none") card.style.setProperty("--tint", t); }
+    const head = liveCardHead(a);
+    const slot = $(".lvhead-slot", card);
+    if (slot.dataset.sig !== head) { slot.innerHTML = head; slot.dataset.sig = head; wireIcons(slot); }
+    const d = LV.data[a.id];
+    const state = $(".lvstate", card);
+    state.className = "lvstate " + (!d ? "wait" : d.ok ? "ok" : "bad");
+    state.innerHTML = !d ? "" : d.ok ? `<i></i>Live` : `<i></i>Error`;
+    state.setAttribute("data-tip", d ? `${d.ok ? "Read" : "Tried"} ${since(d.at)}${Number.isFinite(d.ms) ? ` · took ${d.ms} ms` : ""}` : "Waiting for the first reading");
+    const html = liveCardBody(a);
+    const body = $(".lvbody", card);
+    if (body.dataset.sig !== html) { body.innerHTML = html; body.dataset.sig = html; }
+  });
+
+  $$("#l-grid [data-llive]").forEach(el => {
+    const a = LP.apps.find(x => x.id === el.dataset.llive);
+    if (!a) return;
+    const h = liveChip(a);
+    if (el.dataset.sig !== h) { el.innerHTML = h; el.dataset.sig = h; }
+    const d = LV.data[a.id];
+    el.className = "llive" + (d && !d.ok ? " bad" : "");
+  });
+  $$("#l-grid [data-ltlive]").forEach(el => {
+    const a = LP.apps.find(x => x.id === el.dataset.ltlive);
+    if (a) { const h = liveMini(a); if (el.dataset.sig !== h) { el.innerHTML = h; el.dataset.sig = h; } }
+  });
+  const ago = $("#l-live-ago");
+  if (ago) ago.textContent = !LV.at ? "" : Date.now() - LV.at < 5000 ? "Updated just now" : `Updated ${since(LV.at)}`;
+}
+
+on("#l-live-grid", "click", e => {
+  const o = e.target.closest("[data-lvopen]");
+  if (o) return openApp(LP.apps.find(a => a.id === o.dataset.lvopen));
+  const f = e.target.closest("[data-lvfix]");
+  if (f) return editApp(LP.apps.find(a => a.id === f.dataset.lvfix), "live");
+});
+
+on("#l-live-fold", "click", () => {
+  LV.folded = !LV.folded;
+  lSetPref("liveFolded", LV.folded ? "1" : "0");
+  paintLive();
+});
+
+on("#l-live-on", "click", async e => {
+  const next = !LV.on;
+  LV.on = next;
+  e.currentTarget.setAttribute("aria-checked", String(next));
+  try { await api("/settings", { method: "PUT", body: { liveApps: next } }); }
+  catch (err) { LV.on = !next; toast(err.message, "err"); }
+  paintLauncher();
+  if (LV.on) pollLive();
+  toast(LV.on ? "Live data on" : "Live data off — Nexus stops asking the apps", "ok");
+});
+
+on("#l-filter", "click", e => {
+  const b = e.target.closest("[data-lf]");
+  if (!b) return;
+  LP.filter = b.dataset.lf === LP.filter ? "all" : b.dataset.lf;
+  paintLauncher();
+});
+on("#l-view", "click", e => {
+  const b = e.target.closest("[data-lv]");
+  if (!b || b.dataset.lv === LP.view) return;
+  LP.view = b.dataset.lv;
+  lSetPref("view", LP.view);
+  paintLauncher();
+});
+on("#l-none-clear", "click", () => {
+  LP.q = ""; LP.tag = ""; LP.filter = "all";
+  $("#l-q").value = "";
+  paintLauncher();
+});
+on("#l-empty", "click", e => {
+  const b = e.target.closest("[data-lempty]");
+  if (!b) return;
+  if (b.dataset.lempty === "pull") pullApps(); else editApp(null);
+});
 
 function lSelected() { return LP.apps.filter(a => LP.sel.has(a.id)); }
 
@@ -3614,6 +4025,17 @@ on("#l-grid", "click", e => {
   if (ed) { e.stopPropagation(); return editApp(LP.apps.find(a => a.id === ed.dataset.edit)); }
   const gr = e.target.closest("[data-group]");
   if (gr) { e.stopPropagation(); return editGroup(LP.groups.find(g => g.id === gr.dataset.group)); }
+  const fold = e.target.closest("[data-fold]");
+  if (fold) {
+    e.stopPropagation();
+    const k = fold.dataset.fold;
+    LP.collapsed.has(k) ? LP.collapsed.delete(k) : LP.collapsed.add(k);
+    lSetPref("folded", JSON.stringify([...LP.collapsed]));
+    const sec = fold.closest(".lsec");
+    sec.classList.toggle("folded", LP.collapsed.has(k));
+    fold.setAttribute("aria-expanded", String(!LP.collapsed.has(k)));
+    return;
+  }
 
   const tile = e.target.closest(".ltile");
   if (!tile) { if (LP.sel.size) { LP.sel.clear(); paintLauncher(); } return; }
@@ -3750,7 +4172,7 @@ function lDragMove(e) {
 
   if (over && !lDrag.ids.includes(over.dataset.id)) {
     const r = over.getBoundingClientRect();
-    const after = e.clientX > r.left + r.width / 2;
+    const after = LP.view === "list" ? e.clientY > r.top + r.height / 2 : e.clientX > r.left + r.width / 2;
     over.parentNode.insertBefore(lDrag.mark, after ? over.nextSibling : over);
     lDrag.target = { sec: sec.dataset.sec, anchor: over.dataset.id, after };
   } else if (!over) {
@@ -3924,93 +4346,315 @@ function editGroup(g) {
 
 on("#l-group", "click", () => editGroup(null));
 
-/* ---- add / edit an app ---- */
-function editApp(app) {
-  const a = app || { id: "", name: "", url: "", externalUrl: "", icon: "", desc: "",
-                     ports: [], tags: [], group: "", pinned: false, size: "m", locked: false };
-  const used = [...new Set(LP.apps.flatMap(x => x.tags || []))].sort().slice(0, 12);
-  const form = document.createElement("div");
-  form.className = "lform";
-  form.innerHTML = `
-    <div class="lpreview"><span class="lico" id="lf-prev">${appIconHTML(a)}</span>
-      <span class="hint">Icons come from the community set Homarr uses. Leave the box empty and
-        Nexus guesses from the name; type a slug like <code>jellyfin</code>, or paste a URL.</span></div>
-    <div class="ag-row"><label for="lf-name">Name</label>
-      <input id="lf-name" type="text" maxlength="60" value="${esc(a.name)}" placeholder="Jellyfin"></div>
-    <div class="ag-row"><label for="lf-url">Address</label>
-      <input id="lf-url" type="text" value="${esc(a.url)}" placeholder="${a.locked ? "hidden while the PIN is on" : "http://192.168.1.50:8096"}"
-             spellcheck="false"${a.locked ? " disabled" : ""}></div>
-    <div class="ag-row"><label for="lf-ext">Outside address</label>
-      <input id="lf-ext" type="text" value="${esc(a.externalUrl)}" placeholder="${a.locked ? "hidden while the PIN is on" : "https://jellyfin.you.duckdns.org"}"
-             spellcheck="false"${a.locked ? " disabled" : ""}>
-      <span class="hint">${a.locked
-        ? "Both addresses are held on the server while this app has a PIN. Take the PIN off to change them."
-        : "Optional — used by the globe button when you are not at home."}</span></div>
-    <div class="ag-row"><label for="lf-icon">Icon</label>
-      <input id="lf-icon" type="text" value="${esc(a.icon)}" placeholder="jellyfin" spellcheck="false"></div>
-    <div class="ag-row"><label for="lf-ports">Ports</label>
-      <input id="lf-ports" type="text" value="${esc((a.ports || []).join(", "))}" placeholder="8096, 8920" spellcheck="false"></div>
-    <div class="ag-row"><label for="lf-desc">Description</label>
-      <input id="lf-desc" type="text" maxlength="200" value="${esc(a.desc)}" placeholder="Films and TV"></div>
-    <div class="ag-row"><label for="lf-tags">Tags</label>
-      <input id="lf-tags" type="text" value="${esc((a.tags || []).join(", "))}" placeholder="media, watching" spellcheck="false">
-      ${used.length ? `<div class="sk-tagsug">${used.map(t =>
-        `<button type="button" class="sk-tag sug" data-sug="${esc(t)}">+ ${esc(t)}</button>`).join("")}</div>` : ""}</div>
-    <div class="ag-row"><label for="lf-group">Group</label>
-      <select id="lf-group">
-        <option value="">No group</option>
-        ${LP.groups.map(g => `<option value="${esc(g.id)}"${a.group === g.id ? " selected" : ""}>${esc(g.name)}</option>`).join("")}
-      </select></div>
-    <div class="ag-row"><label>Tile size</label>
-      <div class="lsizes" role="group" aria-label="Tile size">
-        ${L_SIZES.map(s => `<button type="button" class="lsize${(a.size || "m") === s.key ? " on" : ""}"
-           data-s="${s.key}" data-tip="${esc(s.hint)}">${s.label}</button>`).join("")}
-      </div></div>
-    <label class="checkrow"><input type="checkbox" id="lf-pin"${a.pinned ? " checked" : ""}>
-      <span>Pinned &mdash; keep it in the band at the top</span></label>
-    <div class="ag-row"><label>PIN</label>
-      ${a.locked
-        ? `<div class="lockrow"><span class="lockon">${SVG_LOCK} This app opens with a PIN</span>
-             <button class="btn sm" id="lf-repin" type="button">Change it</button>
-             <button class="btn sm danger" id="lf-unlock" type="button">Take it off</button></div>`
-        : `<input id="lf-lock" type="password" inputmode="numeric" maxlength="4" placeholder="four digits" autocomplete="off">`}
-      <span class="hint">Keeps the tile's address out of this page and asks for four digits before
-        opening it. ${a.locked ? "Changing it or taking it off needs the PIN you set. " : ""}It is a screen
-        for whoever is looking at Nexus, not a lock on the app itself — that app still has its own
-        login, and anyone who knows its address can type it in.
-        ${a.locked ? "Forgotten it? Kernel can read it back — ask him, and approve the request." : ""}</span></div>`;
+/* ---- add / edit an app ----
+ * One dialog in four short tabs rather than one long form: what it is and
+ * where it lives, how its tile looks, live data, and the PIN. On the left a
+ * preview of the tile, redrawn as you type, so the result is never a
+ * surprise. Nothing is saved until Save; Ctrl/⌘+Enter saves from any field.
+ */
+const AE_TABS = [
+  { id: "basics", label: "Basics", icon: "edit", hint: "Name and addresses" },
+  { id: "look", label: "Tile", icon: "layout", hint: "Icon, size, group, tags" },
+  { id: "live", label: "Live data", icon: "activity", hint: "Speeds, queues, playing" },
+  { id: "access", label: "PIN", icon: "lock", hint: "Hide it behind four digits" }
+];
 
+async function editApp(app, startTab = "basics") {
+  await loadLiveKinds();
+  const isNew = !app;
+  const a = app ? { ...app, tags: [...(app.tags || [])], ports: [...(app.ports || [])] }
+                : { id: "", name: "", url: "", externalUrl: "", icon: "", desc: "", ports: [], tags: [],
+                    group: "", pinned: false, size: "m", locked: false };
+  const live0 = a.live || null;
+  const L = {
+    kind: live0?.kind || guessKind(a), on: live0 ? live0.on !== false : false,
+    url: live0?.url || "", user: live0?.user || "", hasSecret: !!live0?.hasSecret,
+    secret: undefined          // undefined keeps what is stored; "" removes it
+  };
+  let tags = [...a.tags];
   let size = a.size || "m";
-  openModal({
-    title: app ? "Edit app" : "Add app",
-    icon: "/assets/brand/icons/ui-launcher.png",
-    body: form,
-    foot: `${app ? `<button class="btn sm danger" id="lf-del" type="button">Remove</button>` : ""}
-           <span class="spacer"></span>
-           <button class="btn primary sm" id="lf-save" type="button">Save</button>`
-  });
+  let tab = AE_TABS.some(t => t.id === startTab) ? startTab : "basics";
+  const usedTags = [...new Set(LP.apps.flatMap(x => x.tags || []))].sort();
+  const groupsByKind = {};
+  for (const k of LV.kinds || []) (groupsByKind[k.group] = groupsByKind[k.group] || []).push(k);
 
-  const repaint = () => {
-    $("#lf-prev", form).innerHTML = appIconHTML({
-      name: $("#lf-name", form).value || "?", icon: $("#lf-icon", form).value.trim() });
+  const form = document.createElement("div");
+  form.className = "ae";
+  form.innerHTML = `
+    <aside class="ae-side">
+      <div class="ae-prevwrap"><div class="ae-prevlbl">Preview</div><div class="ae-prev" id="ae-prev"></div></div>
+      <nav class="ae-tabs" role="tablist" aria-label="Sections">
+        ${AE_TABS.map(t => `<button type="button" role="tab" class="ae-tab" data-tab="${t.id}" aria-selected="false">
+          ${IC(t.icon)}<span><b>${t.label}</b><small>${t.hint}</small></span><i class="ae-flag" hidden></i></button>`).join("")}
+      </nav>
+    </aside>
+    <div class="ae-main">
+      <section class="ae-pane" data-pane="basics" role="tabpanel">
+        <div class="fld"><label for="lf-name">Name</label>
+          <input id="lf-name" type="text" maxlength="60" value="${esc(a.name)}" placeholder="Jellyfin" autocomplete="off">
+          <span class="fld-err" data-err="name" hidden></span></div>
+        <div class="fld"><label for="lf-url">Local address</label>
+          <div class="fld-row"><span class="fld-ico">${IC("home")}</span>
+          <input id="lf-url" type="url" value="${esc(a.url)}" placeholder="${a.locked ? "Hidden while the PIN is on" : "http://192.168.1.50:8096"}"
+                 spellcheck="false" autocomplete="off"${a.locked ? " disabled" : ""}></div>
+          <span class="fld-hint">${a.locked ? "Both addresses stay on the server while this app has a PIN. Take the PIN off to change them."
+            : "Where the tile goes. The health check and live data read it too."}</span>
+          <span class="fld-err" data-err="url" hidden></span></div>
+        <div class="fld"><label for="lf-ext">Outside address <em>optional</em></label>
+          <div class="fld-row"><span class="fld-ico">${IC("globe")}</span>
+          <input id="lf-ext" type="url" value="${esc(a.externalUrl)}" placeholder="${a.locked ? "Hidden while the PIN is on" : "https://jellyfin.example.com"}"
+                 spellcheck="false" autocomplete="off"${a.locked ? " disabled" : ""}></div>
+          <span class="fld-hint">For the globe button, when you are away from home.</span></div>
+        <div class="fld-2">
+          <div class="fld"><label for="lf-desc">Description <em>optional</em></label>
+            <input id="lf-desc" type="text" maxlength="200" value="${esc(a.desc)}" placeholder="Films and TV"></div>
+          <div class="fld"><label for="lf-ports">Ports <em>optional</em></label>
+            <input id="lf-ports" type="text" value="${esc((a.ports || []).join(", "))}" placeholder="From the address" spellcheck="false"></div>
+        </div>
+      </section>
+
+      <section class="ae-pane" data-pane="look" role="tabpanel" hidden>
+        <div class="fld"><label for="lf-icon">Icon</label>
+          <div class="ae-iconrow"><span class="lico" id="lf-iprev">${appIconHTML(a)}</span>
+            <input id="lf-icon" type="text" value="${esc(a.icon)}" placeholder="Automatic" spellcheck="false" autocomplete="off"></div>
+          <span class="fld-hint" id="lf-ihint"></span></div>
+        <div class="fld"><label>Tile size</label>
+          <div class="ae-sizes" role="radiogroup" aria-label="Tile size">
+            ${L_SIZES.map(s => `<button type="button" role="radio" class="ae-size" data-s="${s.key}" aria-checked="${size === s.key}">
+              <span class="ae-sz ae-sz-${s.key}"><i></i></span><b>${s.label}</b><small>${esc(s.hint)}</small></button>`).join("")}
+          </div></div>
+        <div class="fld-2">
+          <div class="fld"><label for="lf-group">Group</label>
+            <select id="lf-group"><option value="">No group</option>
+              ${LP.groups.map(g => `<option value="${esc(g.id)}"${a.group === g.id ? " selected" : ""}>${esc(g.name)}</option>`).join("")}
+            </select></div>
+          <div class="fld"><label>Pinned</label>
+            <div class="ae-switchrow"><span>Keep it in the band at the top</span>
+              <button class="switch" id="lf-pin" type="button" role="switch" aria-checked="${!!a.pinned}" aria-label="Pinned"><span></span></button></div></div>
+        </div>
+        <div class="fld"><label for="lf-tagin">Tags <em>up to six</em></label>
+          <div class="ae-tags" id="lf-tags"><input id="lf-tagin" type="text" placeholder="Type and press Enter" spellcheck="false" autocomplete="off"></div>
+          <div class="ae-tagsug" id="lf-tagsug"></div></div>
+      </section>
+
+      <section class="ae-pane" data-pane="live" role="tabpanel" hidden>
+        ${a.locked ? `<div class="ae-note">${IC("lock")}<span>Live data is not shown on a tile with a PIN — its numbers would give away what is behind it.
+          The settings below are kept for when the PIN comes off.</span></div>` : ""}
+        <div class="ae-switchrow big"><span><b>Show live data</b><small>Read speeds, queues or what is playing from the app itself, every few seconds while the Apps page is open. Read only — Nexus never changes anything in the app.</small></span>
+          <button class="switch" id="lv-on" type="button" role="switch" aria-checked="${L.on}" aria-label="Show live data"><span></span></button></div>
+        <div class="ae-livebody" id="lv-body">
+          <div class="fld"><label for="lv-kind">Which app is it?</label>
+            <select id="lv-kind"><option value="">Choose…</option>
+              ${Object.entries(groupsByKind).map(([g, list]) => `<optgroup label="${esc(g)}">${list.map(k =>
+                `<option value="${k.id}"${L.kind === k.id ? " selected" : ""}>${esc(k.label)}</option>`).join("")}</optgroup>`).join("")}
+            </select>
+            <span class="fld-hint" id="lv-detect"></span></div>
+          <div id="lv-auth"></div>
+          <details class="ae-more"${L.url ? " open" : ""}><summary>${IC("chevron-right")}Different address for the API</summary>
+            <div class="fld"><input id="lv-url" type="url" value="${esc(L.url)}" placeholder="Leave empty to use the local address" spellcheck="false" autocomplete="off">
+              <span class="fld-hint">Only if the API is somewhere else — a different port, or the container's own address.</span></div>
+          </details>
+          <div class="ae-test"><button class="btn sm" type="button" id="lv-test">${IC("activity")}Test connection</button>
+            <span class="fld-hint">Uses what is typed here, without saving it.</span></div>
+          <div class="ae-testout" id="lv-out" hidden></div>
+        </div>
+        <p class="ae-unsup" id="lv-unsup" hidden>Live data works with ${esc((LV.kinds || []).map(k => k.label).join(", "))}.</p>
+      </section>
+
+      <section class="ae-pane" data-pane="access" role="tabpanel" hidden>
+        <div class="ae-note">${IC("shield")}<span>A PIN keeps this tile's address out of the page and asks for four digits before opening it.
+          It is a screen for whoever is looking at Nexus — the app keeps its own login.</span></div>
+        ${a.locked
+          ? `<div class="ae-lockon"><span class="ae-lockico">${IC("lock")}</span><span><b>This app opens with a PIN</b>
+               <small>Changing it or taking it off needs the current PIN. Forgotten it? Ask Kernel, and approve the request.</small></span></div>
+             <div class="ae-lockacts"><button class="btn sm" id="lf-repin" type="button">Change PIN</button>
+               <button class="btn sm danger" id="lf-unlock" type="button">Take it off</button></div>`
+          : `<div class="ae-switchrow big"><span><b>Ask for a PIN</b><small>Four digits, asked every time the tile is opened.</small></span>
+               <button class="switch" id="lf-lockon" type="button" role="switch" aria-checked="false" aria-label="Ask for a PIN"><span></span></button></div>
+             <div class="fld" id="lf-lockbox" hidden><label for="lf-lock">PIN</label>
+               <input id="lf-lock" class="ae-pin" type="password" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="new-password">
+               <span class="fld-err" data-err="pin" hidden></span></div>`}
+      </section>
+    </div>`;
+
+  const foot = document.createElement("div");
+  foot.className = "ae-foot";
+  foot.innerHTML = `${app ? `<button class="btn sm danger ghost" id="lf-del" type="button">${IC("trash")}Remove</button>` : ""}
+    <span class="spacer"></span><span class="ae-kbd"><kbd>Ctrl</kbd><kbd>Enter</kbd></span>
+    <button class="btn sm" id="lf-cancel" type="button">Cancel</button>
+    <button class="btn primary sm" id="lf-save" type="button">${isNew ? "Add app" : "Save"}</button>`;
+
+  openModal({ title: isNew ? "Add an app" : `Edit ${a.name}`, icon: "/assets/brand/icons/ui-launcher.png", body: form, foot, cls: "mw-app" });
+
+  const $f = s => $(s, form);
+
+  /* tabs */
+  const showTab = id => {
+    tab = id;
+    $$(".ae-tab", form).forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === id)));
+    $$(".ae-pane", form).forEach(p => { p.hidden = p.dataset.pane !== id; });
+  };
+  $$(".ae-tab", form).forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
+  showTab(tab);
+
+  /* the preview */
+  const current = () => ({
+    ...a, name: $f("#lf-name").value.trim() || "New app",
+    url: a.locked ? a.url : $f("#lf-url").value.trim(),
+    externalUrl: a.locked ? a.externalUrl : $f("#lf-ext").value.trim(),
+    desc: $f("#lf-desc").value.trim(), icon: $f("#lf-icon").value.trim(),
+    tags, size, pinned: $f("#lf-pin").getAttribute("aria-checked") === "true",
+    live: L.kind ? { kind: L.kind, on: L.on, url: L.url, user: L.user } : null
+  });
+  const paintPreview = () => {
+    const c = current();
+    const was = LP.view; LP.view = "grid";
+    const prevSel = LP.sel.has(c.id); LP.sel.delete(c.id);
+    $f("#ae-prev").innerHTML = tileHTML({ ...c, id: c.id || "__preview" }).replace(/data-(edit|ext)="[^"]*"/g, "");
+    LP.view = was; if (prevSel) LP.sel.add(c.id);
+    $f("#ae-prev").dataset.size = size;
+    $f("#lf-iprev").innerHTML = appIconHTML(c);
+    const slug = iconSlug(c);
+    $f("#lf-ihint").innerHTML = c.icon
+      ? (/^https?:/.test(c.icon) ? "Using the image at that address." : `Looking up <code>${esc(slug)}</code> in the community icon set.`)
+      : `Automatic — guessed <code>${esc(slug || "?")}</code> from the name. Type a slug like <code>jellyfin</code>, or paste an image URL.`;
     wireIcons(form);
   };
-  $("#lf-icon", form).addEventListener("input", repaint);
-  $("#lf-name", form).addEventListener("input", repaint);
-  $$(".lsize", form).forEach(b => b.addEventListener("click", () => {
+  let pt = 0;
+  const schedule = () => { cancelAnimationFrame(pt); pt = requestAnimationFrame(paintPreview); };
+  ["#lf-name", "#lf-url", "#lf-ext", "#lf-desc", "#lf-icon"].forEach(s => $f(s).addEventListener("input", schedule));
+
+  /* name -> a guess at the live kind, while the owner has not picked one */
+  let kindTouched = !!live0?.kind;
+  $f("#lf-name").addEventListener("input", () => {
+    if (kindTouched) return;
+    const g = guessKind({ name: $f("#lf-name").value, icon: $f("#lf-icon").value });
+    if (g !== L.kind) { L.kind = g; $f("#lv-kind").value = g; paintLiveForm(); }
+  });
+
+  /* size, pinned */
+  $$(".ae-size", form).forEach(b => b.addEventListener("click", () => {
     size = b.dataset.s;
-    $$(".lsize", form).forEach(x => x.classList.toggle("on", x === b));
+    $$(".ae-size", form).forEach(x => x.setAttribute("aria-checked", String(x === b)));
+    schedule();
   }));
-  $$("[data-sug]", form).forEach(b => b.addEventListener("click", () => {
-    const box = $("#lf-tags", form);
-    const have = box.value.split(",").map(x => x.trim().toLowerCase()).filter(Boolean);
-    if (have.includes(b.dataset.sug)) return;
-    box.value = [...have, b.dataset.sug].join(", ");
-  }));
+  const flip = el => { el.setAttribute("aria-checked", String(el.getAttribute("aria-checked") !== "true")); };
+  $f("#lf-pin").addEventListener("click", e => { flip(e.currentTarget); schedule(); });
+
+  /* tags */
+  const paintTags = () => {
+    const box = $f("#lf-tags"), input = $f("#lf-tagin");
+    $$(".ae-chip", box).forEach(c => c.remove());
+    tags.forEach(t => {
+      const chip = document.createElement("span");
+      chip.className = `ae-chip ltag wc-${tagHue(t)}`;
+      chip.innerHTML = `${esc(t)}<button type="button" data-untag="${esc(t)}" aria-label="Remove ${esc(t)}">${IC("x")}</button>`;
+      box.insertBefore(chip, input);
+    });
+    input.hidden = tags.length >= 6;
+    const sug = usedTags.filter(t => !tags.includes(t)).slice(0, 10);
+    $f("#lf-tagsug").innerHTML = sug.length && tags.length < 6
+      ? sug.map(t => `<button type="button" class="ae-sug" data-sug="${esc(t)}">${IC("plus")}${esc(t)}</button>`).join("") : "";
+    schedule();
+  };
+  const addTag = raw => {
+    const t = String(raw).toLowerCase().replace(/[^a-z0-9 +-]/g, "").trim().slice(0, 18);
+    if (t && !tags.includes(t) && tags.length < 6) tags.push(t);
+    paintTags();
+  };
+  $f("#lf-tagin").addEventListener("keydown", e => {
+    const v = e.target.value;
+    if ((e.key === "Enter" || e.key === ",") && v.trim()) { e.preventDefault(); addTag(v); e.target.value = ""; }
+    else if (e.key === "Backspace" && !v && tags.length) { tags.pop(); paintTags(); }
+  });
+  $f("#lf-tagin").addEventListener("blur", e => { if (e.target.value.trim()) { addTag(e.target.value); e.target.value = ""; } });
+  $f("#lf-tags").addEventListener("click", e => {
+    const x = e.target.closest("[data-untag]");
+    if (x) { tags = tags.filter(t => t !== x.dataset.untag); paintTags(); }
+    else $f("#lf-tagin").focus();
+  });
+  $f("#lf-tagsug").addEventListener("click", e => { const b = e.target.closest("[data-sug]"); if (b) addTag(b.dataset.sug); });
+
+  /* live data */
+  const paintLiveForm = () => {
+    const k = kindOf(L.kind);
+    $f("#lv-on").setAttribute("aria-checked", String(L.on));
+    $f("#lv-body").classList.toggle("off", !L.on);
+    $f("#lv-unsup").hidden = !!k;
+    const g = guessKind({ name: $f("#lf-name").value, icon: $f("#lf-icon").value });
+    const detected = k && g === L.kind && !live0?.kind;
+    $f("#lv-detect").innerHTML = k
+      ? (detected ? `<span class="ae-det">${IC("sparkles")}Detected from the name.</span> ` : "") + esc(k.help)
+      : "Pick the app this tile opens. Others show only their up or down status.";
+    const saved = L.hasSecret && L.secret === undefined;
+    const secretField = (id, label) => `
+      <div class="fld"><label for="${id}">${esc(label)}${k.optionalAuth ? " <em>optional</em>" : ""}</label>
+        <div class="fld-row"><span class="fld-ico">${IC("key")}</span>
+          <input id="${id}" type="password" value="" placeholder="${saved ? "Saved — leave empty to keep it" : "Paste it here"}" autocomplete="new-password" spellcheck="false">
+          <button type="button" class="fld-btn" data-reveal="${id}" aria-label="Show">${IC("eye")}</button></div>
+        ${saved ? `<button type="button" class="linkbtn" id="lv-forget">Remove the saved ${esc(label.toLowerCase())}</button>` : ""}
+      </div>`;
+    let h = "";
+    if (k && k.auth === "userpass") {
+      h = `<div class="fld-2"><div class="fld"><label for="lv-user">${esc(k.userLabel)}${k.optionalAuth ? " <em>optional</em>" : ""}</label>
+              <input id="lv-user" type="text" value="${esc(L.user)}" autocomplete="off" spellcheck="false"></div>
+            ${secretField("lv-secret", "Password")}</div>`;
+    } else if (k && (k.auth === "key" || k.auth === "pass")) {
+      h = secretField("lv-secret", k.keyLabel);
+    }
+    $f("#lv-auth").innerHTML = h;
+    $f("#lv-user")?.addEventListener("input", e => { L.user = e.target.value.trim(); });
+    $f("#lv-secret")?.addEventListener("input", e => { L.secret = e.target.value ? e.target.value : undefined; });
+    $f("#lv-forget")?.addEventListener("click", () => { L.secret = ""; L.hasSecret = false; paintLiveForm(); toast("The saved key goes when you save", "ok"); });
+    $$("[data-reveal]", form).forEach(b => b.addEventListener("click", () => {
+      const i = $f("#" + b.dataset.reveal);
+      i.type = i.type === "password" ? "text" : "password";
+      b.innerHTML = IC(i.type === "password" ? "eye" : "eye-off");
+    }));
+    $f("#lv-test").disabled = !k || a.locked;
+  };
+  $f("#lv-on").addEventListener("click", () => { L.on = !L.on; if (L.on && !L.kind) $f("#lv-kind").focus(); paintLiveForm(); schedule(); });
+  $f("#lv-kind").addEventListener("change", e => { L.kind = e.target.value; kindTouched = true; $f("#lv-out").hidden = true; paintLiveForm(); schedule(); });
+  $f("#lv-url").addEventListener("input", e => { L.url = e.target.value.trim(); });
+  paintLiveForm();
+
+  $f("#lv-test")?.addEventListener("click", async () => {
+    const out = $f("#lv-out"), btn = $f("#lv-test");
+    out.hidden = false;
+    out.className = "ae-testout wait";
+    out.innerHTML = `<span class="spin"></span>Asking ${esc(kindOf(L.kind)?.label || "the app")}…`;
+    btn.disabled = true;
+    try {
+      const r = await api("/integrations/test", { method: "POST", body: {
+        id: a.id || undefined, kind: L.kind, url: L.url, user: L.user,
+        secret: L.secret || undefined, appUrl: a.locked ? undefined : $f("#lf-url").value.trim()
+      } });
+      if (r.ok) {
+        out.className = "ae-testout ok";
+        out.innerHTML = `<div class="ae-testh">${IC("check-circle")}<b>Connected</b><span>${r.ms} ms</span></div>
+          <div class="ae-testst">${(r.stats || []).slice(0, 4).map(s => `<span><b>${esc(fmtStat(s))}</b>${esc(s.k)}</span>`).join("")}</div>`;
+      } else {
+        out.className = "ae-testout bad";
+        out.innerHTML = `<div class="ae-testh">${IC("x-circle")}<b>${r.auth ? "Signed out" : "Could not read it"}</b></div><p>${esc(r.error || "")}</p>`;
+      }
+    } catch (e) {
+      out.className = "ae-testout bad";
+      out.innerHTML = `<div class="ae-testh">${IC("x-circle")}<b>Could not test</b></div><p>${esc(e.message)}</p>`;
+    } finally { btn.disabled = !kindOf(L.kind) || a.locked; }
+  });
+
+  /* the PIN */
+  $f("#lf-lockon")?.addEventListener("click", e => {
+    flip(e.currentTarget);
+    const onNow = e.currentTarget.getAttribute("aria-checked") === "true";
+    $f("#lf-lockbox").hidden = !onNow;
+    if (onNow) setTimeout(() => $f("#lf-lock").focus(), 30); else $f("#lf-lock").value = "";
+  });
+  $f("#lf-lock")?.addEventListener("input", e => { e.target.value = e.target.value.replace(/\D/g, "").slice(0, 4); });
 
   // A lock anyone can flick open from the settings gear is not a lock. Both
   // taking it off and changing it are proved with the PIN itself.
-  on("#lf-unlock", "click", () => askForPin({
+  $f("#lf-unlock")?.addEventListener("click", () => askForPin({
     title: "Take the PIN off",
     lead: `Type the PIN on "${a.name}" to remove it.`,
     action: "Take it off",
@@ -4020,8 +4664,7 @@ function editApp(app) {
     closeModal(); paintLauncher();
     toast("PIN removed", "ok");
   }));
-
-  on("#lf-repin", "click", () => askForPin({
+  $f("#lf-repin")?.addEventListener("click", () => askForPin({
     title: "Change the PIN",
     lead: `Type the PIN on "${a.name}", then the new one.`,
     action: "Change it",
@@ -4033,49 +4676,88 @@ function editApp(app) {
     toast("PIN changed", "ok");
   }));
 
-  on("#lf-del", "click", () => { closeModal(); removeApps([a]); });
+  $("#lf-del", foot)?.addEventListener("click", () => { closeModal(); removeApps([a]); });
+  on($("#lf-cancel", foot), "click", closeModal);
 
-  on("#lf-save", "click", async () => {
-    const name = $("#lf-name", form).value.trim();
-    if (!name) return toast("give it a name", "err");
-    const url = a.locked ? a.url : $("#lf-url", form).value.trim();
-    const ext = a.locked ? a.externalUrl : $("#lf-ext", form).value.trim();
-    if (!a.locked && !url && !ext) return toast("give it an address", "err");
+  /* errors: shown on the field, and the tab that holds it is opened */
+  const fieldErr = (key, msg, tabId) => {
+    const el = $(`[data-err="${key}"]`, form);
+    if (el) { el.hidden = !msg; el.textContent = msg || ""; el.closest(".fld")?.classList.toggle("bad", !!msg); }
+    if (msg) {
+      showTab(tabId);
+      $(`.ae-tab[data-tab="${tabId}"] .ae-flag`, form).hidden = false;
+    }
+    return !msg;
+  };
+  form.addEventListener("input", e => {
+    const f = e.target.closest(".fld.bad");
+    if (f) { f.classList.remove("bad"); $(".fld-err", f).hidden = true; }
+  });
+
+  const save = async () => {
+    $$(".ae-flag", form).forEach(f => { f.hidden = true; });
+    const name = $f("#lf-name").value.trim();
+    const url = a.locked ? a.url : $f("#lf-url").value.trim();
+    const ext = a.locked ? a.externalUrl : $f("#lf-ext").value.trim();
+    const okUrl = v => !v || /^https?:\/\/[^\s/]+/i.test(v);
+    if (!fieldErr("name", name ? "" : "Give it a name.", "basics")) return $f("#lf-name").focus();
+    if (!a.locked && !url && !ext) { fieldErr("url", "Give it an address — local, outside, or both.", "basics"); return $f("#lf-url").focus(); }
+    if (!a.locked && (!okUrl(url) || !okUrl(ext))) { fieldErr("url", "Addresses start with http:// or https://", "basics"); return $f("#lf-url").focus(); }
+    const pinOn = $f("#lf-lockon")?.getAttribute("aria-checked") === "true";
+    const pin = pinOn ? $f("#lf-lock").value.trim() : "";
+    if (pinOn && !/^\d{4}$/.test(pin)) { fieldErr("pin", "Four digits.", "access"); return $f("#lf-lock").focus(); }
+    if (L.on && !L.kind) { showTab("live"); return toast("Pick which app it is, or turn live data off", "err"); }
+
+    // Ports: what was typed, or the one in the address — the health check and
+    // Pull all both match on them, so an empty list is worth filling.
+    let ports = $f("#lf-ports").value.split(/[,\s]+/).map(Number).filter(n => n > 0 && n < 65536);
+    if (!ports.length && url) { try { const u = new URL(url); if (u.port) ports = [Number(u.port)]; } catch {} }
 
     const row = {
       ...a, name, url, externalUrl: ext,
-      icon: $("#lf-icon", form).value.trim(),
-      desc: $("#lf-desc", form).value.trim(),
-      ports: $("#lf-ports", form).value.split(/[,\s]+/).map(Number).filter(n => n > 0 && n < 65536),
-      tags: $("#lf-tags", form).value.split(",").map(t => t.trim().toLowerCase()).filter(Boolean).slice(0, 6),
-      group: $("#lf-group", form).value,
-      pinned: $("#lf-pin", form).checked,
-      size
+      icon: $f("#lf-icon").value.trim(), desc: $f("#lf-desc").value.trim(),
+      ports: [...new Set(ports)].slice(0, 12), tags, group: $f("#lf-group").value,
+      pinned: $f("#lf-pin").getAttribute("aria-checked") === "true", size,
+      live: L.kind ? { kind: L.kind, on: L.on, url: L.url, user: L.user } : undefined
     };
-    if (app) LP.apps = LP.apps.map(x => x.id === a.id ? row : x);
-    else {
-      row.id = "l" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-      LP.apps.push(row);
+    if (!row.live) delete row.live;
+    if (!row.id) row.id = "l" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+
+    const btn = $("#lf-save", foot);
+    btn.disabled = true;
+    try {
+      LP.apps = isNew ? [...LP.apps, row] : LP.apps.map(x => x.id === row.id ? row : x);
+      // Written now rather than debounced: the key and the PIN below each go
+      // on their own request and name an id the server must already have.
+      let out = await api("/launcher", { method: "PUT", body: { apps: LP.apps, groups: LP.groups } });
+      const liveChanged = JSON.stringify(live0 ? { kind: live0.kind, on: live0.on !== false, url: live0.url || "", user: live0.user || "" } : null)
+                       !== JSON.stringify(row.live ? row.live : null);
+      if (liveChanged || L.secret !== undefined) {
+        const body = row.live ? { ...row.live } : { kind: "" };
+        if (L.secret !== undefined) body.secret = L.secret;
+        out = await api(`/launcher/${encodeURIComponent(row.id)}/live`, { method: "PUT", body });
+      }
+      if (pin) out = await api(`/launcher/${encodeURIComponent(row.id)}/lock`, { method: "POST", body: { pin } });
+      LP.apps = out.apps; LP.groups = out.groups;
+      delete LV.data[row.id];
+    } catch (e) {
+      btn.disabled = false;
+      return toast(e.message || "Could not save", "err");
     }
-    paintLauncher();
-
-    // A new PIN goes on its own request, so it is never part of the board's
-    // ordinary saves — and the board is written first, or the id it names does
-    // not exist on the server yet.
-    const pin = $("#lf-lock", form)?.value.trim();
-    if (pin) {
-      if (!/^\d{4}$/.test(pin)) { toast("a PIN is four digits", "err"); return; }
-      try {
-        await api("/launcher", { method: "PUT", body: { apps: LP.apps, groups: LP.groups } });
-        const out = await api(`/launcher/${encodeURIComponent(row.id)}/lock`, { method: "POST", body: { pin } });
-        LP.apps = out.apps; LP.groups = out.groups;
-        paintLauncher();
-      } catch (e) { toast(e.message || "could not set the PIN", "err"); return; }
-    } else saveLauncher();
-
     closeModal();
-    toast(app ? "App saved" : "App added", "ok");
-  });
+    paintLauncher();
+    pollLive();
+    toast(isNew ? `${name} added` : `${name} saved`, "ok");
+  };
+  on($("#lf-save", foot), "click", save);
+  form.addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(); } });
+
+  paintTags();
+  paintPreview();
+  setTimeout(() => {
+    const first = tab === "basics" ? (isNew ? $f("#lf-name") : null) : tab === "live" ? $f("#lv-kind") : null;
+    first?.focus();
+  }, 60);
 }
 
 on("#l-add", "click", () => editApp(null));
@@ -5443,7 +6125,8 @@ const modal = $("#modal");
  */
 let modalOnClose = null;
 
-function openModal({ title, icon, body, foot, onClose }) {
+function openModal({ title, icon, body, foot, onClose, cls = "" }) {
+  $(".mw", modal).className = "mw raised" + (cls ? " " + cls : "");
   // A modal opened from inside another one must not fire the first one's
   // cleanup as if it had been dismissed.
   modalOnClose = onClose || null;
@@ -6463,7 +7146,8 @@ function go(page, arg = null, { push = true } = {}) {
   // anything that tried to lay it out in the meantime was correctly ignored.
   if (page === "dash") requestAnimationFrame(() => { layout(false); renderWidgets(); });
   if (page === "containers") loadContainers();
-  if (page === "apps") { loadLauncher(); requestAnimationFrame(paintLauncher); }
+  if (page === "apps") { loadLauncher().then(pollLive); requestAnimationFrame(paintLauncher); }
+  else clearTimeout(LV.timer);
   if (page === "files") { wireFileDnD(); loadRoots(); loadFiles(curDir, { history: false }); }
   if (page === "control") loadControl();
   if (page === "settings") loadSettings();
@@ -6794,7 +7478,7 @@ on("#reset", "click", async () => {
   compact();
   layout();
 });
-addEventListener("resize", () => { layout(false); renderWidgets(); paintLauncher(); });
+addEventListener("resize", () => { layout(false); renderWidgets(); if (curPage === "apps") paintLauncher(); });
 
 /**
  * The canvas can change size without the window doing anything: switching back
@@ -6862,6 +7546,7 @@ async function start() {
     loadChecks();
     renderWidgets();
     if (curPage === "overview") paintOverview();
+    if (curPage === "apps") pollLive();
     // A background tab's timers are throttled to about one a minute, so a
     // Kernel turn followed from a hidden tab is caught up the moment you look.
     if (KX.run && (KX.busy || !$("#kernel").hidden)) refreshTranscript();
@@ -6915,6 +7600,7 @@ async function loadLauncherQuiet() {
   } catch { return; }
   paintSidebarLaunch();
   if (curPage === "overview") paintOverview();
+  if (curPage === "apps") { paintLauncher(); pollLive(); }
 }
 
 /** Problems that are not checks: the link itself, and the security scan. */
@@ -7458,18 +8144,31 @@ function onLiveFrame() {
   });
 }
 
-/** Status dots on the launcher tiles. */
+/** Status dots on the launcher tiles — repainted in place when a check round
+ *  lands, so a reading every fifteen seconds never rebuilds the board. */
 function paintLauncherStatus() {
   $$("#l-grid .ltile[data-id]").forEach(t => {
     const a = LP.apps.find(x => x.id === t.dataset.id);
     if (!a) return;
-    let dot = $(".lstat", t);
-    if (!dot) { dot = document.createElement("span"); dot.className = "lstat"; t.appendChild(dot); }
-    const c = CK.data?.checks?.find(x => x.id === "app:" + a.id);
-    const st = c ? c.status : "empty";
-    dot.className = "lstat s-" + statusClass(st) + (c ? "" : " none");
-    dot.setAttribute("data-tip", c ? `${statusWord(st)}${Number.isFinite(c.ms) ? ` · ${c.ms} ms` : ""}${c.msg ? ` · ${c.msg}` : ""}` : "Not checked — add a local address to watch it");
+    const st = appStatus(a);
+    const dot = $(".lstat", t);
+    if (dot) {
+      dot.className = "lstat s-" + statusClass(st) + (st === "empty" ? " none" : "");
+      dot.setAttribute("data-tip", statusTip(a));
+    }
+    const pill = $("[data-lpill]", t);
+    if (pill) { pill.className = "lpill s-" + statusClass(st); pill.textContent = pillText(a); }
   });
+  $$("#l-grid .lsec").forEach(sec => {
+    const s = $(".lsecsum", sec);
+    if (!s) return;
+    const apps = $$(".ltile[data-id]", sec).map(t => LP.apps.find(x => x.id === t.dataset.id)).filter(Boolean);
+    const up = apps.filter(a => appStatus(a) === "up").length;
+    const bad = apps.filter(a => ["warn", "down"].includes(appStatus(a))).length;
+    s.innerHTML = bad ? `<span class="s-crit"><i class="ndot"></i>${bad} need${bad === 1 ? "s" : ""} a look</span>`
+      : apps.length && up === apps.length ? `<span class="s-ok"><i class="ndot"></i>All up</span>` : "";
+  });
+  paintFilter();
 }
 
 /* ============================ command palette ============================

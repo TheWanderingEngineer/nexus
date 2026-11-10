@@ -149,6 +149,9 @@
 [data-skin="modern"] :is(.mw-head,.dw-head){background:transparent;border-bottom:1px solid var(--rule);padding:14px 14px 14px 20px;
   font-family:var(--pixel);font-size:15px;font-weight:650;letter-spacing:-.01em;text-transform:none;color:var(--text)}
 [data-skin="modern"] #mw-icon,[data-skin="modern"] #ctx-icon{display:none}
+/* style.css colours the head for its accent bar with :root:not([data-theme=light]) .mw-head,
+   which outranks the rule above and drew the title near-black on a dark panel. */
+html:root[data-skin="modern"] :is(.mw-head,.dw-head){color:var(--text)}
 [data-skin="modern"] .mw-body{padding:20px}
 [data-skin="modern"] .mw-foot{border-top:1px solid var(--rule);padding:14px 20px;background:color-mix(in srgb,var(--sunk) 50%,transparent)}
 [data-skin="modern"] #modal.open .mw,[data-skin="modern"] #drawer.open .dw{animation:pop-in .24s var(--ease)}

@@ -250,6 +250,7 @@
 [data-gui="workstation"] .card .cd,[data-gui="workstation"] .card.used .cd{opacity:1}
 [data-gui="workstation"] :is(.mw,.dw,.gatebox){border:1px solid var(--rule);border-radius:10px;box-shadow:var(--shadow);overflow:hidden}
 [data-gui="workstation"] :is(.mw-head,.dw-head,.gatehead){background:var(--sunk);color:var(--text);border-bottom:1px solid var(--rule);padding:14px 18px;font-size:12px;font-weight:600;letter-spacing:.04em}
+html:root[data-gui="workstation"] :is(.mw-head,.dw-head,.gatehead){color:var(--text)}
 [data-gui="workstation"] :is(.mw-body,.dw-body){padding:22px}
 [data-gui="workstation"] .mw-foot{border-top:1px solid var(--rule);padding:16px 22px}
 [data-gui="workstation"] :is(#modal,#drawer){background:rgba(15,22,19,.55)}

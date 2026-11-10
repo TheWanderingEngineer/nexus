@@ -18,6 +18,7 @@ import * as agent from "./agent.js";
 import * as agentSkills from "./skills.js";
 import * as pins from "./pins.js";
 import * as health from "./health.js";
+import * as integrations from "./integrations.js";
 import {
   hashPassword, verifyPassword, createSession, destroySession,
   setSessionCookies, clearSessionCookies, requireAuth, requireCsrf,
@@ -473,7 +474,10 @@ export default function routes() {
     tags: tagsOf(a.tags),
     group: str(a.group, 40),
     pinned: !!a.pinned,
-    size: SIZES.includes(a.size) ? a.size : "m"
+    size: SIZES.includes(a.size) ? a.size : "m",
+    // Which app this is, for live data, and whether to read it. The key or
+    // password is not here: it lives in its own 0600 file (integrations.js).
+    live: integrations.sanitizeLive(a.live)
   });
 
   const sanitizeGroup = (g, i) => ({
@@ -505,10 +509,15 @@ export default function routes() {
 
   /** What a browser is allowed to see. A locked app's address is the thing the
    *  PIN is protecting, so it does not travel until the PIN is given. */
-  const publicApps = () => launcher().apps.map(a => {
-    const { lock, ...rest } = a;
-    return lock ? { ...rest, url: "", externalUrl: "", locked: true } : { ...rest, locked: false };
-  });
+  const publicApps = () => {
+    const keyed = integrations.secretIds();
+    return launcher().apps.map(a => {
+      const { lock, ...rest } = a;
+      // Only whether a key is set. The key itself never reaches the browser.
+      if (rest.live) rest.live = { ...rest.live, hasSecret: keyed.has(a.id) };
+      return lock ? { ...rest, url: "", externalUrl: "", locked: true } : { ...rest, locked: false };
+    });
+  };
 
   r.get("/launcher", (_req, res) => res.json({ apps: publicApps(), groups: launcher().groups }));
 
@@ -528,8 +537,9 @@ export default function routes() {
     });
     if (Array.isArray(req.body?.groups)) L.groups = req.body.groups.slice(0, MAX_GROUPS).map(sanitizeGroup);
     save();
-    // A tile that has been removed should not leave its PIN behind.
+    // A tile that has been removed should not leave its PIN or its key behind.
     pins.prune(new Set(L.apps.map(a => a.id)));
+    integrations.pruneSecrets(new Set(L.apps.map(a => a.id)));
     res.json({ apps: publicApps(), groups: L.groups });
   });
 
@@ -655,6 +665,60 @@ export default function routes() {
       });
     }
     res.json({ available: true, found });
+  }));
+
+  /* ---- live data from the apps (integrations.js) ----
+   * Read only, read on demand: a reading is taken when a page asks and cached
+   * for a few seconds, so nobody looking means no requests at all. A locked
+   * tile is never read here — its live numbers would say what is behind the
+   * PIN as surely as its address would.
+   */
+  const liveOn = () => db().settings?.liveApps !== false;
+
+  r.get("/integrations/kinds", (_req, res) => res.json({ on: liveOn(), kinds: integrations.kinds() }));
+
+  r.get("/integrations/live", wrap(async (_req, res) => {
+    if (!liveOn()) return res.json({ on: false, apps: {} });
+    const list = launcher().apps.filter(a => a.live?.on && !a.lock);
+    const out = {};
+    await Promise.all(list.map(async a => { out[a.id] = await integrations.cached(a); }));
+    res.json({ on: true, apps: out });
+  }));
+
+  /** Set which app a tile is and how to log in. `secret`: absent keeps the
+   *  stored one, "" removes it, anything else replaces it. */
+  r.put("/launcher/:id/live", (req, res) => {
+    const app = findApp(req.params.id);
+    const b = req.body || {};
+    const live = integrations.sanitizeLive({ kind: b.kind, on: b.on, url: b.url, user: b.user });
+    if (b.kind && !live) throw Object.assign(new Error("not a supported app"), { status: 400 });
+    if (live) app.live = live; else delete app.live;
+    if (typeof b.secret === "string") integrations.setSecret(app.id, live ? b.secret : "");
+    else if (!live) integrations.setSecret(app.id, "");
+    integrations.reset(app.id);
+    save();
+    audit("launcher.live", { app: app.name, kind: live?.kind || null, on: !!live?.on }, req);
+    res.json({ apps: publicApps(), groups: launcher().groups });
+  });
+
+  /** Try a configuration before saving it. With an id and no secret in the
+   *  body, the stored secret is used, so "Test" works on a saved tile without
+   *  typing the key again. */
+  r.post("/integrations/test", wrap(async (req, res) => {
+    const b = req.body || {};
+    const conf = integrations.sanitizeLive({ kind: b.kind, url: b.url, user: b.user, on: true });
+    if (!conf) throw Object.assign(new Error("pick which app this is"), { status: 400 });
+    const app = b.id ? launcher().apps.find(x => x.id === b.id) : null;
+    // A tile with a PIN is never read: what it is playing or downloading says
+    // what is behind the PIN as plainly as its address would.
+    if (app?.lock) throw Object.assign(new Error("this app has a PIN — live data stays off until it comes off"), { status: 403 });
+    let appUrl = "";
+    { try { const u = new URL(String(b.appUrl || app?.url || "")); if (/^https?:$/.test(u.protocol)) appUrl = u.toString(); } catch {} }
+    const secret = typeof b.secret === "string" && b.secret ? b.secret : (app ? integrations.secretOf(app.id) : "");
+    const tid = "test:" + crypto.randomUUID();
+    const out = await integrations.read(tid, { ...conf, appUrl }, secret);
+    integrations.reset(tid);
+    res.json(out);
   }));
 
   /* ---------------- app store ---------------- */

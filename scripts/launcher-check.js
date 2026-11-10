@@ -133,6 +133,37 @@ try {
   ok('guessing is throttled, even with the right PIN once the count is spent',
      flood.status === 429, String(flood.status));
 
+  /* ---- live data: keys stay on the server, and a PIN keeps it dark ---- */
+  const kinds = await A('/integrations/kinds');
+  ok('the supported apps are listed, with no functions or secrets',
+     kinds.body.kinds.length >= 15 && kinds.body.kinds.every(k => k.id && k.label && !('read' in k)), String(kinds.body.kinds.length));
+  const setLive = await A('/launcher/x2/live', { method: 'PUT', body: JSON.stringify({ kind: 'sonarr', on: true, secret: 's3cret-key-xyz' }) });
+  const pub = setLive.body.apps.find(x => x.id === 'x2');
+  ok('a live setting is stored', pub.live?.kind === 'sonarr' && pub.live.on === true, JSON.stringify(pub.live));
+  ok('the page is told a key is set, not the key', pub.live.hasSecret === true &&
+     !JSON.stringify((await A('/launcher')).body).includes('s3cret-key-xyz'));
+  ok('the key is not written into the state file',
+     !fs.readFileSync(path.join(dataDir, 'state.json'), 'utf8').includes('s3cret-key-xyz'));
+  const keyFile = path.join(dataDir, 'integration-secrets.json');
+  ok('it lives in its own root-only file', fs.existsSync(keyFile) && (fs.statSync(keyFile).mode & 0o077) === 0,
+     fs.existsSync(keyFile) ? '0' + (fs.statSync(keyFile).mode & 0o777).toString(8) : 'missing');
+  const evilKind = await A('/launcher/x2/live', { method: 'PUT', body: JSON.stringify({ kind: '__proto__' }) });
+  ok('an unknown app kind is refused', evilKind.status === 400, String(evilKind.status));
+  const viaBoard = await A('/launcher', { method: 'PUT', body: JSON.stringify({
+    apps: (await A('/launcher')).body.apps.map(x => x.id === 'x2' ? { ...x, live: { kind: 'sonarr', on: true, url: 'javascript:alert(1)' } } : x) }) });
+  ok('a live API address is checked like any other', viaBoard.body.apps.find(x => x.id === 'x2').live.url === '');
+  const t1 = await A('/integrations/test', { method: 'POST', body: JSON.stringify({ kind: 'sonarr', appUrl: 'http://127.0.0.1:1' }) });
+  ok('a test against nothing says so in words', t1.body.ok === false && /refused|reach|answer/.test(t1.body.error), JSON.stringify(t1.body));
+  await A('/launcher/x1/live', { method: 'PUT', body: JSON.stringify({ kind: 'sonarr', on: true }) });
+  const lockedTest = await A('/integrations/test', { method: 'POST', body: JSON.stringify({ id: 'x1', kind: 'sonarr' }) });
+  ok('a tile with a PIN cannot be read through the test', lockedTest.status === 403, String(lockedTest.status));
+  const liveNow = await A('/integrations/live');
+  ok('nor through the live feed', liveNow.body.on === true && !('x1' in liveNow.body.apps), Object.keys(liveNow.body.apps).join(','));
+  await A('/settings', { method: 'PUT', body: JSON.stringify({ liveApps: false }) });
+  const off = await A('/integrations/live');
+  ok('the switch turns it all off', off.body.on === false && Object.keys(off.body.apps).length === 0);
+  await A('/settings', { method: 'PUT', body: JSON.stringify({ liveApps: true }) });
+
   const disc = await A('/launcher/discover');
   ok('discover reports Docker honestly when it is absent',
      disc.body.available === false && typeof disc.body.reason === 'string', JSON.stringify(disc.body).slice(0, 80));
@@ -145,6 +176,8 @@ try {
       { id: 'a2', name: 'Sonarr', url: 'http://10.0.0.5:8989', ports: [8989], tags: ['media', 'grabbing'], group: 'g1', size: 's' },
       { id: 'a3', name: 'Portainer', url: 'http://10.0.0.5:9000', ports: [9000], tags: ['boxes'], size: 'm' }
     ] }) });
+
+  ok('removing a tile removes its key', !fs.readFileSync(keyFile, 'utf8').includes('s3cret-key-xyz'));
 
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
@@ -166,7 +199,13 @@ try {
 
   await page.click('.nav[data-page="apps"]');
   await sleep(1200);
-  ok('every app renders as a tile', (await page.$$('.ltile')).length === 3);
+  ok('every app renders as a tile', (await page.$$('#l-grid .ltile')).length === 3);
+  ok('the filter row counts the board', (await page.textContent('#l-filter [data-lf="all"] i')).trim() === '3');
+  await page.click('#l-view [data-lv="list"]');
+  await sleep(300);
+  ok('the list view shows the same apps as rows', (await page.$('#l-grid .ltile.row')).length === 3);
+  await page.click('#l-view [data-lv="grid"]');
+  await sleep(300);
   ok('a group becomes a titled band',
      (await page.$$eval('.lsechead b', e => e.map(x => x.textContent))).includes('Watching'));
   ok('nothing pinned means no divider above the board', (await page.$$('.lsec.pinned')).length === 0);
@@ -177,15 +216,17 @@ try {
   ok('every tag in use becomes a filter chip', (await page.$$('.ltagchip')).length === 3);
   await page.click('.ltagchip[data-tagf="boxes"]');
   await sleep(500);
-  ok('a tag chip filters the board', (await page.$$('.ltile')).length === 1);
+  ok('a tag chip filters the board', (await page.$$('#l-grid .ltile')).length === 1);
   await page.click('.ltagchip[data-tagf="boxes"]');
   await sleep(500);
-  ok('and clicking it again clears the filter', (await page.$$('.ltile')).length === 3);
+  ok('and clicking it again clears the filter', (await page.$$('#l-grid .ltile')).length === 3);
 
   /* ---- pinning ---- */
-  await page.click('.ltile[data-id="a3"] [data-edit]');
-  await page.waitForSelector('#lf-pin', { timeout: 8000 });
-  await page.check('#lf-pin');
+  await page.click('#l-grid .ltile[data-id="a3"] [data-edit]');
+  // The editor is in tabs now; Pinned is a switch on the Tile tab.
+  await page.waitForSelector('.ae-tab[data-tab="look"]', { timeout: 8000 });
+  await page.click('.ae-tab[data-tab="look"]');
+  await page.click('#lf-pin');
   await page.click('#lf-save');
   await sleep(1400);
   ok('a pinned app moves into its own band above a rule',
@@ -194,9 +235,9 @@ try {
   ok('and the pin is persisted', (await A('/launcher')).body.apps.find(a => a.id === 'a3').pinned === true);
 
   /* ---- selecting ---- */
-  await page.click('.ltile[data-id="a1"]', { modifiers: ['Control'] });
+  await page.click('#l-grid .ltile[data-id="a1"]', { modifiers: ['Control'] });
   await sleep(300);
-  await page.click('.ltile[data-id="a2"]', { modifiers: ['Control'] });
+  await page.click('#l-grid .ltile[data-id="a2"]', { modifiers: ['Control'] });
   await sleep(300);
   ok('ctrl-click builds a selection', await page.isVisible('#l-selbar') &&
      (await page.textContent('#l-selcount')).startsWith('2'), await page.textContent('#l-selcount'));
@@ -206,7 +247,7 @@ try {
 
   /* ---- dragging reorders, and the order is what is stored ---- */
   const before = (await A('/launcher')).body.apps.map(a => a.id).join(',');
-  const from = await page.$('.ltile[data-id="a1"]'), to = await page.$('.ltile[data-id="a2"]');
+  const from = await page.$('#l-grid .ltile[data-id="a1"]'), to = await page.$('#l-grid .ltile[data-id="a2"]');
   const fb = await from.boundingBox(), tb = await to.boundingBox();
   await page.mouse.move(fb.x + fb.width / 2, fb.y + fb.height / 2);
   await page.mouse.down();
@@ -217,7 +258,7 @@ try {
   ok('dragging one tile past another reorders the board', afterOrder !== before, `${before} -> ${afterOrder}`);
 
   /* ---- only one way out of a window ---- */
-  await page.click('.ltile[data-id="a1"] [data-edit]');
+  await page.click('#l-grid .ltile[data-id="a1"] [data-edit]');
   await page.waitForSelector('#lf-name', { timeout: 8000 });
   const closers = await page.$$eval('#modal button', els =>
     els.filter(e => /^close$/i.test(e.textContent.trim())).length);
@@ -233,7 +274,7 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await sleep(900);
   const phone = await page.evaluate(() => {
-    const tiles = [...document.querySelectorAll('.ltile')];
+    const tiles = [...document.querySelectorAll('#l-grid .ltile')];
     const doc = document.documentElement;
     return {
       n: tiles.length,

@@ -316,3 +316,29 @@ re-run the installer; `git checkout main` and re-run it again to come back.
 Container image update checks, integrations (DNS blockers, media servers,
 photo libraries, download clients), multi-host agents, a write-light long-term
 metrics store, TOTP, PWA manifest.
+
+## 13. 0.9.1 — the Apps page and live data
+
+**Problem.** The Apps page was a uniform grid with lots of dead space, a status
+dot floating in a corner, ports as bare text, and nothing the apps themselves
+know. The editor was one long column — eleven fields, a check box in a bordered
+box, a paragraph of PIN caveats — and every dialog title was drawn near-black on
+the dark panel in Modern (a specificity loss to `:root:not([data-theme=light]) .mw-head`).
+
+**What changed.**
+
+- **Live data** (`server/integrations.js`): 20 adapters, read-only, fetched on
+  demand and cached per kind; keys in a 0600 file; locked tiles never read. A
+  Live section of cards (big rate numbers and a sparkline for downloaders, a
+  counter row for the rest, a short list under each) and a one-line chip on
+  each tile. Off per app, or for the page.
+- **Board**: status dot on the icon, the description or address under the name,
+  tags and live chip on one line; All / Up / Problems / Live filters with
+  counts; a list view; folding groups with a "needs a look" summary; a tint
+  taken from each icon's own colour.
+- **Editor**: four tabs beside a live preview, a size picker that draws the
+  sizes, a tag box, switches instead of check boxes, a connection test, errors
+  on the field and its tab, Ctrl/⌘+Enter.
+- **Fixes**: dialog titles in Modern and Workstation; a reload on `#/apps`
+  could show an empty board (the first read failed before sign-in and the
+  second never repainted).

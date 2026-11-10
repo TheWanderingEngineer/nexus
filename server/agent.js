@@ -11,6 +11,7 @@ import * as skills from "./skills.js";
 import * as automation from "./automation.js";
 import * as pins from "./pins.js";
 import * as health from "./health.js";
+import * as integrations from "./integrations.js";
 import { classifyCommand, atLeast, LEVELS } from "./risk.js";
 
 /**
@@ -637,6 +638,13 @@ export async function briefing(s) {
     // only — never a probe's target, which for a locked app is the address the
     // PIN is protecting.
     try { L.push(...health.summaryLines()); } catch {}
+    // Live readings the Apps page took recently (download speed, what is
+    // playing). Only ones already cached — the briefing never calls an app.
+    try {
+      const apps = (db().settings?.launcher?.apps || []).filter(x => x.live?.on && !x.lock);
+      const lines = integrations.summaryLines(apps);
+      if (lines.length) L.push("Apps right now:", ...lines.map(l => "  " + l));
+    } catch {}
   }
 
   if (s.caps.docker) {
