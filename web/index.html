@@ -5,17 +5,18 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#0b0c0f">
-<script src="/appearance.js?v=0.9.5"></script>
+<script src="/appearance.js?v=0.9.6"></script>
 <title>Nexus</title>
 <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/icons/nexus-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/assets/brand/icons/nexus-16.png">
 <link rel="apple-touch-icon" href="/assets/brand/icons/nexus-128.png">
-<link rel="stylesheet" href="/vendor/xterm.css">
-<link rel="stylesheet" href="/style.css?v=0.9.5">
-<link rel="stylesheet" href="/workstation.css?v=0.9.5">
-<link rel="stylesheet" href="/ui.css?v=0.9.5">
-<link rel="stylesheet" href="/modern.css?v=0.9.5">
-<link rel="stylesheet" href="/apps.css?v=0.9.5">
+<link rel="stylesheet" href="/vendor/xterm.css?v=0.9.6">
+<link rel="stylesheet" href="/style.css?v=0.9.6">
+<link rel="stylesheet" href="/workstation.css?v=0.9.6">
+<link rel="stylesheet" href="/ui.css?v=0.9.6">
+<link rel="stylesheet" href="/modern.css?v=0.9.6">
+<link rel="stylesheet" href="/apps.css?v=0.9.6">
+<link rel="stylesheet" href="/pages.css?v=0.9.6">
 </head>
 <body>
 
@@ -66,6 +67,8 @@
 
     <nav class="sb-scroll">
       <button class="nav" data-page="overview" type="button"><i class="ic" data-ic="activity"></i><span class="nlabel">Overview</span><span class="nbadge" id="nb-problems" hidden>0</span></button>
+      <!-- Quick launch: the five apps you open most, as icons. -->
+      <div class="sb-dock" id="sb-launch" role="group" aria-label="Quick launch" hidden></div>
 
       <div class="sb-group" data-group="areas">
         <button class="sb-ghead" type="button" aria-expanded="true"><span>Areas</span><i class="ic" data-ic="chevron-down"></i></button>
@@ -85,10 +88,6 @@
         </div>
       </div>
 
-      <div class="sb-group" data-group="launch" id="sb-launch-group" hidden>
-        <button class="sb-ghead" type="button" aria-expanded="true"><span>Quick launch</span><i class="ic" data-ic="chevron-down"></i></button>
-        <div class="sb-gbody" id="sb-launch"></div>
-      </div>
     </nav>
 
     <div class="sb-foot">
@@ -141,6 +140,7 @@
           <button class="btn" id="reset" data-tip="Restore the default layout and close any gaps. Your widget styling is discarded.">Reset</button>
         </div>
         <div id="tools-containers" hidden>
+          <button class="btn" id="c-checkupd" type="button" data-tip="Ask each image's registry whether a newer version is published. Read only — nothing is changed."><i class="ic" data-ic="refresh"></i><span>Check for updates</span></button>
           <button class="btn" id="c-refresh" data-tip="Re-read the container list from Docker."><i class="ic" data-ic="refresh"></i>Refresh</button>
         </div>
         <div id="tools-apps" hidden>
@@ -149,14 +149,10 @@
           <button class="btn" id="l-pull" data-tip="Look at what is running and offer anything not already here. Nothing you have set up is touched.">Pull all</button>
         </div>
         <div id="tools-files" hidden>
-          <button class="btn" id="f-back" data-tip="Back to the folder you came from.">&#8592; Back</button>
-          <button class="btn" id="f-up" data-tip="Go up one folder. Stops at your configured roots.">Parent</button>
-          <button class="btn" id="f-copy" data-tip="Copy the selection. Ctrl/&#8984;+C.">Copy</button>
-          <button class="btn" id="f-cut" data-tip="Cut the selection. Ctrl/&#8984;+X.">Cut</button>
-          <button class="btn primary" id="f-paste" data-tip="Paste into this folder. Ctrl/&#8984;+V." hidden>Paste</button>
-          <button class="btn" id="f-mkdir" data-tip="Create a folder here.">New folder</button>
-          <button class="btn primary" id="f-upload" data-tip="Upload files into this folder. You can also drop them anywhere on this page."><i class="ic" data-ic="upload"></i>Upload</button>
-          <button class="btn" id="f-upload-dir" data-tip="Upload a whole folder, keeping its structure.">Upload folder</button>
+          <button class="btn primary" id="f-paste" type="button" hidden>Paste</button>
+          <button class="btn" id="f-mkdir" type="button" data-tip="A new folder here — Ctrl+Shift+N"><i class="ic" data-ic="plus"></i>New folder</button>
+          <button class="btn primary" id="f-upload" type="button" data-tip="Upload files into this folder. You can also drop them anywhere on this page."><i class="ic" data-ic="upload"></i>Upload</button>
+          <button class="btn" id="f-upload-dir" type="button" data-tip="Upload a whole folder, keeping its structure.">Upload folder</button>
           <input id="f-file-input" type="file" multiple hidden>
           <input id="f-dir-input" type="file" webkitdirectory directory multiple hidden>
         </div>
@@ -181,7 +177,12 @@
           <div class="ov-problems" id="ov-problems"></div>
         </div>
         <div class="ov-sec">
-          <h2 class="ov-h">Today</h2>
+          <h2 class="ov-h">Today <span class="ov-hint">press a card for the detail</span>
+            <button class="btn sm ov-hbtn" id="ov-custom" type="button">Customize</button></h2>
+          <div class="ov-editbar" id="ov-editbar" hidden>
+            <i class="ic" data-ic="layout"></i><span>Drag cards to reorder · the eye hides one</span>
+            <span class="spacer"></span><button class="btn sm" id="ov-reset" type="button">Reset</button>
+          </div>
           <div class="ov-stats" id="ov-stats"></div>
         </div>
         <div class="ov-sec">
@@ -210,15 +211,28 @@
       <!-- containers -->
       <section class="page" id="page-containers">
         <div id="c-status"></div>
-        <div class="cbar" id="c-bar" hidden>
-          <input id="c-q" type="search" placeholder="Find a container…" aria-label="Find a container">
-          <div class="cfilters" role="group" aria-label="Filter by state">
-            <button class="cfilter on" data-cstate="all" type="button">All <i>0</i></button>
-            <button class="cfilter" data-cstate="running" type="button">Running <i>0</i></button>
-            <button class="cfilter" data-cstate="stopped" type="button">Stopped <i>0</i></button>
+        <div class="csum" id="c-sum" hidden></div>
+        <div class="chead" id="c-bar" hidden>
+          <label class="lsearch"><i class="ic" data-ic="search"></i>
+            <input id="c-q" type="search" placeholder="Find by name, image, port or project…" aria-label="Find a container" autocomplete="off"></label>
+          <div class="seg" id="c-filter" role="group" aria-label="Show">
+            <button type="button" data-cstate="all" aria-pressed="true">All <i>0</i></button>
+            <button type="button" data-cstate="running" aria-pressed="false">Running <i>0</i></button>
+            <button type="button" data-cstate="stopped" aria-pressed="false">Stopped <i>0</i></button>
+            <button type="button" data-cstate="unhealthy" aria-pressed="false">Problems <i>0</i></button>
+            <button type="button" data-cstate="updates" aria-pressed="false">Updates <i>0</i></button>
+          </div>
+          <span class="spacer"></span>
+          <div class="chead-r">
+            <label class="csel"><span>Group</span><select id="c-group"><option value="none">None</option><option value="project">Compose project</option></select></label>
+            <label class="csel"><span>Sort</span><select id="c-sort"><option value="name">Name</option><option value="state">Problems first</option><option value="cpu">CPU</option><option value="mem">Memory</option></select></label>
+            <div class="seg" id="c-view" role="group" aria-label="View">
+              <button type="button" data-cv="grid" aria-pressed="true" aria-label="Cards" data-tip="Cards"><i class="ic" data-ic="grid"></i></button>
+              <button type="button" data-cv="list" aria-pressed="false" aria-label="List" data-tip="List"><i class="ic" data-ic="list"></i></button>
+            </div>
           </div>
         </div>
-        <div class="cgrid" id="c-grid"></div>
+        <div class="cgrid2" id="c-grid"></div>
       </section>
 
       <section class="page" id="page-apps">
@@ -273,29 +287,68 @@
 
       <!-- files -->
       <section class="page" id="page-files">
-        <div class="rootbar" id="f-roots"></div>
-        <div class="crumbs" id="f-crumbs"></div>
-        <div class="clipbar" id="f-clipbar" hidden>
-          <span class="clipinfo" id="f-clipinfo"></span>
-          <span class="hint">Open a folder and press Paste, or right-click a folder to paste inside it.</span>
-          <button class="btn sm" id="f-clipcancel">Cancel</button>
+        <div class="fx">
+          <aside class="fx-side" aria-label="Places">
+            <div class="fx-sh">Places</div>
+            <div class="fx-places" id="f-roots"></div>
+            <div class="fx-clip" id="f-clipbar" hidden>
+              <div class="fx-cliph"><i class="ic" data-ic="copy"></i><div id="f-clipinfo"></div></div>
+              <div class="fx-clipacts">
+                <button class="btn sm primary" id="f-clippaste" type="button">Paste here</button>
+                <button class="btn sm" id="f-clipcancel" type="button">Clear</button>
+              </div>
+            </div>
+          </aside>
+          <div class="fx-main">
+            <div class="fx-bar">
+              <div class="fx-nav">
+                <button class="fx-ib" id="f-back" type="button" aria-label="Back" data-tip="Back — Alt+←"><i class="ic" data-ic="chevron-left"></i></button>
+                <button class="fx-ib" id="f-fwd" type="button" aria-label="Forward" data-tip="Forward — Alt+→"><i class="ic" data-ic="chevron-right"></i></button>
+                <button class="fx-ib" id="f-up" type="button" aria-label="Up one folder" data-tip="Up one folder — Backspace"><i class="ic" data-ic="arrow-up"></i></button>
+                <button class="fx-ib" id="f-reload" type="button" aria-label="Refresh" data-tip="Refresh — F5"><i class="ic" data-ic="refresh"></i></button>
+              </div>
+              <nav class="fx-crumbs" id="f-crumbs" aria-label="Folder path"></nav>
+              <label class="lsearch fx-filter"><i class="ic" data-ic="search"></i>
+                <input id="f-q" type="search" placeholder="Filter · Enter searches subfolders" aria-label="Filter this folder" autocomplete="off"></label>
+              <div class="seg" id="f-view" role="group" aria-label="View">
+                <button type="button" data-fv="list" aria-pressed="true" aria-label="List" data-tip="List"><i class="ic" data-ic="list"></i></button>
+                <button type="button" data-fv="grid" aria-pressed="false" aria-label="Grid" data-tip="Grid, with picture previews"><i class="ic" data-ic="grid"></i></button>
+              </div>
+              <button class="fx-ib" id="f-info" type="button" aria-label="Details pane" aria-pressed="true" data-tip="Show or hide the details pane"><i class="ic" data-ic="info"></i></button>
+            </div>
+            <div class="fx-selbar" id="f-selbar" hidden>
+              <span class="selc" id="f-selcount"></span>
+              <button type="button" class="btn sm" data-fa="open"><i class="ic" data-ic="eye"></i><span>Open</span></button>
+              <button type="button" class="btn sm" data-fa="rename"><i class="ic" data-ic="edit"></i>Rename</button>
+              <button type="button" class="btn sm" data-fa="copy"><i class="ic" data-ic="copy"></i>Copy</button>
+              <button type="button" class="btn sm" data-fa="cut"><i class="ic" data-ic="corner"></i>Cut</button>
+              <button type="button" class="btn sm" data-fa="move"><i class="ic" data-ic="folder"></i>Move to…</button>
+              <button type="button" class="btn sm" data-fa="download"><i class="ic" data-ic="arrow-down"></i>Download</button>
+              <span class="spacer"></span>
+              <button type="button" class="btn sm danger ghost" data-fa="delete"><i class="ic" data-ic="trash"></i>Delete</button>
+              <button type="button" class="fx-ib sm" data-fa="clear" aria-label="Clear the selection" data-tip="Clear the selection — Esc"><i class="ic" data-ic="x"></i></button>
+            </div>
+            <div class="fx-wrap" id="f-wrap">
+              <div class="fx-head" id="f-head" role="row">
+                <button type="button" data-sort="name">Name<i class="ic" data-ic="chevron-down"></i></button>
+                <button type="button" data-sort="size">Size<i class="ic" data-ic="chevron-down"></i></button>
+                <button type="button" data-sort="mtime">Modified<i class="ic" data-ic="chevron-down"></i></button>
+                <button type="button" data-sort="kind">Kind<i class="ic" data-ic="chevron-down"></i></button>
+              </div>
+              <div class="fx-list list" id="f-list" role="listbox" aria-multiselectable="true" aria-label="Files"></div>
+            </div>
+            <div class="fx-status" id="f-status"></div>
+          </div>
+          <aside class="fx-pane" id="f-pane" aria-label="Details"><div id="f-pane-body"></div></aside>
         </div>
-        <div class="selbar" id="f-selbar" hidden>
-          <span class="selc" id="f-selcount">0 items selected</span>
-          <span class="hint">Ctrl/&#8984;+click to add &middot; Shift+click for a run &middot; drag a box over empty space &middot; Delete removes them</span>
-        </div>
-        <div class="tw"><table id="f-table">
-          <thead><tr><th>Name</th><th>Size</th><th>Modified</th><th></th></tr></thead>
-          <tbody></tbody>
-        </table></div>
 
-        <!-- Shown while a file is dragged over the page -->
+        <!-- Shown while files are dragged over the page -->
         <div id="f-drop" hidden>
           <div class="dropcard">
-            <img src="/assets/brand/icons/ui-upload.png" alt="">
+            <span class="fx-eico"><i class="ic" data-ic="upload"></i></span>
             <span class="dt">Drop to upload</span>
             <span class="dp" id="f-drop-path"></span>
-            <span class="hint">Folders are uploaded with their structure intact.</span>
+            <span class="hint">Folders keep their structure.</span>
           </div>
         </div>
       </section>
@@ -637,9 +690,9 @@
   </div>
 </section>
 
-<script src="/vendor/xterm.js"></script>
-<script src="/vendor/xterm-addon-fit.js"></script>
-<script src="/vendor/xterm-addon-web-links.js"></script>
-<script src="/app.js?v=0.9.5"></script>
+<script src="/vendor/xterm.js?v=0.9.6"></script>
+<script src="/vendor/xterm-addon-fit.js?v=0.9.6"></script>
+<script src="/vendor/xterm-addon-web-links.js?v=0.9.6"></script>
+<script src="/app.js?v=0.9.6"></script>
 </body>
 </html>

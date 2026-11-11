@@ -34,6 +34,9 @@ const ICONS = {
   activity: P("M22 12h-4l-3 9L9 3l-3 9H2"),
   "chevron-down": P("m6 9 6 6 6-6"),
   "chevron-right": P("m9 18 6-6-6-6"),
+  "chevron-left": P("m15 18-6-6 6-6"),
+  info: '<circle cx="12" cy="12" r="9.5"/>' + P("M12 16v-4") + P("M12 8h.01"),
+  file: P("M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z") + P("M14 2v4a2 2 0 0 0 2 2h4"),
   layout: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
   grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>',
   box: P("M11 21.7a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7z") + P("M12 22V12") + P("m3.3 7 7.7 4.7a2 2 0 0 0 2 0L20.7 7"),
@@ -2527,7 +2530,7 @@ addEventListener("keydown", e => {
   }
   if (e.key === "Delete" || e.key === "Backspace") {
     if (onDashboard() && selection.size) { e.preventDefault(); deleteSelection(); return; }
-    if ($("#page-files")?.classList.contains("on") && fileSel.size) { e.preventDefault(); deleteFileSelection(); return; }
+    if (e.key === "Delete" && $("#page-files")?.classList.contains("on") && fileSel.size) { e.preventDefault(); deleteFileSelection(); return; }
   }
   if (e.key === "Escape") { clearSelection(); clearFileSelection(); clipClear(); }
 
@@ -3032,7 +3035,19 @@ function resizify(el, it) {
  * name and state first, the ports where you can press them, and everything else
  * behind one MANAGE button.
  */
-let CT = { list: [], q: "", state: "all", available: true };
+let CT = {
+  list: [], q: "", state: "all", available: true,
+  stats: {}, prevStats: null, statsAt: 0, statsTimer: 0,
+  updates: {}, jobs: {}, checking: false,
+  view: "grid", group: "none", sort: "name"
+};
+try {
+  const p = JSON.parse(localStorage.getItem("nexus.ctr") || "{}");
+  if (["grid", "list"].includes(p.view)) CT.view = p.view;
+  if (["none", "project"].includes(p.group)) CT.group = p.group;
+  if (["name", "cpu", "mem", "state"].includes(p.sort)) CT.sort = p.sort;
+} catch {}
+const saveCtPrefs = () => { try { localStorage.setItem("nexus.ctr", JSON.stringify({ view: CT.view, group: CT.group, sort: CT.sort })); } catch {} };
 
 async function loadContainers() {
   const box = $("#c-status");
@@ -3040,8 +3055,8 @@ async function loadContainers() {
     const out = await api("/docker/containers");
     CT.available = out.available;
     if (!out.available) {
-      box.innerHTML = `<div class="empty">DOCKER UNAVAILABLE — ${esc(out.reason || "")}</div>`;
-      $("#c-bar").hidden = true;
+      box.innerHTML = `<div class="cempty"><span class="cempty-ico">${IC("box")}</span><b>Docker is not available</b><p>${esc(out.reason || "")}</p></div>`;
+      $("#c-bar").hidden = true; $("#c-sum").hidden = true;
       $("#c-grid").innerHTML = "";
       LIVE.containers = [];
       return;
@@ -3050,230 +3065,634 @@ async function loadContainers() {
     CT.list = out.containers;
     LIVE.containers = out.containers;
     paintContainers();
+    pollCtStats();
   } catch (e) {
-    box.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    box.innerHTML = `<div class="cempty"><span class="cempty-ico">${IC("alert")}</span><b>Could not read the containers</b><p>${esc(e.message)}</p></div>`;
   }
 }
 
 const cRunning = c => c.state === "running";
+const cShortImage = img => {
+  const s = String(img || "");
+  if (s.startsWith("sha256:")) return s.slice(7, 19);
+  const noDigest = s.split("@")[0];
+  const parts = noDigest.split("/");
+  return parts.length > 2 ? parts.slice(-2).join("/") : noDigest;
+};
+const cSlug = c => (c.service || String(c.image || c.name).split("/").pop().split(/[:@]/)[0] || c.name).toLowerCase();
 
-function paintContainers() {
-  const grid = $("#c-grid"), bar = $("#c-bar");
-  if (!grid) return;
-  bar.hidden = !CT.list.length;
-
-  const q = CT.q.trim().toLowerCase();
-  const shown = CT.list.filter(c => {
-    if (CT.state === "running" && !cRunning(c)) return false;
-    if (CT.state === "stopped" && cRunning(c)) return false;
-    if (!q) return true;
-    return (c.name + " " + (c.title || "") + " " + c.image).toLowerCase().includes(q);
-  });
-
-  // Counts describe the whole list, not the filtered view — the point of the
-  // filter chips is to tell you what is there before you press one.
-  const counts = { all: CT.list.length,
-                   running: CT.list.filter(cRunning).length,
-                   stopped: CT.list.filter(c => !cRunning(c)).length };
-  $$(".cfilter", bar).forEach(b => {
-    b.classList.toggle("on", b.dataset.cstate === CT.state);
-    $("i", b).textContent = counts[b.dataset.cstate] ?? 0;
-  });
-
-  grid.innerHTML = shown.map(c => {
-    const up = cRunning(c);
-    const ports = portLinks(c.ports, "cport");
-    // A pinned digest is 70 characters of noise. Show the readable half, and
-    // keep the whole thing one hover away.
-    const img = String(c.image || "");
-    const short = img.length > 46 ? img.slice(0, 44) + "…" : img;
-    return `<article class="ccard${up ? "" : " down"}" data-id="${esc(c.id)}">
-      <header class="ch">
-        <span class="cstate ${up ? "up" : "down"}" data-tip="${esc(c.status || c.state)}"></span>
-        <b class="cname">${esc(c.title || c.name)}</b>
-        <span class="cmanaged ${esc(c.managedBy || "manual")}"
-              data-tip="${esc(managedTip(c.managedBy))}">${esc((c.managedBy || "manual").toUpperCase())}</span>
-      </header>
-      <div class="cimg mono" data-tip="${esc(img)}">${esc(short)}</div>
-      <div class="cstatus">${esc(c.status || (up ? "running" : c.state))}</div>
-      <div class="cportrow">${ports || '<span class="dim">no published ports</span>'}</div>
-      <footer class="cacts">
-        <button class="btn sm" data-act="${up ? "stop" : "start"}" data-id="${esc(c.id)}"
-                data-tip="${up ? "Stop this container" : "Start this container"}">${up ? "Stop" : "Start"}</button>
-        <button class="btn sm" data-act="restart" data-id="${esc(c.id)}" data-tip="Stop and start it again">Restart</button>
-        <button class="btn sm" data-manage="${esc(c.id)}" data-tip="Logs, live stats and the rest">Manage</button>
-      </footer>
-    </article>`;
-  }).join("") || `<div class="empty">${CT.list.length ? "Nothing matches that filter" : "No containers"}</div>`;
-}
-
-on("#c-q", "input", e => { CT.q = e.target.value; paintContainers(); });
-on("#c-bar", "click", e => {
-  const b = e.target.closest(".cfilter");
-  if (!b) return;
-  CT.state = b.dataset.cstate;
-  paintContainers();
-});
-
-/* ---------------- one container, in detail ----------------
- * The stats and logs endpoints have existed since the beginning and nothing
- * ever called them. This is where "manage this container" actually lives:
- * what it is doing right now, what it is saying, and the destructive action
- * kept away from the buttons you press every day.
- */
-let logWS = null;
-
-function closeLogs() { if (logWS) { try { logWS.close(); } catch {} logWS = null; } }
-
-async function manageContainer(id) {
-  const c = CT.list.find(x => x.id === id);
-  if (!c) return;
-  const up = cRunning(c);
-
-  const body = document.createElement("div");
-  body.className = "cdetail";
-  body.innerHTML = `
-    <dl class="kv cd-kv">
-      <dt>State</dt><dd>${esc(c.status || c.state)}</dd>
-      <dt>Image</dt><dd class="mono cd-img">${esc(c.image)}</dd>
-      <dt>ID</dt><dd class="mono">${esc(c.id)}</dd>
-      <dt>Created</dt><dd>${c.created ? esc(fmtDate(new Date(c.created * 1000))) : "—"}</dd>
-      <dt>Source</dt><dd>${esc(managedTip(c.managedBy))}</dd>
-      <dt>Ports</dt><dd class="cd-ports">${portLinks(c.ports, "cport") || '<span class="dim">none published</span>'}</dd>
-    </dl>
-    <div class="cd-live" id="cd-live">${up ? '<span class="dim">reading stats…</span>' : '<span class="dim">not running</span>'}</div>
-    <div class="cd-logs">
-      <div class="cd-loghead"><b>Logs</b><span class="dim">live tail</span></div>
-      <pre id="cd-log" class="cd-log">${up ? "" : "(container is not running)"}</pre>
-    </div>`;
-
-  openModal({
-    title: c.title || c.name,
-    icon: ICON("containers"),
-    body,
-    foot: `<button class="btn sm danger" id="cd-rm" type="button">Remove container</button>
-           <span class="spacer"></span>
-           <button class="btn sm" id="cd-restart" type="button">Restart</button>
-           <button class="btn primary sm" id="cd-toggle" type="button">${up ? "Stop" : "Start"}</button>`,
-    // However it is dismissed, the log socket has to stop: left open it would
-    // keep streaming into a node that is no longer on the page.
-    onClose: closeLogs
-  });
-
-  const shut = () => closeModal();
-
-  const act = async a => {
-    try {
-      await api(`/docker/containers/${encodeURIComponent(id)}/${a}`, { method: "POST" });
-      toast(cap(a) + " done", "ok");
-      shut();
-      setTimeout(loadContainers, 700);
-    } catch (ex) { toast(ex.message, "err"); }
-  };
-  on("#cd-toggle", "click", () => act(up ? "stop" : "start"));
-  on("#cd-restart", "click", () => act("restart"));
-  on("#cd-rm", "click", async () => {
-    if (!confirm(`Delete the container "${c.name}"?\n\nIts image and any named volumes stay on disk. This does not uninstall an app that Nexus manages — use the app store for that.`)) return;
-    try {
-      await api(`/docker/containers/${encodeURIComponent(id)}`, { method: "DELETE" });
-      toast("Container removed", "ok");
-      shut();
-      setTimeout(loadContainers, 500);
-    } catch (ex) { toast(ex.message, "err"); }
-  });
-
-  if (!up) return;
-
-  // Stats: one reading, then every few seconds while the panel is open.
-  const paintStats = async () => {
-    const el = $("#cd-live");
-    if (!el || !el.isConnected) return false;
-    try {
-      const st = await api(`/docker/containers/${encodeURIComponent(id)}/stats`);
-      // Field names as containerStats() actually returns them: cpu, memory,
-      // memoryLimit. A limit of 0 means "unbounded", not "no memory".
-      const pct = st.memoryLimit ? (st.memory / st.memoryLimit) * 100 : null;
-      el.innerHTML =
-        `<div class="cd-stat"><b>${(st.cpu ?? 0).toFixed(1)}%</b><span>CPU</span></div>` +
-        `<div class="cd-stat"><b>${bytes(st.memory || 0)}</b><span>${
-          st.memoryLimit ? `of ${bytes(st.memoryLimit)} · ${pct.toFixed(1)}%` : "memory (no limit set)"}</span></div>`;
-    } catch {
-      // Absent is not zero: a stat that could not be read says so.
-      el.innerHTML = '<span class="dim">stats are not available for this container</span>';
-      return false;
-    }
-    return true;
-  };
-  if (await paintStats()) {
-    const t = setInterval(async () => { if (!await paintStats()) clearInterval(t); }, 4000);
+/** What state to show: health wins over "running" when the image has a check. */
+function cState(c) {
+  if (CT.jobs[c.id] && CT.jobs[c.id].state === "running") return { cls: "busy", word: "Updating" };
+  if (c.state === "running") {
+    if (c.health === "unhealthy") return { cls: "crit", word: "Unhealthy" };
+    if (c.health === "starting") return { cls: "warn", word: "Starting" };
+    return { cls: "ok", word: c.health === "healthy" ? "Healthy" : "Running" };
   }
-
-  // Logs over the socket that has been sitting there unused. If the WebSocket
-  // cannot open — the reverse-proxy case — say so rather than showing nothing.
-  const pre = $("#cd-log");
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  closeLogs();
-  try {
-    logWS = new WebSocket(`${proto}//${location.host}/ws/logs/${encodeURIComponent(id)}`);
-    logWS.onmessage = ev => {
-      if (!pre.isConnected) return closeLogs();
-      pre.textContent += (typeof ev.data === "string" ? ev.data : "");
-      // Keep the tail bounded: a chatty container would grow this forever.
-      if (pre.textContent.length > 60000) pre.textContent = pre.textContent.slice(-40000);
-      pre.scrollTop = pre.scrollHeight;
-    };
-    logWS.onerror = () => { if (pre.isConnected && !pre.textContent) pre.textContent = "(could not open the log stream)"; };
-    logWS.onclose = () => {
-      if (pre.isConnected && !pre.textContent) {
-        pre.textContent = linkState === "polling"
-          ? "(logs need a WebSocket, and this connection does not have one — see the banner on the dashboard)"
-          : "(the log stream closed)";
-      }
-    };
-  } catch { pre.textContent = "(could not open the log stream)"; }
+  if (c.state === "restarting") return { cls: "warn", word: "Restarting" };
+  if (c.state === "paused") return { cls: "warn", word: "Paused" };
+  const code = /Exited \((\d+)\)/.exec(c.status || "");
+  return { cls: code && code[1] !== "0" ? "crit" : "idle", word: code ? (code[1] === "0" ? "Stopped" : `Exited (${code[1]})`) : cap(c.state || "stopped") };
+}
+/** "Up 2 days (healthy)" → "2 days". */
+function cUptime(c) {
+  const m = /^Up\s+(.+?)(?:\s+\(.*\))?$/.exec(c.status || "");
+  if (m) return m[1].replace(/^About an? /, "1 ").replace(/^Less than a second$/, "just now");
+  const e = /Exited \(\d+\)\s+(.+?)\s+ago/.exec(c.status || "");
+  return e ? `stopped ${e[1]} ago` : "";
 }
 
 /**
- * Published ports, as links you can actually click.
- *
- * A port number on its own makes you copy it into the address bar by hand, and
- * the whole reason you knew the container was up was that you were already
- * looking at this screen. The host is taken from the address you are viewing
- * Nexus on, which is by definition a route that reaches the box.
+ * Published ports, grouped. A game server publishing 25500–25600 is one fact
+ * — a block of ports — not a hundred links, and almost none of them is a web
+ * page. Runs of three or more consecutive ports become one range chip; single
+ * TCP ports stay links you can press.
  */
-function portLinks(ports, cls) {
-  const seen = new Set();
-  const list = (ports || [])
-    .filter(p => p.public && !seen.has(p.public) && seen.add(p.public))
-    .sort((a, b) => a.public - b.public);
-  if (!list.length) return "";
-  return list.map(p =>
-    `<a class="${cls}" href="http://${esc(location.hostname)}:${p.public}" target="_blank" rel="noopener"
-        data-tip="Open http://${esc(location.hostname)}:${p.public} — container port ${p.private}/${esc(p.type || "tcp")}"
-     >:${p.public}</a>`).join("");
+function portGroups(ports) {
+  const out = [];
+  let run = [];
+  const flush = () => {
+    if (run.length >= 3) out.push({ range: [run[0].public, run[run.length - 1].public], type: run[0].type, n: run.length });
+    else out.push(...run.map(p => ({ port: p })));
+    run = [];
+  };
+  for (const p of (ports || []).slice().sort((a, b) => a.public - b.public || String(a.type).localeCompare(b.type))) {
+    const last = run[run.length - 1];
+    if (last && p.public === last.public + 1 && p.type === last.type) run.push(p);
+    else { flush(); run = [p]; }
+  }
+  flush();
+  return out;
+}
+function portChip(g) {
+  const host = esc(location.hostname);
+  if (g.range) return `<span class="cpc range" data-tip="${g.n} ports, ${g.range[0]}–${g.range[1]}/${esc(g.type || "tcp")} — published, but not web pages">${IC("network")}${g.range[0]}–${g.range[1]}<em>${g.n}</em></span>`;
+  const p = g.port;
+  if (p.type === "udp") return `<span class="cpc udp" data-tip="UDP ${p.public} → container ${p.private}">${p.public}<em>udp</em></span>`;
+  return `<a class="cpc" href="http://${host}:${p.public}" target="_blank" rel="noopener" data-tip="Open http://${host}:${p.public} — container port ${p.private}">:${p.public}${IC("external")}</a>`;
+}
+/** Kept for the dashboard widget: the same chips, inline. */
+function portLinks(ports) {
+  const g = portGroups(ports);
+  return g.length ? g.map(portChip).join("") : "";
+}
+function portChips(ports, max = 4) {
+  const g = portGroups(ports);
+  if (!g.length) return `<span class="cpc none">No published ports</span>`;
+  const shown = g.slice(0, max).map(portChip).join("");
+  return shown + (g.length > max ? `<span class="cpc more" data-tip="${g.slice(max).map(x => x.range ? `${x.range[0]}–${x.range[1]}` : x.port.public).join(", ")}">+${g.length - max}</span>` : "");
 }
 
 /** Where a container came from, in one line. */
 function managedTip(kind) {
   if (kind === "nexus") return "Installed through the Nexus app store.";
   if (kind === "casaos") return "Installed through CasaOS. Nexus reads its labels but does not manage it.";
-  return "Started by hand or by another tool. Nexus will not touch it unless you ask.";
+  return "Started by hand or by another tool.";
 }
 
-on("#c-grid", "click", async e => {
-  const mg = e.target.closest("button[data-manage]");
-  if (mg) return manageContainer(mg.dataset.manage);
+/* ---- live numbers ---- */
+async function pollCtStats() {
+  clearTimeout(CT.statsTimer);
+  if (curPage !== "containers" && !CD.id) return;
+  if (!document.hidden && CT.available) {
+    try {
+      const s = await api("/docker/stats");
+      CT.prevStats = CT.stats; CT.prevAt = CT.statsAt;
+      CT.stats = s; CT.statsAt = Date.now();
+      paintCtMeters();
+      paintCtSummary();
+      if (CD.id) paintCdLive();
+    } catch {}
+  }
+  CT.statsTimer = setTimeout(pollCtStats, 5000);
+}
+/** Bytes per second between the last two readings. */
+function ctRate(id, key) {
+  const a = CT.prevStats?.[id], b = CT.stats?.[id];
+  const dt = (CT.statsAt - (CT.prevAt || 0)) / 1000;
+  if (!a || !b || dt <= 0) return null;
+  return Math.max(0, (b[key] - a[key]) / dt);
+}
 
-  const b = e.target.closest("button[data-act]");
+function meterHTML(c) {
+  const s = CT.stats[c.id];
+  if (!cRunning(c)) return `<div class="cc-meters off"><span>Not running</span></div>`;
+  if (!s) return `<div class="cc-meters wait"><span class="cm"><i></i></span><span class="cm"><i></i></span></div>`;
+  const cpu = s.cpu || 0, memPct = s.memLimit ? s.mem / s.memLimit * 100 : 0;
+  return `<div class="cc-meters">
+    <span class="cm" data-tip="CPU ${cpu.toFixed(1)}% of one core${cpu > 100 ? " — more than one core busy" : ""}"><b>CPU</b><span class="cmt"><i class="${lvl(cpu, 80, 150)}" style="width:${clamp(cpu, 0, 100).toFixed(1)}%"></i></span><em>${cpu.toFixed(cpu < 10 ? 1 : 0)}%</em></span>
+    <span class="cm" data-tip="${bytes(s.mem)} of ${bytes(s.memLimit)}"><b>RAM</b><span class="cmt"><i class="${lvl(memPct, 75, 90)}" style="width:${clamp(memPct, 0, 100).toFixed(1)}%"></i></span><em>${bytes(s.mem)}</em></span>
+  </div>`;
+}
+function paintCtMeters() {
+  $$("#c-grid [data-meter]").forEach(el => {
+    const c = CT.list.find(x => x.id === el.dataset.meter);
+    if (!c) return;
+    const h = meterHTML(c);
+    if (el.dataset.sig !== h) { el.innerHTML = h; el.dataset.sig = h; }
+  });
+  if (CT.sort === "cpu" || CT.sort === "mem") paintContainers();
+}
+function paintCtSummary() {
+  const el = $("#c-sum");
+  if (!el) return;
+  el.hidden = !CT.list.length;
+  const running = CT.list.filter(cRunning).length;
+  const unhealthy = CT.list.filter(c => c.health === "unhealthy").length;
+  const vals = Object.values(CT.stats || {});
+  const cpu = vals.reduce((a, s) => a + (s.cpu || 0), 0), mem = vals.reduce((a, s) => a + (s.mem || 0), 0);
+  const upd = Object.values(CT.updates).filter(u => u.upToDate === false).length;
+  const checked = Object.keys(CT.updates).length;
+  el.innerHTML = `
+    <div class="cs"><span>Running</span><b>${running}<small>/ ${CT.list.length}</small></b></div>
+    <div class="cs${unhealthy ? " bad" : ""}"><span>Unhealthy</span><b>${unhealthy}</b></div>
+    <div class="cs"><span>CPU, all containers</span><b>${vals.length ? cpu.toFixed(1) + "<small>%</small>" : "—"}</b></div>
+    <div class="cs"><span>Memory, all containers</span><b>${vals.length ? bytes(mem) : "—"}</b></div>
+    <div class="cs${upd ? " acc" : ""}"><span>Updates</span><b>${checked ? upd : "—"}</b>${checked ? "" : `<button type="button" class="linkbtn" data-ccheck>Check now</button>`}</div>`;
+}
+
+/* ---- the board ---- */
+function cMatches(c) {
+  const st = cState(c);
+  if (CT.state === "running" && !cRunning(c)) return false;
+  if (CT.state === "stopped" && cRunning(c)) return false;
+  if (CT.state === "unhealthy" && !(st.cls === "crit" || st.cls === "warn")) return false;
+  if (CT.state === "updates" && CT.updates[c.id]?.upToDate !== false) return false;
+  const q = CT.q.trim().toLowerCase();
+  if (!q) return true;
+  return [c.name, c.title, c.image, c.project, c.service, ...(c.ports || []).map(p => p.public)].join(" ").toLowerCase().includes(q);
+}
+
+function ctCard(c) {
+  const st = cState(c), up = cRunning(c);
+  const u = CT.updates[c.id], job = CT.jobs[c.id];
+  const name = c.title || c.name;
+  const slug = cSlug(c);
+  const list = CT.view === "list";
+  const actions = `
+    <button class="cact" type="button" data-act="${up ? "stop" : "start"}" data-id="${esc(c.id)}" data-tip="${up ? "Stop" : "Start"}" aria-label="${up ? "Stop" : "Start"} ${esc(name)}">${IC(up ? "stop" : "play")}</button>
+    <button class="cact" type="button" data-act="restart" data-id="${esc(c.id)}" data-tip="Restart" aria-label="Restart ${esc(name)}"${up ? "" : " disabled"}>${IC("retry")}</button>
+    <button class="cact" type="button" data-logs="${esc(c.id)}" data-tip="Logs" aria-label="Logs for ${esc(name)}">${IC("list")}</button>
+    <button class="cact" type="button" data-more="${esc(c.id)}" data-tip="More" aria-label="More for ${esc(name)}">${IC("more")}</button>`;
+  const badges = `${c.project ? `<span class="cbadge" data-tip="Compose project${c.service ? " · service " + esc(c.service) : ""}">${esc(c.project)}</span>` : ""}
+    ${u?.upToDate === false && !job ? `<button type="button" class="cbadge upd" data-update="${esc(c.id)}" data-tip="A newer image is published for ${esc(u.image)}. Press to update.">${IC("arrow-up")}Update</button>` : ""}
+    ${job && job.state === "running" ? `<span class="cbadge busy"><i class="spin"></i>${esc(job.step || "Updating")}</span>` : ""}
+    ${c.managedBy && c.managedBy !== "manual" ? `<span class="cbadge src" data-tip="${esc(managedTip(c.managedBy))}">${esc(c.managedBy === "nexus" ? "App Store" : "CasaOS")}</span>` : ""}`;
+  if (list) {
+    return `<div class="crow2${up ? "" : " down"}" data-open="${esc(c.id)}" tabindex="0" role="button">
+      <span class="cc-ico">${appIconHTML({ name, icon: slug })}<i class="cdot s-${st.cls}"></i></span>
+      <span class="cr-name"><b>${esc(name)}</b><span>${esc(cShortImage(c.image))}</span></span>
+      <span class="cr-state"><span class="cstate2 s-${st.cls}">${esc(st.word)}</span><em>${esc(cUptime(c))}</em></span>
+      <span class="cr-meter" data-meter="${esc(c.id)}">${meterHTML(c)}</span>
+      <span class="cr-ports">${portChips(c.ports, 2)}</span>
+      <span class="cr-badges">${badges}</span>
+      <span class="cr-acts">${actions}</span>
+    </div>`;
+  }
+  return `<article class="cc${up ? "" : " down"}" data-open="${esc(c.id)}" tabindex="0">
+    <header class="cc-head">
+      <span class="cc-ico">${appIconHTML({ name, icon: slug })}<i class="cdot s-${st.cls}"></i></span>
+      <span class="cc-t"><b>${esc(name)}</b><span data-tip="${esc(c.image)}">${esc(cShortImage(c.image))}</span></span>
+      <span class="cstate2 s-${st.cls}">${esc(st.word)}</span>
+    </header>
+    <div class="cc-sub">${cUptime(c) ? `<span>${IC("clock")}${esc(cUptime(c))}</span>` : ""}${badges}</div>
+    <div data-meter="${esc(c.id)}">${meterHTML(c)}</div>
+    <div class="cc-ports">${portChips(c.ports)}</div>
+    <footer class="cc-acts">${actions}</footer>
+  </article>`;
+}
+
+function paintContainers() {
+  const grid = $("#c-grid"), bar = $("#c-bar");
+  if (!grid) return;
+  bar.hidden = !CT.list.length;
+  const shown = CT.list.filter(cMatches);
+  const stOrder = c => ({ crit: 0, warn: 1, busy: 1, ok: 2, idle: 3 }[cState(c).cls] ?? 4);
+  const sorters = {
+    name: (a, b) => (a.title || a.name).localeCompare(b.title || b.name),
+    cpu: (a, b) => (CT.stats[b.id]?.cpu || 0) - (CT.stats[a.id]?.cpu || 0),
+    mem: (a, b) => (CT.stats[b.id]?.mem || 0) - (CT.stats[a.id]?.mem || 0),
+    state: (a, b) => stOrder(a) - stOrder(b) || (a.title || a.name).localeCompare(b.title || b.name)
+  };
+  shown.sort(sorters[CT.sort] || sorters.name);
+
+  const counts = {
+    all: CT.list.length, running: CT.list.filter(cRunning).length, stopped: CT.list.filter(c => !cRunning(c)).length,
+    unhealthy: CT.list.filter(c => ["crit", "warn"].includes(cState(c).cls)).length,
+    updates: Object.values(CT.updates).filter(u => u.upToDate === false).length
+  };
+  $$("#c-filter [data-cstate]").forEach(b => {
+    b.setAttribute("aria-pressed", String(b.dataset.cstate === CT.state));
+    $("i", b).textContent = counts[b.dataset.cstate] ?? 0;
+    b.hidden = (b.dataset.cstate === "updates" && !counts.updates && CT.state !== "updates") ||
+               (b.dataset.cstate === "unhealthy" && !counts.unhealthy && CT.state !== "unhealthy");
+    b.classList.toggle("bad", b.dataset.cstate === "unhealthy" && counts.unhealthy > 0);
+  });
+  $$("#c-view [data-cv]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.cv === CT.view)));
+  const gs = $("#c-group"), ss = $("#c-sort");
+  if (gs) gs.value = CT.group;
+  if (ss) ss.value = CT.sort;
+
+  grid.className = "cgrid2" + (CT.view === "list" ? " list" : "");
+  let html;
+  if (!shown.length) html = `<div class="cempty"><span class="cempty-ico">${IC("search")}</span><b>${CT.list.length ? "Nothing matches" : "No containers"}</b>${CT.list.length ? `<p><button type="button" class="linkbtn" data-cclear>Clear the filters</button></p>` : ""}</div>`;
+  else if (CT.group === "project") {
+    const groups = new Map();
+    for (const c of shown) { const k = c.project || ""; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(c); }
+    html = [...groups.entries()].sort((a, b) => (a[0] ? 0 : 1) - (b[0] ? 0 : 1) || a[0].localeCompare(b[0])).map(([k, list]) => `
+      <section class="cgroup"><header><b>${k ? esc(k) : "Not in a project"}</b><span>${list.length}</span>
+        <em>${list.filter(cRunning).length} running</em></header>
+        <div class="cgroup-body">${list.map(ctCard).join("")}</div></section>`).join("");
+  } else html = `<div class="cgroup-body">${shown.map(ctCard).join("")}</div>`;
+  if (grid.dataset.sig !== html) { grid.innerHTML = html; grid.dataset.sig = html; wireIcons(grid); }
+  paintCtSummary();
+}
+
+/* ---- header controls ---- */
+on("#c-q", "input", e => { CT.q = e.target.value; paintContainers(); });
+on("#c-filter", "click", e => {
+  const b = e.target.closest("[data-cstate]");
   if (!b) return;
-  b.disabled = true;
-  try {
-    await api(`/docker/containers/${encodeURIComponent(b.dataset.id)}/${b.dataset.act}`, { method: "POST" });
-    toast(cap(b.dataset.act) + " done", "ok");
-    setTimeout(loadContainers, 700);
-  } catch (ex) { toast(ex.message, "err"); b.disabled = false; }
+  CT.state = b.dataset.cstate === CT.state ? "all" : b.dataset.cstate;
+  paintContainers();
 });
+on("#c-view", "click", e => {
+  const b = e.target.closest("[data-cv]");
+  if (!b) return;
+  CT.view = b.dataset.cv; saveCtPrefs(); paintContainers();
+});
+on("#c-group", "change", e => { CT.group = e.target.value; saveCtPrefs(); paintContainers(); });
+on("#c-sort", "change", e => { CT.sort = e.target.value; saveCtPrefs(); paintContainers(); });
 on("#c-refresh", "click", loadContainers);
+on("#c-checkupd", "click", () => checkAllUpdates());
+on("#c-sum", "click", e => { if (e.target.closest("[data-ccheck]")) checkAllUpdates(); });
+
+/* ---- updates ---- */
+async function checkAllUpdates() {
+  if (CT.checking || !CT.list.length) return;
+  CT.checking = true;
+  const btn = $("#c-checkupd");
+  const queue = CT.list.slice();
+  let done = 0;
+  const label = () => { if (btn) btn.innerHTML = `${IC("refresh")}<span>Checking ${done}/${CT.list.length}</span>`; };
+  label();
+  btn?.classList.add("busy");
+  const worker = async () => {
+    while (queue.length) {
+      const c = queue.shift();
+      try { CT.updates[c.id] = await api(`/docker/containers/${encodeURIComponent(c.id)}/update-check?fresh=1`); } catch {}
+      done++; label();
+    }
+  };
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  CT.checking = false;
+  btn?.classList.remove("busy");
+  if (btn) btn.innerHTML = `${IC("refresh")}<span>Check for updates</span>`;
+  const n = Object.values(CT.updates).filter(u => u.upToDate === false).length;
+  toast(n ? `${n} container${n === 1 ? " has" : "s have"} a newer image` : "Everything is on its newest image", "ok");
+  paintContainers();
+}
+
+async function updateCtr(id) {
+  const c = CT.list.find(x => x.id === id);
+  if (!c) return;
+  const name = c.title || c.name;
+  if (!confirm(`Update "${name}"?\n\nNexus pulls the newest ${c.image} and recreates the container with the same settings, volumes and networks. It is down for a few seconds; if anything fails, the old one is put back.`)) return;
+  let job;
+  try { job = await api(`/docker/containers/${encodeURIComponent(id)}/update`, { method: "POST" }); }
+  catch (e) { return toast(e.message, "err"); }
+  CT.jobs[id] = job; paintContainers();
+  const tick = async () => {
+    try { job = await api(`/docker/jobs/${job.id}`); } catch { job = { ...job, state: "failed", error: "lost track of the update" }; }
+    CT.jobs[id] = job;
+    paintContainers();
+    if (CD.id === id) paintCdHead();
+    if (job.state === "running") return setTimeout(tick, 1500);
+    delete CT.jobs[id];
+    if (job.state === "done") {
+      toast(job.result?.updated ? `${name} updated` : `${name}: ${job.result?.message || "nothing to do"}`, "ok");
+      CT.updates[id] = { ...(CT.updates[id] || {}), upToDate: true };
+      const fresh = job.result?.id;
+      if (fresh && fresh !== id) { CT.updates[fresh] = CT.updates[id]; delete CT.updates[id]; if (CD.id === id) closeCtrDrawer(); }
+    } else toast(`${name}: ${job.error || "the update failed"}`, "err");
+    loadContainers();
+  };
+  setTimeout(tick, 1200);
+}
+
+/* ---- the board's clicks ---- */
+async function ctrAct(id, act, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    await api(`/docker/containers/${encodeURIComponent(id)}/${act}`, { method: "POST" });
+    toast(`${cap(act)}${act === "stop" ? "ped" : act === "start" ? "ed" : "ed"} ${CT.list.find(x => x.id === id)?.name || ""}`.trim(), "ok");
+    setTimeout(loadContainers, 600);
+  } catch (ex) { toast(ex.message, "err"); }
+  finally { if (btn) btn.disabled = false; }
+}
+async function removeCtr(id) {
+  const c = CT.list.find(x => x.id === id);
+  if (!c) return;
+  if (!confirm(`Remove the container "${c.name}"?\n\nIts image and named volumes stay on disk. To uninstall an App Store app, use the App Store instead.`)) return;
+  try {
+    await api(`/docker/containers/${encodeURIComponent(id)}`, { method: "DELETE" });
+    toast("Container removed", "ok");
+    if (CD.id === id) closeCtrDrawer();
+    setTimeout(loadContainers, 400);
+  } catch (ex) { toast(ex.message, "err"); }
+}
+function ctrMenu(anchor, id) {
+  const c = CT.list.find(x => x.id === id);
+  if (!c) return;
+  const up = cRunning(c);
+  chooseFrom(anchor, [
+    { label: "Details", value: "open" },
+    ...(up ? [{ label: "Console", value: "console" }] : []),
+    { label: "Check for an update", value: "check" },
+    { label: "Update now", value: "update" },
+    { label: "Copy the name", value: "copy" },
+    { label: "Remove…", value: "remove" }
+  ], async v => {
+    if (v === "open") openCtrDrawer(id);
+    if (v === "console") go("term", "ctr:" + (c.name || id));
+    if (v === "update") updateCtr(id);
+    if (v === "copy") copyText(c.name);
+    if (v === "remove") removeCtr(id);
+    if (v === "check") {
+      try { CT.updates[id] = await api(`/docker/containers/${encodeURIComponent(id)}/update-check?fresh=1`); } catch (e) { return toast(e.message, "err"); }
+      const u = CT.updates[id];
+      toast(u.upToDate === false ? "A newer image is available" : u.upToDate ? "Already on the newest image" : `Could not tell: ${u.reason || "unknown"}`, u.upToDate === null ? "err" : "ok");
+      paintContainers();
+    }
+  });
+}
+
+on("#c-grid", "click", e => {
+  if (e.target.closest("[data-cclear]")) { CT.q = ""; CT.state = "all"; $("#c-q").value = ""; return paintContainers(); }
+  if (e.target.closest("a.cpc")) return;                    // a port link opens itself
+  const act = e.target.closest("button[data-act]");
+  if (act) { e.stopPropagation(); return ctrAct(act.dataset.id, act.dataset.act, act); }
+  const lg = e.target.closest("[data-logs]");
+  if (lg) { e.stopPropagation(); return openCtrDrawer(lg.dataset.logs, "logs"); }
+  const more = e.target.closest("[data-more]");
+  if (more) { e.stopPropagation(); return ctrMenu(more, more.dataset.more); }
+  const upd = e.target.closest("[data-update]");
+  if (upd) { e.stopPropagation(); return updateCtr(upd.dataset.update); }
+  const card = e.target.closest("[data-open]");
+  if (card) openCtrDrawer(card.dataset.open);
+});
+on("#c-grid", "keydown", e => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches("[data-open]")) { e.preventDefault(); openCtrDrawer(e.target.dataset.open); }
+});
+
+/* ---------------- one container, in a side panel ----------------
+ * Everything about it without leaving the list: live numbers, the log tail
+ * with search, its environment, its storage and networks — and the actions,
+ * with Remove kept away from the ones you press every day.
+ */
+const CD = { id: null, tab: "overview", logWS: null, follow: true, wrap: true, filter: "", lines: [], info: null, reveal: false };
+function closeLogs() { if (CD.logWS) { try { CD.logWS.close(); } catch {} CD.logWS = null; } }
+
+/** Kept for callers elsewhere (Overview, Kernel). */
+function manageContainer(id) { openCtrDrawer(id); }
+
+function openCtrDrawer(id, tab = "overview") {
+  const c = CT.list.find(x => x.id === id);
+  if (!c) return;
+  closeLogs();
+  Object.assign(CD, { id, tab, lines: [], filter: "", info: null, reveal: false });
+  let el = $("#c-drawer");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "c-drawer";
+    el.innerHTML = `<div class="cdr-back"></div><aside class="cdr" role="dialog" aria-modal="true" aria-labelledby="cdr-name">
+      <header class="cdr-head" id="cdr-head"></header>
+      <nav class="cdr-tabs" role="tablist">
+        <button type="button" role="tab" data-ctab="overview">Overview</button>
+        <button type="button" role="tab" data-ctab="logs">Logs</button>
+        <button type="button" role="tab" data-ctab="env">Environment</button>
+        <button type="button" role="tab" data-ctab="storage">Storage &amp; network</button>
+      </nav>
+      <div class="cdr-body" id="cdr-body"></div></aside>`;
+    document.body.appendChild(el);
+    el.addEventListener("click", cdClick);
+    el.addEventListener("input", e => {
+      if (e.target.id === "cdl-q") { CD.filter = e.target.value; paintCdLogs(true); }
+    });
+  }
+  requestAnimationFrame(() => el.classList.add("open"));
+  paintCdHead();
+  showCdTab(tab);
+  api(`/docker/containers/${encodeURIComponent(id)}/inspect`).then(info => {
+    if (CD.id !== id) return;
+    CD.info = info;
+    if (CD.tab !== "logs") showCdTab(CD.tab);
+    paintCdHead();
+  }).catch(() => {});
+  pollCtStats();
+}
+
+function closeCtrDrawer() {
+  closeLogs();
+  CD.id = null;
+  const el = $("#c-drawer");
+  if (!el) return;
+  el.classList.remove("open");
+  setTimeout(() => { if (!CD.id) el.remove(); }, 320);
+}
+addEventListener("keydown", e => { if (e.key === "Escape" && CD.id && !$("#modal").classList.contains("open")) closeCtrDrawer(); });
+
+function paintCdHead() {
+  const c = CT.list.find(x => x.id === CD.id);
+  const head = $("#cdr-head");
+  if (!c || !head) return;
+  const st = cState(c), up = cRunning(c), name = c.title || c.name;
+  const job = CT.jobs[c.id], u = CT.updates[c.id];
+  head.innerHTML = `
+    <span class="cc-ico lg">${appIconHTML({ name, icon: cSlug(c) })}<i class="cdot s-${st.cls}"></i></span>
+    <div class="cdr-t"><h3 id="cdr-name">${esc(name)}</h3>
+      <span><span class="cstate2 s-${st.cls}">${esc(st.word)}</span>${cUptime(c) ? ` · ${esc(cUptime(c))}` : ""}${job ? ` · ${esc(job.step)}` : ""}</span></div>
+    <button type="button" class="cdr-x" data-cdclose aria-label="Close">${IC("x")}</button>
+    <div class="cdr-acts">
+      <button type="button" class="btn sm${up ? "" : " primary"}" data-cd="${up ? "stop" : "start"}">${IC(up ? "stop" : "play")}${up ? "Stop" : "Start"}</button>
+      <button type="button" class="btn sm" data-cd="restart"${up ? "" : " disabled"}>${IC("retry")}Restart</button>
+      ${up ? `<button type="button" class="btn sm" data-cd="console">${IC("terminal")}Console</button>` : ""}
+      <button type="button" class="btn sm${u?.upToDate === false ? " primary" : ""}" data-cd="update"${job ? " disabled" : ""}>${IC("arrow-up")}${u?.upToDate === false ? "Update available" : "Update"}</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn sm danger ghost" data-cd="remove">${IC("trash")}Remove</button>
+    </div>`;
+  wireIcons(head);
+}
+
+function showCdTab(tab) {
+  CD.tab = tab;
+  $$("#c-drawer [data-ctab]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.ctab === tab)));
+  const body = $("#cdr-body");
+  if (!body) return;
+  if (tab !== "logs") closeLogs();
+  if (tab === "overview") { body.innerHTML = cdOverview(); paintCdLive(); }
+  if (tab === "env") body.innerHTML = cdEnv();
+  if (tab === "storage") body.innerHTML = cdStorage();
+  if (tab === "logs") openCdLogs();
+}
+
+function cdOverview() {
+  const c = CT.list.find(x => x.id === CD.id), i = CD.info;
+  if (!c) return "";
+  const dt = (k, v) => v ? `<dt>${esc(k)}</dt><dd>${v}</dd>` : "";
+  const when = s => { const t = Date.parse(s); return t > 0 ? `${esc(fmtDate(new Date(t)))}, ${esc(fmtTime(new Date(t), false, false))}` : ""; };
+  const groups = portGroups(c.ports);
+  return `<div class="cdr-live" id="cdr-live"></div>
+    ${i?.health ? `<section class="cdr-sec"><h4>Health check</h4><div class="cdr-health s-${i.health.status === "healthy" ? "ok" : i.health.status === "unhealthy" ? "crit" : "warn"}">
+      <b>${esc(cap(i.health.status))}</b>${i.health.failing ? `<span>${i.health.failing} failing in a row</span>` : ""}
+      ${i.health.log.length ? `<pre>${esc(i.health.log[i.health.log.length - 1].out.trim() || "(no output)")}</pre>` : ""}</div></section>` : ""}
+    <section class="cdr-sec"><h4>Ports</h4><div class="cc-ports wrap">${groups.length ? groups.map(portChip).join("") : `<span class="cpc none">No published ports</span>`}</div></section>
+    <section class="cdr-sec"><h4>About</h4><dl class="cdr-dl">
+      ${dt("Image", `<code>${esc(c.image)}</code>`)}
+      ${dt("Image id", i ? `<code>${esc(i.imageId)}</code>` : "")}
+      ${dt("Container id", `<code>${esc(c.id)}</code>`)}
+      ${dt("Created", i ? when(i.created) : c.created ? esc(fmtDate(new Date(c.created * 1000))) : "")}
+      ${dt("Started", i && cRunning(c) ? when(i.startedAt) : "")}
+      ${dt("Restart policy", i ? esc(i.restart) + (i.restartCount ? ` · restarted ${i.restartCount} time${i.restartCount === 1 ? "" : "s"}` : "") : "")}
+      ${dt("Compose", i?.project ? `${esc(i.project)}${i.service ? " · " + esc(i.service) : ""}${i.composeFile ? `<br><code>${esc(i.composeFile)}</code>` : ""}` : "")}
+      ${dt("Command", i?.cmd ? `<code>${esc(i.cmd)}</code>` : "")}
+      ${dt("Source", esc(managedTip(c.managedBy)))}
+      ${i?.oomKilled ? dt("Note", `<span class="crit">It was killed for running out of memory.</span>`) : ""}
+      ${i?.privileged ? dt("Privileged", `<span class="warn">Yes — it has full access to the host.</span>`) : ""}
+    </dl></section>`;
+}
+function paintCdLive() {
+  const el = $("#cdr-live");
+  const c = CT.list.find(x => x.id === CD.id);
+  if (!el || !c) return;
+  if (!cRunning(c)) { el.innerHTML = `<p class="cdr-quiet">Not running.</p>`; return; }
+  const s = CT.stats[c.id];
+  if (!s) { el.innerHTML = `<p class="cdr-quiet">Reading its numbers…</p>`; return; }
+  const rx = ctRate(c.id, "rx"), tx = ctRate(c.id, "tx"), rd = ctRate(c.id, "read"), wr = ctRate(c.id, "write");
+  const t = (k, v, sub = "") => `<div class="cdr-tile"><span>${esc(k)}</span><b>${v}</b>${sub ? `<em>${sub}</em>` : ""}</div>`;
+  el.innerHTML = `<div class="cdr-tiles">
+    ${t("CPU", (s.cpu || 0).toFixed(1) + "%", "of one core")}
+    ${t("Memory", bytes(s.mem), s.memLimit ? `of ${bytes(s.memLimit)}` : "")}
+    ${t("Network", rx != null ? `${rate(rx)}` : "—", tx != null ? `${rate(tx)} up` : "down / up")}
+    ${t("Disk", rd != null ? rate(rd) : "—", wr != null ? `${rate(wr)} written` : "read / write")}
+    ${s.pids != null ? t("Processes", s.pids) : ""}
+  </div>`;
+}
+function cdEnv() {
+  const i = CD.info;
+  if (!i) return `<p class="cdr-quiet">Reading…</p>`;
+  if (!i.env.length) return `<p class="cdr-quiet">No environment variables.</p>`;
+  const secret = k => /pass|secret|token|key|auth|cred|cookie|private/i.test(k);
+  return `<div class="cdr-bar"><span>${i.env.length} variables</span><span class="spacer"></span>
+      <button type="button" class="btn sm" data-cdreveal>${IC(CD.reveal ? "eye-off" : "eye")}${CD.reveal ? "Hide values" : "Show values"}</button></div>
+    <table class="cdr-table"><tbody>${i.env.map(({ k, v }) => `<tr><td class="k">${esc(k)}</td>
+      <td class="v">${CD.reveal || (!secret(k) && v.length < 200) ? `<code>${esc(v)}</code>` : `<span class="mask">${secret(k) ? "hidden" : "long value"} · press Show values</span>`}</td></tr>`).join("")}</tbody></table>`;
+}
+function cdStorage() {
+  const i = CD.info;
+  if (!i) return `<p class="cdr-quiet">Reading…</p>`;
+  return `<section class="cdr-sec"><h4>Storage</h4>${i.mounts.length ? `<table class="cdr-table"><thead><tr><th>In the container</th><th>On the host</th><th></th></tr></thead><tbody>
+      ${i.mounts.map(m => `<tr><td><code>${esc(m.target)}</code></td><td><code>${esc(m.source || "")}</code><small>${esc(m.type)}</small></td><td>${m.rw ? "" : `<span class="cbadge">read only</span>`}</td></tr>`).join("")}</tbody></table>` : `<p class="cdr-quiet">Nothing mounted.</p>`}</section>
+    <section class="cdr-sec"><h4>Networks</h4>${i.networks.length ? `<table class="cdr-table"><thead><tr><th>Network</th><th>Address</th><th>Gateway</th></tr></thead><tbody>
+      ${i.networks.map(n => `<tr><td>${esc(n.name)}</td><td><code>${esc(n.ip || "—")}</code></td><td><code>${esc(n.gateway || "—")}</code></td></tr>`).join("")}</tbody></table>` : `<p class="cdr-quiet">Network mode: ${esc(i.networkMode || "none")}</p>`}</section>
+    ${Object.keys(i.labels).length ? `<section class="cdr-sec"><h4>Labels</h4><table class="cdr-table"><tbody>${Object.entries(i.labels).map(([k, v]) =>
+      `<tr><td class="k">${esc(k)}</td><td class="v"><code>${esc(v)}</code></td></tr>`).join("")}</tbody></table></section>` : ""}`;
+}
+
+/* ---- logs ---- */
+function openCdLogs() {
+  const body = $("#cdr-body");
+  const c = CT.list.find(x => x.id === CD.id);
+  if (!body || !c) return;
+  body.innerHTML = `<div class="cdl">
+    <div class="cdr-bar">
+      <label class="lsearch sm">${IC("search")}<input id="cdl-q" type="search" placeholder="Filter lines…" value="${esc(CD.filter)}" autocomplete="off"></label>
+      <span class="spacer"></span>
+      <button type="button" class="btn sm${CD.follow ? " on" : ""}" data-cdl="follow" aria-pressed="${CD.follow}">${IC("arrow-down")}Follow</button>
+      <button type="button" class="btn sm${CD.wrap ? " on" : ""}" data-cdl="wrap" aria-pressed="${CD.wrap}">Wrap</button>
+      <button type="button" class="btn sm" data-cdl="copy">${IC("copy")}Copy</button>
+      <button type="button" class="btn sm" data-cdl="download">${IC("upload")}Save</button>
+      <button type="button" class="btn sm" data-cdl="clear">Clear</button>
+    </div>
+    <pre class="cdl-out${CD.wrap ? " wrap" : ""}" id="cdl-out"></pre>
+    <div class="cdl-foot" id="cdl-foot"></div></div>`;
+  if (CD.logWS) return paintCdLogs(true);
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  let carry = "";
+  try {
+    CD.logWS = new WebSocket(`${proto}//${location.host}/ws/logs/${encodeURIComponent(c.id)}`);
+    CD.logWS.onmessage = ev => {
+      const text = carry + (typeof ev.data === "string" ? ev.data : "");
+      const parts = text.split(/\r?\n/);
+      carry = parts.pop();
+      CD.lines.push(...parts);
+      if (CD.lines.length > 5000) CD.lines.splice(0, CD.lines.length - 4000);
+      scheduleLogPaint();
+    };
+    CD.logWS.onclose = () => { const f = $("#cdl-foot"); if (f) f.textContent = linkState === "polling" ? "Logs need a WebSocket, which this connection does not have." : "The log stream closed."; };
+  } catch { const f = $("#cdl-foot"); if (f) f.textContent = "Could not open the log stream."; }
+  paintCdLogs(true);
+}
+let logPaintRaf = 0;
+function scheduleLogPaint() { if (!logPaintRaf) logPaintRaf = requestAnimationFrame(() => { logPaintRaf = 0; paintCdLogs(false); }); }
+function paintCdLogs(full) {
+  const pre = $("#cdl-out");
+  if (!pre) return;
+  const q = CD.filter.trim().toLowerCase();
+  const lines = q ? CD.lines.filter(l => l.toLowerCase().includes(q)) : CD.lines;
+  const shown = lines.slice(-2500);
+  const hl = l => {
+    let h = esc(l);
+    if (/\b(error|fatal|panic|exception|fail(ed)?)\b/i.test(l)) h = `<span class="le">${h}</span>`;
+    else if (/\b(warn(ing)?)\b/i.test(l)) h = `<span class="lw">${h}</span>`;
+    return h;
+  };
+  pre.innerHTML = shown.length ? shown.map(hl).join("\n") : `<span class="lq">${CD.lines.length ? "No line matches the filter." : "Waiting for output…"}</span>`;
+  if (CD.follow) pre.scrollTop = pre.scrollHeight;
+  const f = $("#cdl-foot");
+  if (f) f.textContent = `${CD.lines.length.toLocaleString()} lines${q ? ` · ${lines.length.toLocaleString()} match` : ""}${lines.length > shown.length ? " · showing the last 2,500" : ""}`;
+}
+
+function cdClick(e) {
+  if (e.target.classList.contains("cdr-back") || e.target.closest("[data-cdclose]")) return closeCtrDrawer();
+  const tab = e.target.closest("[data-ctab]");
+  if (tab) return showCdTab(tab.dataset.ctab);
+  const id = CD.id, c = CT.list.find(x => x.id === id);
+  const a = e.target.closest("[data-cd]");
+  if (a && c) {
+    const v = a.dataset.cd;
+    if (v === "console") { closeCtrDrawer(); return go("term", "ctr:" + (c.name || id)); }
+    if (v === "update") return updateCtr(id);
+    if (v === "remove") return removeCtr(id);
+    return ctrAct(id, v, a).then(() => setTimeout(() => { paintCdHead(); if (CD.tab === "overview") showCdTab("overview"); }, 900));
+  }
+  if (e.target.closest("[data-cdreveal]")) { CD.reveal = !CD.reveal; return showCdTab("env"); }
+  const l = e.target.closest("[data-cdl]");
+  if (l) {
+    const v = l.dataset.cdl;
+    if (v === "follow") { CD.follow = !CD.follow; l.classList.toggle("on", CD.follow); l.setAttribute("aria-pressed", CD.follow); if (CD.follow) paintCdLogs(false); }
+    if (v === "wrap") { CD.wrap = !CD.wrap; l.classList.toggle("on", CD.wrap); $("#cdl-out")?.classList.toggle("wrap", CD.wrap); }
+    if (v === "clear") { CD.lines = []; paintCdLogs(true); }
+    if (v === "copy") copyText(CD.lines.join("\n"));
+    if (v === "download") {
+      const blob = new Blob([CD.lines.join("\n")], { type: "text/plain" });
+      const url = URL.createObjectURL(blob), link = document.createElement("a");
+      link.href = url; link.download = `${c?.name || id}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.log`;
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    }
+  }
+}
+// Scrolling up in the log stops following; reaching the bottom starts again.
+addEventListener("scroll", e => {
+  if (e.target?.id !== "cdl-out") return;
+  const p = e.target, atEnd = p.scrollHeight - p.scrollTop - p.clientHeight < 30;
+  if (atEnd !== CD.follow) {
+    CD.follow = atEnd;
+    const b = $('#c-drawer [data-cdl="follow"]');
+    if (b) { b.classList.toggle("on", atEnd); b.setAttribute("aria-pressed", atEnd); }
+  }
+}, true);
 
 /* ============================ the launcher ============================
  * The Apps page: a board of the things actually running on this box, as tiles
@@ -3933,6 +4352,7 @@ function lSelected() { return LP.apps.filter(a => LP.sel.has(a.id)); }
  */
 async function openApp(a, external) {
   if (!a) return;
+  noteLaunch(a.id);
   if (a.locked) return askPin(a, external);
   const url = external ? a.externalUrl : (a.url || a.externalUrl);
   if (!url) return toast("no address set for that app", "err");
@@ -4831,77 +5251,96 @@ async function pullApps() {
 
 on("#l-pull", "click", pullApps);
 
-/* ============================ file manager ============================ */
-let curDir = null, curParent = null, curEntries = [];
+/* ============================ file manager ============================
+ * Places on the left (your drives), the folder in the middle — as a list
+ * with sortable columns or as a grid with picture thumbnails — and a details
+ * pane on the right that previews what you select. Everything works from the
+ * keyboard too: arrows, Enter, Backspace, F2, Delete, Ctrl+A/C/X/V.
+ */
+let curDir = null, curParent = null, curEntries = [], curTotal = 0, curTruncated = false;
 
 /**
- * File selection, by path.
- *
- * Paths rather than row elements, so a selection survives the table being
- * re-rendered by a refresh. Cleared on navigation — carrying a selection across
- * directories would mean a DELETE could hit something no longer on screen.
+ * File selection, by path. Paths rather than elements, so a selection survives
+ * the listing being redrawn. Cleared on navigation — carrying it across folders
+ * would let Delete hit something no longer on screen.
  */
 let fileSel = new Set();
 let fileAnchor = null;
 
-/**
- * The clipboard, and where you have been.
- *
- * The clipboard holds paths rather than entries: a cut folder may be pasted
- * after several navigations, by which time the listing it came from is long
- * gone. The server re-resolves and re-jails every path at paste time anyway,
- * so holding anything richer would only be a staleness risk.
- */
+/** The clipboard holds paths; the server re-resolves and re-jails them at paste time. */
 const fileClip = { paths: [], move: false, from: null };
-const fileHistory = [];
+const fileHistory = [], fileForward = [];
 
-const fileRows = () => $$("#f-table tbody tr[data-path]");
+/* View preferences of this browser: list or grid, sort, the details pane. */
+const FV = (() => {
+  const d = { view: "list", sort: "name", dir: 1, pane: true };
+  try { return { ...d, ...JSON.parse(localStorage.getItem("nexus.files") || "{}") }; } catch { return d; }
+})();
+const saveFv = () => { try { localStorage.setItem("nexus.files", JSON.stringify(FV)); } catch {} };
+let fileFilter = "", fileSearch = null;      // fileSearch: { q, results, stopped } while showing search results
+
+const fileRows = () => $$("#f-list [data-path]");
 
 function markFileSel() {
-  fileRows().forEach(tr => tr.classList.toggle("sel", fileSel.has(tr.dataset.path)));
+  fileRows().forEach(el => {
+    const on = fileSel.has(el.dataset.path);
+    el.classList.toggle("sel", on);
+    el.setAttribute("aria-selected", String(on));
+  });
   const bar = $("#f-selbar");
   if (bar) {
     bar.hidden = fileSel.size < 1;
     const c = $("#f-selcount");
-    if (c) c.textContent = fileSel.size === 1 ? "1 ITEM SELECTED" : `${fileSel.size} ITEMS SELECTED`;
+    const chosen = selectedEntries();
+    const size = chosen.filter(e => !e.dir).reduce((a, e) => a + (e.size || 0), 0);
+    if (c) c.innerHTML = `<b>${fileSel.size}</b> selected${size ? ` · ${bytes(size)}` : ""}`;
+    const one = chosen.length === 1 ? chosen[0] : null;
+    $$("#f-selbar [data-fa]").forEach(b => {
+      const a = b.dataset.fa;
+      b.hidden = (a === "open" && !one) || (a === "rename" && !one) || (a === "download" && !chosen.some(e => !e.dir));
+    });
+    const open = $('#f-selbar [data-fa="open"] span');
+    if (open && one) open.textContent = one.dir ? "Open" : one.text ? "Edit" : "View";
   }
+  paintFileStatus();
+  paintPane();
 }
 function clearFileSelection() { if (fileSel.size) { fileSel.clear(); fileAnchor = null; markFileSel(); } }
-const selectedEntries = () => curEntries.filter(e => fileSel.has(e.path));
+const selectedEntries = () => shownEntries().filter(e => fileSel.has(e.path));
 
-/** Glyph + colour by extension, so a folder listing is scannable at a glance. */
+/* ---- what each file is ---- */
 const FILE_KINDS = [
-  { re: /\.(txt|md|markdown|rst)$/i,                                   ic: "TXT", cls: "k-doc"  },
-  { re: /\.(json|ya?ml|toml|ini|conf|cfg|env|properties|service)$/i,   ic: "CFG", cls: "k-cfg"  },
-  { re: /\.(js|mjs|cjs|ts|tsx|jsx|py|rb|go|rs|java|c|h|cpp|sh|bash)$/i, ic: "{ }", cls: "k-code" },
-  { re: /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i,                   ic: "IMG", cls: "k-img"  },
-  { re: /\.(mp4|mkv|avi|mov|webm|m4v)$/i,                              ic: "VID", cls: "k-vid"  },
-  { re: /\.(mp3|flac|wav|ogg|m4a|aac)$/i,                              ic: "SND", cls: "k-snd"  },
-  { re: /\.(zip|tar|gz|xz|bz2|7z|rar|tgz)$/i,                          ic: "ZIP", cls: "k-arc"  },
-  { re: /\.log$/i,                                                     ic: "LOG", cls: "k-log"  },
-  { re: /\.pdf$/i,                                                     ic: "PDF", cls: "k-pdf"  }
+  { re: /\.(png|jpe?g|gif|webp|bmp|ico|avif|heic|svg|tiff?)$/i, k: "img",  ic: "image",    label: "Image" },
+  { re: /\.(mp4|mkv|avi|mov|webm|m4v|wmv|ts)$/i,                 k: "vid",  ic: "play",     label: "Video" },
+  { re: /\.(mp3|flac|wav|ogg|m4a|aac|opus)$/i,                   k: "snd",  ic: "activity", label: "Audio" },
+  { re: /\.(zip|tar|gz|xz|bz2|7z|rar|tgz|zst)$/i,                k: "arc",  ic: "box",      label: "Archive" },
+  { re: /\.pdf$/i,                                               k: "pdf",  ic: "file",     label: "PDF" },
+  { re: /\.(js|mjs|cjs|ts|tsx|jsx|py|rb|go|rs|java|c|h|cpp|sh|bash|php|css|html?)$/i, k: "code", ic: "code", label: "Code" },
+  { re: /\.(json|ya?ml|toml|ini|conf|cfg|env|properties|service|xml)$/i, k: "cfg", ic: "settings", label: "Config" },
+  { re: /\.(txt|md|markdown|rst|log|csv|tsv)$/i,                 k: "doc",  ic: "file",     label: "Text" },
+  { re: /\.(iso|img|qcow2|vmdk)$/i,                              k: "disk", ic: "drive",    label: "Disk image" },
+  { re: /\.(srt|ass|sub|vtt|nfo)$/i,                             k: "doc",  ic: "file",     label: "Subtitles" }
 ];
 function fileKind(en) {
-  if (en.dir) return { ic: "DIR", cls: "k-dir" };
+  if (en.dir) return { k: "dir", ic: "folder", label: "Folder" };
   for (const k of FILE_KINDS) if (k.re.test(en.name)) return k;
-  return { ic: "BIN", cls: "k-bin" };
+  const ext = en.name.includes(".") ? en.name.split(".").pop().toUpperCase().slice(0, 6) : "";
+  return { k: "bin", ic: "file", label: ext ? `${ext} file` : "File" };
 }
+const fileUrl = (p, inline = false) => "/api/files/download?path=" + encodeURIComponent(p) + (inline ? "&inline=1" : "");
+const canThumb = en => !en.dir && /\.(png|jpe?g|gif|webp|bmp|avif)$/i.test(en.name) && (en.size || 0) < 25 * 1048576;
+function fileWhen(ms) {
+  if (!ms) return "—";
+  const age = Date.now() - ms;
+  if (age < 7 * 86400e3) return since(ms);
+  const d = new Date(ms);
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+const fileExact = ms => ms ? `${fmtDate(new Date(ms))}, ${fmtTime(new Date(ms), false, false)}` : "";
 
-/**
- * The file manager can only reach configured roots, and until now the UI never
- * showed what those were — so if the first root was /DATA you had no way to
- * reach /root at all. These buttons make every root one click away.
- */
+/* ---- places (the configured roots) ---- */
 let ROOTS = [];
 
-/**
- * The drives strip.
- *
- * Each root is a card rather than a button: where it points, how full it is,
- * and what you keep on it. The note is the part that earns its place — "/DATA"
- * and "/mnt/data" are indistinguishable at a glance, and the difference between
- * them is the whole reason you are looking.
- */
 async function loadRoots(force = false) {
   const bar = $("#f-roots");
   if (!bar) return;
@@ -4917,32 +5356,18 @@ async function loadRoots(force = false) {
 function renderRoots() {
   const bar = $("#f-roots");
   if (!bar) return;
-
   bar.innerHTML = ROOTS.map(r => {
     const known = r.size > 0 && r.usage != null;
     const pct = known ? clamp(r.usage, 0, 100) : 0;
-    const lvl = pct >= 92 ? "crit" : pct >= 80 ? "warn" : "";
-    return `
-      <div class="rootcard${r.exists ? "" : " missing"}${known ? "" : " nostat"}"
-           data-root="${esc(r.path)}" draggable="true" tabindex="0" role="button"
-           aria-label="${esc(r.name)} — ${esc(r.path)}">
-        <span class="rhead">
-          <span class="rn">${esc(r.name)}</span>
-          ${known ? `<span class="rpct ${lvl}">${pct.toFixed(0)}%</span>` : ""}
-        </span>
-        <span class="rp mono">${esc(r.path)}</span>
-        ${known ? `
-          <span class="rbar ${lvl}"><i style="width:${pct.toFixed(1)}%"></i></span>
-          <span class="rfig mono">${bytes(r.used)} <b>/</b> ${bytes(r.used + r.available)}
-            <span class="rfree">· ${bytes(r.available)} free</span></span>`
-        : `<span class="rfig mono dim">${r.exists ? "size unavailable" : "not mounted"}</span>`}
-        <span class="rnote${r.note ? "" : " empty"}">${esc(r.note || "add a note")}</span>
-      </div>`;
-  }).join("") +
-    `<span class="hint rootshint">Drag a card to reorder. Right-click one for a note.
-      Only these paths are reachable — set <code>fileRoots</code> in
-      /etc/nexus/config.json to add more.</span>`;
-
+    const lv = pct >= 92 ? "crit" : pct >= 80 ? "warn" : "";
+    return `<div class="fx-place${r.exists ? "" : " missing"}" data-root="${esc(r.path)}" draggable="true" tabindex="0" role="button"
+        aria-label="${esc(r.name)} — ${esc(r.path)}" data-tip="${esc(r.path)}${known ? ` · ${bytes(r.available)} free of ${bytes(r.used + r.available)}` : ""}">
+      <span class="fx-pico">${IC("drive")}</span>
+      <span class="fx-pt"><b>${esc(r.note || r.name)}</b><span>${esc(r.path)}</span>
+        ${known ? `<span class="fx-pbar ${lv}"><i style="width:${pct.toFixed(1)}%"></i></span><em>${bytes(r.available)} free</em>`
+                : `<em>${r.exists ? "size unknown" : "not mounted"}</em>`}</span>
+    </div>`;
+  }).join("") || `<p class="fx-quiet">No folders are configured. Set <code>fileRoots</code> in /etc/nexus/config.json.</p>`;
   if (curDir) markActiveRoot(curDir);
 }
 
@@ -4959,45 +5384,35 @@ function wireRoots(bar) {
   bar.addEventListener("contextmenu", e => {
     const c = e.target.closest("[data-root]");
     if (!c) return;
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault(); e.stopPropagation();
     openRootMenu(e.clientX, e.clientY, ROOTS.find(r => r.path === c.dataset.root));
   });
-
-  /* ---- drag to reorder ----
-     HTML5 drag-and-drop rather than pointer events, because these cards sit on
-     a page that already uses pointer drags for the rubber-band selection, and
-     the two would fight over the same gesture. */
+  // Drag a place to reorder. HTML5 drag-and-drop, which file rows also use;
+  // a place being dragged carries no file paths, so the two never mix.
   let dragPath = null;
   bar.addEventListener("dragstart", e => {
     const c = e.target.closest("[data-root]");
-    if (!c) return;
+    if (!c || fileDrag.paths.length) return;
     dragPath = c.dataset.root;
     c.classList.add("dragging");
     e.dataTransfer.effectAllowed = "move";
-    // Firefox will not start a drag without data on the transfer.
     try { e.dataTransfer.setData("text/plain", dragPath); } catch {}
   });
-  bar.addEventListener("dragend", () => {
-    dragPath = null;
-    $$("#f-roots .rootcard").forEach(c => c.classList.remove("dragging", "dropbefore"));
-  });
+  bar.addEventListener("dragend", () => { dragPath = null; $$("#f-roots .fx-place").forEach(c => c.classList.remove("dragging", "dropbefore")); });
   bar.addEventListener("dragover", e => {
     if (!dragPath) return;
     e.preventDefault();
     const c = e.target.closest("[data-root]");
-    $$("#f-roots .rootcard").forEach(x => x.classList.remove("dropbefore"));
+    $$("#f-roots .fx-place").forEach(x => x.classList.remove("dropbefore"));
     if (c && c.dataset.root !== dragPath) c.classList.add("dropbefore");
   });
   bar.addEventListener("drop", async e => {
     if (!dragPath) return;
     e.preventDefault();
     const c = e.target.closest("[data-root]");
-    $$("#f-roots .rootcard").forEach(x => x.classList.remove("dropbefore"));
+    $$("#f-roots .fx-place").forEach(x => x.classList.remove("dropbefore"));
     if (!c || c.dataset.root === dragPath) return;
-
-    const from = ROOTS.findIndex(r => r.path === dragPath);
-    const to = ROOTS.findIndex(r => r.path === c.dataset.root);
+    const from = ROOTS.findIndex(r => r.path === dragPath), to = ROOTS.findIndex(r => r.path === c.dataset.root);
     if (from < 0 || to < 0) return;
     ROOTS.splice(to, 0, ROOTS.splice(from, 1)[0]);
     renderRoots();
@@ -5005,7 +5420,6 @@ function wireRoots(bar) {
   });
 }
 
-/** Persist order and notes together — the server stores one map for both. */
 async function saveRootPrefs() {
   const prefs = {};
   ROOTS.forEach((r, i) => { prefs[r.path] = { note: r.note || "", order: i }; });
@@ -5015,218 +5429,482 @@ async function saveRootPrefs() {
 
 function openRootMenu(x, y, root) {
   if (!root) return;
-  const body = $("#ctx-body");
-  $("#ctx-icon").src = ICON("storage");
-  $("#ctx-title").textContent = root.name.slice(0, 26);
-  body.innerHTML = "";
-  ctxItems = [];
-
-  const actions = [
-    { label: root.note ? "Edit note" : "Add note", go: () => editRootNote(root) },
-    { label: "Open", go: () => loadFiles(root.path) }
-  ];
-  if (root.note) actions.push({ label: "Clear note", go: () => setRootNote(root, "") });
-  if (fileClip.paths.length) {
-    actions.push({ label: `PASTE ${fileClip.paths.length} HERE`, go: () => pasteInto(root.path) });
-  }
-
-  const g = document.createElement("div");
-  g.className = "ctxgroup ctxstack";
-  actions.forEach(a => {
-    const b = document.createElement("button");
-    b.className = "ctxopt wide";
-    b.textContent = a.label;
-    b.addEventListener("click", () => { closeCtx(); a.go(); });
-    g.appendChild(b);
-  });
-  body.appendChild(g);
-
-  const note = document.createElement("p");
-  note.className = "ctxnote";
-  note.textContent = "A note is a label for you — it does not rename anything on disk.";
-  body.appendChild(note);
-
-  $(".ctxfoot").hidden = true;
-  placeCtx(x, y);
+  ctxMenu(x, y, root.note || root.name, [
+    { label: "Open", icon: "folder", go: () => loadFiles(root.path) },
+    { label: root.note ? "Rename the label" : "Give it a label", icon: "tag", go: () => editRootNote(root) },
+    ...(root.note ? [{ label: "Remove the label", icon: "x", go: () => setRootNote(root, "") }] : []),
+    ...(fileClip.paths.length ? [{ label: `Paste ${fileClip.paths.length} here`, icon: "copy", go: () => pasteInto(root.path) }] : [])
+  ], "A label is for you — it does not rename anything on disk.");
 }
 
-function editRootNote(root) {
-  const v = prompt(`Note for ${root.name} (${root.path}):\n\nThis is a label for you, not a rename.`, root.note || "");
+async function editRootNote(root) {
+  const v = await askText({ title: "Label this place", label: `A name for ${root.path}`, value: root.note || "", placeholder: "Films and TV", hint: "Shown instead of the folder name. Nothing on disk changes." });
   if (v == null) return;
   setRootNote(root, v.trim().slice(0, 120));
 }
+async function setRootNote(root, note) { root.note = note; renderRoots(); await saveRootPrefs(); }
 
-async function setRootNote(root, note) {
-  root.note = note;
-  renderRoots();
-  await saveRootPrefs();
-}
-
+/* Compared with one kind of slash: a root written C:/x in config and a path
+   reported back as C:\x\y are the same place. */
+const normP = p => String(p || "").replace(/\\/g, "/").replace(/\/+$/, "") || "/";
+const isUnder = (p, r) => { const a = normP(p), b = normP(r); return a === b || a.startsWith(b === "/" ? "/" : b + "/"); };
 function markActiveRoot(p) {
-  // $ is querySelector and returns one node; the list needs $$. This threw on
-  // every listing, and because markActiveRoot runs before the rows are written
-  // the catch in loadFiles swallowed it and the file manager showed the type
-  // error where the files should have been.
-  const cards = $$("#f-roots .rootcard");
-  const under = r => p === r || p.startsWith(r.endsWith("/") ? r : r + "/") || p.startsWith(r + "\\");
-  // Longest match wins, so /DATA does not light up when you are inside a
-  // separate, more specific root nested under it.
+  const cards = $$("#f-roots .fx-place");
+  const under = r => isUnder(p, r);
   let best = null;
-  cards.forEach(b => {
-    const r = b.dataset.root;
-    if (under(r) && (!best || r.length > best.length)) best = r;
-  });
+  cards.forEach(b => { const r = b.dataset.root; if (under(r) && (!best || r.length > best.length)) best = r; });
   cards.forEach(b => b.classList.toggle("on", b.dataset.root === best));
 }
+const rootOf = p => ROOTS.filter(r => isUnder(p, r.path)).sort((a, b) => b.path.length - a.path.length)[0];
 
-async function loadFiles(dir, { history = true } = {}) {
-  const tb = $("#f-table tbody");
+/* ---- a small menu, for right-clicks ---- */
+function ctxMenu(x, y, title, items, note) {
+  $$(".fx-menu").forEach(m => m.remove());
+  const m = document.createElement("div");
+  m.className = "fx-menu";
+  m.setAttribute("role", "menu");
+  m.innerHTML = (title ? `<div class="fx-mh">${esc(title)}</div>` : "") + items.map((it, i) => it === "-" ? `<hr>` :
+    `<button type="button" role="menuitem" data-mi="${i}" class="${it.danger ? "danger" : ""}"${it.disabled ? " disabled" : ""}>
+      ${IC(it.icon || "chevron-right")}<span>${esc(it.label)}</span>${it.kbd ? `<kbd>${esc(it.kbd)}</kbd>` : ""}</button>`).join("") +
+    (note ? `<p class="fx-mnote">${esc(note)}</p>` : "");
+  document.body.appendChild(m);
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + "px";
+  m.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + "px";
+  m.querySelector("button:not([disabled])")?.focus({ preventScroll: true });
+  const close = () => { m.remove(); removeEventListener("pointerdown", away, true); removeEventListener("keydown", key, true); };
+  const away = ev => { if (!m.contains(ev.target)) close(); };
+  const key = ev => {
+    if (ev.key === "Escape") { ev.stopPropagation(); close(); }
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+      ev.preventDefault();
+      const bs = $$("button:not([disabled])", m), i = bs.indexOf(document.activeElement);
+      bs[(i + (ev.key === "ArrowDown" ? 1 : -1) + bs.length) % bs.length]?.focus();
+    }
+  };
+  m.addEventListener("click", ev => {
+    const b = ev.target.closest("[data-mi]");
+    if (!b) return;
+    close();
+    items[Number(b.dataset.mi)]?.go?.();
+  });
+  setTimeout(() => { addEventListener("pointerdown", away, true); addEventListener("keydown", key, true); }, 0);
+}
+
+/** A one-field dialog, in place of prompt(). Resolves to the text, or null. */
+function askText({ title, label, value = "", placeholder = "", hint = "", action = "Save", select = null }) {
+  return new Promise(resolve => {
+    const body = document.createElement("div");
+    body.className = "fx-ask";
+    body.innerHTML = `<label for="fx-ask">${esc(label)}</label>
+      <input id="fx-ask" type="text" value="${esc(value)}" placeholder="${esc(placeholder)}" autocomplete="off" spellcheck="false">
+      ${hint ? `<p class="hint">${esc(hint)}</p>` : ""}<p class="fx-askerr" hidden></p>`;
+    let done = false;
+    const finish = v => { if (done) return; done = true; resolve(v); };
+    openModal({ title, icon: ICON("files"), body,
+      foot: `<span class="spacer"></span><button class="btn sm" id="fx-cancel" type="button">Cancel</button><button class="btn primary sm" id="fx-ok" type="button">${esc(action)}</button>`,
+      onClose: () => finish(null) });
+    const input = $("#fx-ask", body);
+    setTimeout(() => { input.focus(); if (select) input.setSelectionRange(select[0], select[1]); else input.select(); }, 50);
+    const ok = () => { const v = input.value; done = true; closeModal(); resolve(v); };
+    on("#fx-ok", "click", ok);
+    on("#fx-cancel", "click", () => closeModal());
+    input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); ok(); } });
+  });
+}
+
+/* ---- loading a folder ---- */
+async function loadFiles(dir, { history = true, keepSel = false } = {}) {
+  const list = $("#f-list");
+  if (!list) return;
+  if (!curEntries.length) list.innerHTML = `<div class="fx-loading">${Array.from({ length: 6 }, () => "<i></i>").join("")}</div>`;
   try {
     const out = await api("/files" + (dir ? "?path=" + encodeURIComponent(dir) : ""));
-    // Record where we were, not where we are going, and only for a real move —
-    // a refresh of the same folder is not a step in the journey.
     if (history && curDir && curDir !== out.path) {
       fileHistory.push(curDir);
-      if (fileHistory.length > 50) fileHistory.shift();
+      if (fileHistory.length > 60) fileHistory.shift();
+      fileForward.length = 0;
     }
-    curDir = out.path;
-    curParent = out.parent;
-    curEntries = out.entries;
-    clearFileSelection();
+    const moved = curDir !== out.path;
+    curDir = out.path; curParent = out.parent;
+    curEntries = out.entries; curTotal = out.total; curTruncated = out.truncated;
+    if (moved) { fileSearch = null; fileFilter = ""; const q = $("#f-q"); if (q) q.value = ""; }
+    if (!keepSel || moved) { fileSel.clear(); fileAnchor = null; }
     renderCrumbs(out.path);
     markActiveRoot(out.path);
     paintNav();
-
-    if (!out.entries.length) {
-      tb.innerHTML = '<tr><td colspan="4" class="empty">Empty folder &mdash; right-click to create something</td></tr>';
-      return;
-    }
-
-    tb.innerHTML = out.entries.map(en => {
-      const k = fileKind(en);
-      return `<tr draggable="true" data-path="${esc(en.path)}" data-dir="${en.dir ? 1 : 0}" data-text="${en.text ? 1 : 0}" data-name="${esc(en.name)}">
-        <td class="name"><span class="fname">
-          <span class="fic ${k.cls}">${esc(k.ic)}</span>
-          <span class="ftxt">${esc(en.name)}${en.dir ? "/" : ""}</span>
-          ${en.symlink ? '<span class="pill idle">Link</span>' : ""}
-        </span></td>
-        <td class="mono">${en.dir ? "—" : bytes(en.size)}</td>
-        <td class="mono">${en.mtime ? since(en.mtime) : "—"}</td>
-        <td class="mono dim">${en.mode ? en.mode.toString(8).padStart(3, "0") : ""}</td>
-      </tr>`;
-    }).join("") + (out.truncated
-      ? `<tr><td colspan="4" class="empty">SHOWING ${out.entries.length} OF ${out.total} —
-           OPEN A SUBFOLDER TO NARROW IT DOWN</td></tr>`
-      : "");
-    paintClip();                   // re-dim anything still on the clipboard
+    renderFileList();
+    if (moved) $("#f-wrap")?.scrollTo({ top: 0 });
   } catch (e) {
-    tb.innerHTML = `<tr><td colspan="4" class="empty">${esc(e.message)}</td></tr>`;
+    list.innerHTML = `<div class="fx-empty"><span class="fx-eico">${IC("alert")}</span><b>Could not open this folder</b><p>${esc(e.message)}</p></div>`;
   }
 }
 
-/** Clickable path segments — jump up several levels in one click. */
+/** What is on screen: the folder, or the search results, filtered and sorted. */
+function shownEntries() {
+  let list = fileSearch ? fileSearch.results : curEntries;
+  const q = fileFilter.trim().toLowerCase();
+  if (q && !fileSearch) list = list.filter(e => e.name.toLowerCase().includes(q));
+  const dir = FV.dir;
+  const by = {
+    name: (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }),
+    size: (a, b) => (a.size || 0) - (b.size || 0),
+    mtime: (a, b) => (a.mtime || 0) - (b.mtime || 0),
+    kind: (a, b) => fileKind(a).label.localeCompare(fileKind(b).label) || a.name.localeCompare(b.name)
+  }[FV.sort] || ((a, b) => a.name.localeCompare(b.name));
+  return list.slice().sort((a, b) => (b.dir - a.dir) || by(a, b) * dir);
+}
+
+function fileItemHTML(en) {
+  const k = fileKind(en);
+  const cut = fileClip.move && fileClip.paths.includes(en.path);
+  const attrs = `data-path="${esc(en.path)}" data-dir="${en.dir ? 1 : 0}" data-text="${en.text ? 1 : 0}" data-name="${esc(en.name)}"
+    draggable="true" role="option" aria-selected="${fileSel.has(en.path)}" tabindex="-1"`;
+  const cls = `${fileSel.has(en.path) ? " sel" : ""}${cut ? " cut" : ""}${en.error ? " err" : ""}`;
+  const where = fileSearch ? `<span class="fr-where">${esc(en.path.slice(0, en.path.length - en.name.length - 1).replace(fileSearch.base, "") || "/")}</span>` : "";
+  if (FV.view === "grid") {
+    const thumb = canThumb(en)
+      ? `<img class="fg-img" loading="lazy" decoding="async" alt="" src="${esc(fileUrl(en.path, true))}" data-onfail="hide">`
+      : `<span class="fk k-${k.k} big">${IC(k.ic)}</span>`;
+    return `<div class="fg${cls}" ${attrs} title="${esc(en.name)}">
+      <span class="fg-thumb">${thumb}${en.symlink ? `<span class="fx-link">${IC("link")}</span>` : ""}</span>
+      <span class="fg-name">${esc(en.name)}</span>
+      <span class="fg-meta">${en.dir ? "Folder" : bytes(en.size)}</span>${where}</div>`;
+  }
+  return `<div class="fr${cls}" ${attrs}>
+    <span class="fr-name"><span class="fk k-${k.k}">${IC(k.ic)}</span>
+      <span class="fr-n"><span class="fr-t">${esc(en.name)}</span>${where}</span>${en.symlink ? `<span class="fx-link" data-tip="A link">${IC("link")}</span>` : ""}</span>
+    <span class="fr-size">${en.dir ? "" : bytes(en.size)}</span>
+    <span class="fr-mod" data-tip="${esc(fileExact(en.mtime))}">${fileWhen(en.mtime)}</span>
+    <span class="fr-kind">${esc(k.label)}</span>
+  </div>`;
+}
+
+function renderFileList() {
+  const list = $("#f-list");
+  if (!list) return;
+  const entries = shownEntries();
+  list.className = "fx-list " + FV.view;
+  $("#f-head").hidden = FV.view !== "list";
+  $$("#f-head [data-sort]").forEach(h => {
+    const on = h.dataset.sort === FV.sort;
+    h.classList.toggle("on", on);
+    h.setAttribute("aria-sort", on ? (FV.dir > 0 ? "ascending" : "descending") : "none");
+  });
+  $$("#f-view [data-fv]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.fv === FV.view)));
+
+  if (!entries.length) {
+    list.innerHTML = fileSearch
+      ? `<div class="fx-empty"><span class="fx-eico">${IC("search")}</span><b>Nothing called “${esc(fileSearch.q)}” here</b><p>Searched ${fileSearch.visited.toLocaleString()} folders under this one.</p></div>`
+      : fileFilter
+      ? `<div class="fx-empty"><span class="fx-eico">${IC("search")}</span><b>Nothing matches</b><p><button type="button" class="linkbtn" data-fsearch>Search the subfolders for “${esc(fileFilter)}”</button></p></div>`
+      : `<div class="fx-empty"><span class="fx-eico">${IC("folder")}</span><b>This folder is empty</b><p>Drop files here to upload them, or make a <button type="button" class="linkbtn" data-fnew>new folder</button>.</p></div>`;
+  } else {
+    list.innerHTML = (fileSearch ? `<div class="fx-searchhead">${IC("search")}<span>${fileSearch.results.length}${fileSearch.stopped ? "+" : ""} results for <b>“${esc(fileSearch.q)}”</b> under this folder${fileSearch.stopped ? " — stopped early, narrow it down for the rest" : ""}</span>
+        <button type="button" class="btn sm" data-fsearchclose>Back to the folder</button></div>` : "") +
+      entries.map(fileItemHTML).join("") +
+      (curTruncated && !fileSearch ? `<div class="fx-more">Showing ${curEntries.length.toLocaleString()} of ${curTotal.toLocaleString()} — open a subfolder or filter to narrow it down.</div>` : "");
+  }
+  wireIcons(list);
+  markFileSel();
+}
+
+/* ---- the path bar ---- */
 function renderCrumbs(p) {
   const sep = p.includes("\\") ? "\\" : "/";
-  const parts = p.split(sep).filter(Boolean);
-  const bits = [];
-  let acc = p.startsWith(sep) ? sep : "";
-  if (p.startsWith(sep)) bits.push(`<button data-go="${sep}">${sep}</button>`);
-  parts.forEach((seg, i) => {
-    acc = acc === sep ? sep + seg : (acc ? acc + sep + seg : seg);
-    bits.push(`<button data-go="${esc(acc)}">${esc(seg)}</button>`);
-    if (i < parts.length - 1) bits.push(`<span class="csep">${sep}</span>`);
-  });
-  $("#f-crumbs").innerHTML = bits.join("");
+  const root = rootOf(p);
+  const crumbs = [];
+  if (root) {
+    crumbs.push({ path: root.path, label: root.note || root.name, root: true });
+    const rest = normP(p).slice(normP(root.path).length).split("/").filter(Boolean);
+    let acc = root.path.replace(/[\\/]+$/, "");
+    for (const seg of rest) { acc = acc.endsWith(sep) ? acc + seg : acc + sep + seg; crumbs.push({ path: acc, label: seg }); }
+  } else crumbs.push({ path: p, label: p });
+  // A deep path keeps its first and last two crumbs; the middle folds into "…".
+  const folded = crumbs.length > 5 ? [crumbs[0], { more: crumbs.slice(1, -2) }, ...crumbs.slice(-2)] : crumbs;
+  $("#f-crumbs").innerHTML = folded.map((c, i) => (i ? `<span class="fx-sep">${IC("chevron-right")}</span>` : "") +
+    (c.more ? `<button type="button" class="fx-crumb more" data-crumbmore="${esc(JSON.stringify(c.more.map(x => x.path)))}" aria-label="More folders">…</button>`
+            : `<button type="button" class="fx-crumb${i === folded.length - 1 ? " cur" : ""}" data-fpath="${esc(c.path)}">${c.root ? IC("drive") : ""}<span>${esc(c.label)}</span></button>`)).join("");
 }
-
 on("#f-crumbs", "click", e => {
-  const b = e.target.closest("[data-go]");
-  if (b) loadFiles(b.dataset.go);
+  const m = e.target.closest("[data-crumbmore]");
+  if (m) {
+    const paths = JSON.parse(m.dataset.crumbmore);
+    const r = m.getBoundingClientRect();
+    return ctxMenu(r.left, r.bottom + 6, null, paths.map(p => ({ label: p.split(/[\\/]/).pop(), icon: "folder", go: () => loadFiles(p) })));
+  }
+  const b = e.target.closest("[data-fpath]");
+  if (b) { e.stopPropagation(); loadFiles(b.dataset.fpath); }
 });
 
-// Single click selects; double click opens. Folders navigate, text files open
-// in the editor, anything else downloads.
-//
-// Ctrl/Cmd adds one, Shift takes a run from the last thing you touched — the
-// same two modifiers every file manager uses, so nothing here needs explaining.
-on("#f-table", "click", e => {
-  const tr = e.target.closest("tr[data-path]");
-  if (!tr) { clearFileSelection(); return; }
-  const path = tr.dataset.path;
-
+/* ---- selecting ---- */
+on("#f-list", "click", e => {
+  if (e.target.closest("[data-fnew]")) return makeFolder();
+  if (e.target.closest("[data-fsearch]")) return runFileSearch(fileFilter);
+  if (e.target.closest("[data-fsearchclose]")) { fileSearch = null; fileFilter = ""; $("#f-q").value = ""; return renderFileList(); }
+  const row = e.target.closest("[data-path]");
+  if (!row) { clearFileSelection(); return; }
+  const p = row.dataset.path;
+  const order = fileRows().map(r => r.dataset.path);
   if (e.shiftKey && fileAnchor) {
-    const rows = fileRows().map(r => r.dataset.path);
-    const a = rows.indexOf(fileAnchor), b = rows.indexOf(path);
+    const a = order.indexOf(fileAnchor), b = order.indexOf(p);
     if (a >= 0 && b >= 0) {
       if (!(e.ctrlKey || e.metaKey)) fileSel.clear();
-      rows.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(p => fileSel.add(p));
+      order.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(x => fileSel.add(x));
     }
   } else if (e.ctrlKey || e.metaKey) {
-    if (fileSel.has(path)) fileSel.delete(path); else fileSel.add(path);
-    fileAnchor = path;
+    fileSel.has(p) ? fileSel.delete(p) : fileSel.add(p);
+    fileAnchor = p;
   } else {
-    fileSel = new Set([path]);
-    fileAnchor = path;
+    fileSel = new Set([p]);
+    fileAnchor = p;
   }
+  row.focus({ preventScroll: true });
   markFileSel();
 });
+on("#f-list", "dblclick", e => {
+  const row = e.target.closest("[data-path]");
+  if (row) openEntry(entryOf(row.dataset.path));
+});
+const entryOf = p => shownEntries().find(e => e.path === p) || curEntries.find(e => e.path === p);
 
-/* ============================ drag and drop ============================ */
-/**
- * Drag rows onto a folder, a breadcrumb or a drive card to move them there.
- *
- * HTML5 drag-and-drop rather than pointer events, because this page already
- * spends pointer drags on the rubber-band selection and the two would fight
- * over the same gesture. It also gives the browser's own drag cursor, which is
- * the affordance people are looking for.
- *
- * Move by default, copy with Ctrl held — the convention everywhere else. The
- * modifier is read at DROP time, not at drag start, so changing your mind
- * halfway across the window still works.
+/** Open: a folder navigates, text opens the editor, media previews, the rest downloads. */
+function openEntry(en) {
+  if (!en) return;
+  if (en.dir) return loadFiles(en.path);
+  const k = fileKind(en).k;
+  if (en.text) return openEditor(en.path, en.name);
+  if (["img", "vid", "snd", "pdf"].includes(k)) return openViewer(en);
+  location.href = fileUrl(en.path);
+}
+
+/* ---- sorting, viewing, filtering, searching ---- */
+on("#f-head", "click", e => {
+  const h = e.target.closest("[data-sort]");
+  if (!h) return;
+  if (FV.sort === h.dataset.sort) FV.dir = -FV.dir; else { FV.sort = h.dataset.sort; FV.dir = h.dataset.sort === "mtime" || h.dataset.sort === "size" ? -1 : 1; }
+  saveFv(); renderFileList();
+});
+on("#f-view", "click", e => {
+  const b = e.target.closest("[data-fv]");
+  if (!b) return;
+  FV.view = b.dataset.fv; saveFv(); renderFileList();
+});
+on("#f-info", "click", () => { FV.pane = !FV.pane; saveFv(); paintPane(); });
+let filterTimer = 0;
+on("#f-q", "input", e => {
+  fileFilter = e.target.value;
+  if (fileSearch && !fileFilter.trim()) fileSearch = null;
+  clearTimeout(filterTimer);
+  filterTimer = setTimeout(renderFileList, 60);
+});
+on("#f-q", "keydown", e => {
+  if (e.key === "Enter" && fileFilter.trim().length >= 2) { e.preventDefault(); runFileSearch(fileFilter); }
+  if (e.key === "Escape") { e.target.value = ""; fileFilter = ""; fileSearch = null; renderFileList(); e.target.blur(); }
+});
+async function runFileSearch(q) {
+  if (!curDir || String(q).trim().length < 2) return;
+  const list = $("#f-list");
+  list.innerHTML = `<div class="fx-empty"><span class="fx-eico spin">${IC("refresh")}</span><b>Searching under ${esc(curDir)}…</b></div>`;
+  try {
+    const out = await api(`/files/search?path=${encodeURIComponent(curDir)}&q=${encodeURIComponent(q.trim())}`);
+    fileSearch = { q: out.q, results: out.results, stopped: out.stopped, visited: out.visited, base: curDir };
+    fileSel.clear();
+  } catch (e) { toast(e.message, "err"); fileSearch = null; }
+  renderFileList();
+}
+
+/* ---- navigating ---- */
+function paintNav() {
+  const set = (id, off) => { const b = $(id); if (b) b.disabled = off; };
+  set("#f-back", !fileHistory.length);
+  set("#f-fwd", !fileForward.length);
+  set("#f-up", !curParent);
+}
+on("#f-back", "click", () => {
+  const prev = fileHistory.pop();
+  if (!prev) return;
+  if (curDir) fileForward.push(curDir);
+  loadFiles(prev, { history: false });
+});
+on("#f-fwd", "click", () => {
+  const next = fileForward.pop();
+  if (!next) return;
+  if (curDir) fileHistory.push(curDir);
+  loadFiles(next, { history: false });
+});
+on("#f-up", "click", () => { if (curParent) loadFiles(curParent); });
+on("#f-reload", "click", () => { loadFiles(curDir, { history: false, keepSel: true }); loadRoots(true); });
+
+/* ---- the details pane ---- */
+let paneSig = "";
+function paintPane() {
+  const pane = $("#f-pane"), btn = $("#f-info");
+  if (!pane) return;
+  btn?.setAttribute("aria-pressed", String(FV.pane));
+  $("#page-files")?.classList.toggle("with-pane", FV.pane);
+  pane.hidden = !FV.pane;
+  if (!FV.pane) return;
+  const chosen = selectedEntries();
+  let html;
+  if (chosen.length === 1) {
+    const en = chosen[0], k = fileKind(en);
+    let preview = `<span class="fk k-${k.k} huge">${IC(k.ic)}</span>`;
+    if (k.k === "img" && canThumb(en)) preview = `<img class="fp-img" alt="" src="${esc(fileUrl(en.path, true))}" data-onfail="hide">`;
+    else if (k.k === "vid") preview = `<video class="fp-vid" controls preload="metadata" src="${esc(fileUrl(en.path, true))}"></video>`;
+    else if (k.k === "snd") preview = `<div class="fp-snd"><span class="fk k-snd huge">${IC(k.ic)}</span><audio controls preload="none" src="${esc(fileUrl(en.path, true))}"></audio></div>`;
+    else if (en.text && (en.size || 0) < 400000) preview = `<pre class="fp-text" id="fp-text">Reading…</pre>`;
+    const rows = [["Kind", k.label], ...(en.dir ? [] : [["Size", `${bytes(en.size)}${en.size >= 1024 ? ` <small>(${Number(en.size).toLocaleString()} bytes)</small>` : ""}`]]),
+      ["Modified", fileExact(en.mtime)], ["Permissions", en.mode ? `<code>${en.mode.toString(8).padStart(3, "0")}</code>` : "—"],
+      ["Where", `<code>${esc(en.path.slice(0, en.path.length - en.name.length))}</code>`]];
+    html = `<div class="fp-prev">${preview}</div>
+      <div class="fp-name">${esc(en.name)}${en.symlink ? `<span class="cbadge">link</span>` : ""}</div>
+      <dl class="fp-dl">${rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("")}</dl>
+      <div class="fp-acts">
+        <button class="btn sm primary" data-fa="open">${IC(en.dir ? "folder" : en.text ? "edit" : "eye")}${en.dir ? "Open" : en.text ? "Edit" : "View"}</button>
+        ${en.dir ? "" : `<button class="btn sm" data-fa="download">${IC("arrow-down")}Download</button>`}
+        <button class="btn sm" data-fa="rename">${IC("edit")}Rename</button>
+        <button class="btn sm" data-fa="copypath">${IC("copy")}Copy path</button>
+        <button class="btn sm danger ghost" data-fa="delete">${IC("trash")}Delete</button>
+      </div>`;
+  } else if (chosen.length > 1) {
+    const files = chosen.filter(e => !e.dir), dirs = chosen.length - files.length;
+    html = `<div class="fp-prev multi">${chosen.slice(0, 3).map(e => `<span class="fk k-${fileKind(e).k} big">${IC(fileKind(e).ic)}</span>`).join("")}</div>
+      <div class="fp-name">${chosen.length} items</div>
+      <dl class="fp-dl"><dt>Files</dt><dd>${files.length}${files.length ? ` · ${bytes(files.reduce((a, e) => a + (e.size || 0), 0))}` : ""}</dd><dt>Folders</dt><dd>${dirs}</dd></dl>
+      <div class="fp-acts"><button class="btn sm" data-fa="copy">${IC("copy")}Copy</button><button class="btn sm" data-fa="cut">Cut</button>
+        <button class="btn sm" data-fa="move">${IC("folder")}Move to…</button>${files.length ? `<button class="btn sm" data-fa="download">${IC("arrow-down")}Download</button>` : ""}
+        <button class="btn sm danger ghost" data-fa="delete">${IC("trash")}Delete</button></div>`;
+  } else {
+    const r = curDir ? rootOf(curDir) : null;
+    const files = curEntries.filter(e => !e.dir);
+    html = `<div class="fp-prev"><span class="fk k-dir huge">${IC("folder")}</span></div>
+      <div class="fp-name">${esc(curDir ? (curDir.split(/[\\/]/).filter(Boolean).pop() || curDir) : "")}</div>
+      <dl class="fp-dl"><dt>Items</dt><dd>${curTotal.toLocaleString()}</dd><dt>Folders</dt><dd>${curEntries.length - files.length}</dd>
+        <dt>Files</dt><dd>${files.length} · ${bytes(files.reduce((a, e) => a + (e.size || 0), 0))}</dd>
+        ${r && r.size ? `<dt>Free on ${esc(r.note || r.name)}</dt><dd>${bytes(r.available)} of ${bytes(r.used + r.available)}</dd>` : ""}</dl>
+      <p class="fx-tip">Select something to see it here. Double-click opens; drag onto a folder or a place to move (hold Ctrl to copy).</p>`;
+  }
+  const sig = html;
+  if (sig === paneSig) return;
+  paneSig = sig;
+  $("#f-pane-body").innerHTML = html;
+  wireIcons(pane);
+  const t = $("#fp-text");
+  if (t && chosen[0]) {
+    const p = chosen[0].path;
+    api("/files/read?path=" + encodeURIComponent(p)).then(f => {
+      if (selectedEntries()[0]?.path !== p) return;
+      const lines = f.content.split("\n");
+      t.textContent = lines.slice(0, 160).join("\n") + (lines.length > 160 ? `\n… ${lines.length - 160} more lines` : "");
+    }).catch(err => { t.textContent = err.message; });
+  }
+}
+
+function paintFileStatus() {
+  const el = $("#f-status");
+  if (!el) return;
+  const shown = shownEntries();
+  const dirs = shown.filter(e => e.dir).length;
+  const size = shown.filter(e => !e.dir).reduce((a, e) => a + (e.size || 0), 0);
+  el.innerHTML = `<span>${shown.length.toLocaleString()} item${shown.length === 1 ? "" : "s"}${dirs ? ` · ${dirs} folder${dirs === 1 ? "" : "s"}` : ""}${size ? ` · ${bytes(size)}` : ""}</span>
+    ${fileSel.size ? `<span>${fileSel.size} selected</span>` : ""}
+    <span class="fx-keys"><kbd>Enter</kbd> open <kbd>F2</kbd> rename <kbd>Del</kbd> delete <kbd>Ctrl</kbd>+<kbd>C</kbd>/<kbd>X</kbd>/<kbd>V</kbd></span>`;
+}
+
+/* ---- the selection bar and the pane's buttons ---- */
+function fileAction(a) {
+  const chosen = selectedEntries(), one = chosen.length === 1 ? chosen[0] : null;
+  if (a === "open" && one) return openEntry(one);
+  if (a === "rename" && one) return renameEntry(one);
+  if (a === "copy") return clipTake(false);
+  if (a === "cut") return clipTake(true);
+  if (a === "move") return moveDialog(chosen.map(e => e.path));
+  if (a === "download") return downloadFileSelection();
+  if (a === "delete") return deleteFileSelection();
+  if (a === "clear") return clearFileSelection();
+  if (a === "copypath" && one) return copyText(one.path);
+}
+on("#f-selbar", "click", e => { const b = e.target.closest("[data-fa]"); if (b) fileAction(b.dataset.fa); });
+on("#f-pane", "click", e => { const b = e.target.closest("[data-fa]"); if (b) fileAction(b.dataset.fa); });
+on("#f-mkdir", "click", () => makeFolder());
+
+/* ---- the keyboard ---- */
+addEventListener("keydown", e => {
+  if (curPage !== "files" || typingInto(document.activeElement) || $("#modal").classList.contains("open") || $(".fx-menu")) return;
+  const rows = fileRows();
+  const order = rows.map(r => r.dataset.path);
+  const cur = order.indexOf(fileAnchor);
+  const grid = FV.view === "grid";
+  const cols = grid && rows[0] ? Math.max(1, Math.round($("#f-list").clientWidth / rows[0].getBoundingClientRect().width)) : 1;
+  const moveTo = i => {
+    i = clamp(i, 0, order.length - 1);
+    const p = order[i];
+    if (!p) return;
+    if (e.shiftKey && fileAnchor) fileSel.add(p); else fileSel = new Set([p]);
+    fileAnchor = p;
+    markFileSel();
+    rows[i].scrollIntoView({ block: "nearest" });
+    rows[i].focus({ preventScroll: true });
+  };
+  const k = e.key;
+  if (k === "ArrowDown") { e.preventDefault(); return moveTo(cur < 0 ? 0 : cur + cols); }
+  if (k === "ArrowUp") { e.preventDefault(); return moveTo(cur < 0 ? 0 : cur - cols); }
+  if (grid && k === "ArrowRight") { e.preventDefault(); return moveTo(cur + 1); }
+  if (grid && k === "ArrowLeft") { e.preventDefault(); return moveTo(cur - 1); }
+  if (k === "Home") { e.preventDefault(); return moveTo(0); }
+  if (k === "End") { e.preventDefault(); return moveTo(order.length - 1); }
+  if (k === "Enter" && fileSel.size === 1) { e.preventDefault(); return openEntry(selectedEntries()[0]); }
+  if (k === "Backspace" || (k === "ArrowUp" && e.altKey)) { e.preventDefault(); return curParent && loadFiles(curParent); }
+  if (k === "ArrowLeft" && e.altKey) { e.preventDefault(); return $("#f-back").click(); }
+  if (k === "ArrowRight" && e.altKey) { e.preventDefault(); return $("#f-fwd").click(); }
+  if (k === "F2" && fileSel.size === 1) { e.preventDefault(); return renameEntry(selectedEntries()[0]); }
+  if (k === "F5") { e.preventDefault(); return $("#f-reload").click(); }
+  if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === "a") { e.preventDefault(); return selectAllFiles(); }
+  if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === "f") { e.preventDefault(); return $("#f-q")?.focus(); }
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && k.toLowerCase() === "n") { e.preventDefault(); return makeFolder(); }
+});
+
+/* ============================ drag and drop ============================
+ * Drag items onto a folder, a crumb in the path bar or a place to move them
+ * there; hold Ctrl (⌘) to copy. The modifier is read at drop time, so you can
+ * change your mind halfway across.
  */
 const fileDrag = { paths: [] };
-
-function dropTargets(on) {
-  $$("#f-table tr[data-path][data-dir='1'], #f-roots .rootcard, #f-crumbs [data-go]")
-    .forEach(el => el.classList.toggle("droptarget", on));
-}
+const DROP_SEL = "#f-list [data-path][data-dir='1'], #f-roots .fx-place, #f-crumbs [data-fpath]";
+function dropTargets(on) { $$(DROP_SEL).forEach(el => el.classList.toggle("droptarget", on)); }
 
 function wireFileDnD() {
   const page = $("#page-files");
   if (!page || page.dataset.dnd) return;
   page.dataset.dnd = "1";
-
   page.addEventListener("dragstart", e => {
-    const tr = e.target.closest("#f-table tr[data-path]");
-    if (!tr) return;
-    // Dragging something outside the selection makes it the selection, so what
-    // moves is always what is highlighted.
-    if (!fileSel.has(tr.dataset.path)) {
-      fileSel = new Set([tr.dataset.path]);
-      fileAnchor = tr.dataset.path;
-      markFileSel();
-    }
+    const row = e.target.closest("#f-list [data-path]");
+    if (!row) return;
+    if (!fileSel.has(row.dataset.path)) { fileSel = new Set([row.dataset.path]); fileAnchor = row.dataset.path; markFileSel(); }
     fileDrag.paths = [...fileSel];
     e.dataTransfer.effectAllowed = "copyMove";
     try { e.dataTransfer.setData("text/plain", fileDrag.paths.join("\n")); } catch {}
+    // A small "3 items" card under the pointer instead of a ghost of the row.
+    const ghost = document.createElement("div");
+    ghost.className = "fx-ghost";
+    ghost.innerHTML = `${IC("file")}<span>${fileDrag.paths.length === 1 ? esc(row.dataset.name) : fileDrag.paths.length + " items"}</span>`;
+    document.body.appendChild(ghost);
+    try { e.dataTransfer.setDragImage(ghost, 14, 14); } catch {}
+    setTimeout(() => ghost.remove(), 0);
     page.classList.add("dragging-rows");
     dropTargets(true);
   });
-
   page.addEventListener("dragend", () => {
     fileDrag.paths = [];
     page.classList.remove("dragging-rows");
     dropTargets(false);
     $$(".dropinto").forEach(el => el.classList.remove("dropinto"));
   });
-
-  const targetOf = el => el?.closest?.(
-    "#f-table tr[data-path][data-dir='1'], #f-roots .rootcard, #f-crumbs [data-go]");
-
+  const targetOf = el => el?.closest?.(DROP_SEL);
   page.addEventListener("dragover", e => {
     if (!fileDrag.paths.length) return;
     const t = targetOf(e.target);
-    // Dropping a folder on itself is the one target that must refuse.
     const self = t?.dataset?.path && fileDrag.paths.includes(t.dataset.path);
     $$(".dropinto").forEach(el => el.classList.remove("dropinto"));
     if (!t || self) return;
@@ -5234,13 +5912,12 @@ function wireFileDnD() {
     e.dataTransfer.dropEffect = (e.ctrlKey || e.metaKey) ? "copy" : "move";
     t.classList.add("dropinto");
   });
-
   page.addEventListener("drop", async e => {
     if (!fileDrag.paths.length) return;
     const t = targetOf(e.target);
     if (!t) return;
     e.preventDefault();
-    const dest = t.dataset.path || t.dataset.root || t.dataset.go;
+    const dest = t.dataset.path || t.dataset.root || t.dataset.fpath;
     const paths = [...fileDrag.paths];
     const move = !(e.ctrlKey || e.metaKey);
     page.classList.remove("dragging-rows");
@@ -5251,86 +5928,86 @@ function wireFileDnD() {
   });
 }
 
-/**
- * The one place a copy or move is actually performed, so drag-and-drop and
- * paste cannot drift apart in how they handle clashes or what they refresh.
- */
+/** The one place a copy or move happens, so drag, paste and Move to… agree. */
 async function transferTo(paths, dest, move) {
-  const run = overwrite =>
-    api("/files/transfer", { method: "POST", body: { from: paths, to: dest, move, overwrite } });
-  try {
-    await run(false);
-  } catch (err) {
+  const run = overwrite => api("/files/transfer", { method: "POST", body: { from: paths, to: dest, move, overwrite } });
+  try { await run(false); }
+  catch (err) {
     if (err.status !== 409) { toast(err.message, "err"); return false; }
     const names = (err.clashes || []).slice(0, 6).join(", ");
     const more = (err.clashes || []).length > 6 ? `\n…and ${err.clashes.length - 6} more` : "";
-    if (!confirm(`${err.message}:\n\n${names}${more}\n\nOverwrite them?`)) return false;
-    try { await run(true); }
-    catch (ex) { toast(ex.message, "err"); return false; }
+    if (!confirm(`${err.message}:\n\n${names}${more}\n\nReplace them?`)) return false;
+    try { await run(true); } catch (ex) { toast(ex.message, "err"); return false; }
   }
   const n = paths.length;
-  toast(`${move ? "Moved" : "Copied"} ${n} ITEM${n === 1 ? "" : "S"}`, "ok");
+  toast(`${move ? "Moved" : "Copied"} ${n} item${n === 1 ? "" : "s"}`, "ok");
   loadFiles(curDir, { history: false });
   loadRoots(true);
   return true;
 }
 
+/** Move to… — pick a folder by browsing, then copy or move there. */
+async function moveDialog(paths) {
+  if (!paths.length) return toast("Select something first", "err");
+  let at = curDir;
+  const body = document.createElement("div");
+  body.className = "fx-pick";
+  openModal({ title: `Move or copy ${paths.length} item${paths.length === 1 ? "" : "s"}`, icon: ICON("files"), body, cls: "mw-pick",
+    foot: `<span class="fx-pickat" id="fx-pickat"></span><span class="spacer"></span>
+      <button class="btn sm" id="fx-pcopy" type="button">Copy here</button><button class="btn primary sm" id="fx-pmove" type="button">Move here</button>` });
+  const paint = async () => {
+    body.innerHTML = `<div class="fx-pickroots">${ROOTS.map(r => `<button type="button" class="${at && (at === r.path || at.startsWith(r.path)) ? "on" : ""}" data-pgo="${esc(r.path)}">${IC("drive")}${esc(r.note || r.name)}</button>`).join("")}</div>
+      <div class="fx-picklist"><div class="fx-loading">${"<i></i>".repeat(4)}</div></div>`;
+    $("#fx-pickat").innerHTML = `${IC("folder")}<code>${esc(at)}</code>`;
+    try {
+      const out = await api("/files?path=" + encodeURIComponent(at));
+      at = out.path;
+      const dirs = out.entries.filter(e => e.dir && !paths.includes(e.path));
+      $(".fx-picklist", body).innerHTML = (out.parent ? `<button type="button" class="fx-pi up" data-pgo="${esc(out.parent)}">${IC("arrow-up")}<span>Up one folder</span></button>` : "") +
+        (dirs.map(d => `<button type="button" class="fx-pi" data-pgo="${esc(d.path)}">${IC("folder")}<span>${esc(d.name)}</span>${IC("chevron-right")}</button>`).join("") ||
+          `<p class="fx-quiet">No folders inside — this one is the destination.</p>`);
+      wireIcons(body);
+    } catch (e) { $(".fx-picklist", body).innerHTML = `<p class="fx-quiet">${esc(e.message)}</p>`; }
+  };
+  body.addEventListener("click", e => { const b = e.target.closest("[data-pgo]"); if (b) { at = b.dataset.pgo; paint(); } });
+  on("#fx-pcopy", "click", async () => { closeModal(); if (await transferTo(paths, at, false)) fileSel.clear(); });
+  on("#fx-pmove", "click", async () => { closeModal(); if (await transferTo(paths, at, true)) fileSel.clear(); });
+  paint();
+}
+
 /* ---- rubber-band selection over empty space ---- */
-/**
- * Drag a box the way Explorer and Finder do. The band is positioned inside
- * #page-files and its start point is stored in that element's coordinate space,
- * so scrolling mid-drag does not drag the anchor along with the viewport.
- */
 (function marquee() {
   const host = $("#page-files");
   if (!host) return;
   let band = null, sx = 0, sy = 0, active = false, additive = false;
-
-  const toHost = (cx, cy) => {
-    const r = host.getBoundingClientRect();
-    return { x: cx - r.left, y: cy - r.top };
-  };
-
+  const toHost = (cx, cy) => { const r = host.getBoundingClientRect(); return { x: cx - r.left, y: cy - r.top }; };
   host.addEventListener("pointerdown", e => {
     if (e.button !== 0) return;
-    // Anything interactive, and the chrome above the table, keeps its own behaviour.
-    if (e.target.closest("tr[data-path], button, a, input, select, textarea")) return;
-    if (e.target.closest(".rootbar, .crumbs, .selbar")) return;
-
+    if (!e.target.closest("#f-wrap") || e.target.closest("[data-path], button, a, input, select, textarea, video, audio")) return;
     const p = toHost(e.clientX, e.clientY);
     sx = p.x; sy = p.y; active = true;
     additive = e.ctrlKey || e.metaKey || e.shiftKey;
     if (!additive) clearFileSelection();
     host.setPointerCapture(e.pointerId);
   });
-
   host.addEventListener("pointermove", e => {
     if (!active) return;
     const p = toHost(e.clientX, e.clientY);
     const w = Math.abs(p.x - sx), h = Math.abs(p.y - sy);
-    if (!band && w < 4 && h < 4) return;      // ignore a jittery click
-
-    if (!band) {
-      band = document.createElement("div");
-      band.id = "f-band";
-      host.appendChild(band);
-    }
+    if (!band && w < 4 && h < 4) return;
+    if (!band) { band = document.createElement("div"); band.id = "f-band"; host.appendChild(band); }
     const left = Math.min(sx, p.x), top = Math.min(sy, p.y);
     band.style.cssText = `left:${left}px;top:${top}px;width:${w}px;height:${h}px`;
-
     const hr = host.getBoundingClientRect();
     const box = { l: left, t: top, r: left + w, b: top + h };
     const base = additive ? new Set(fileSel) : new Set();
-    fileRows().forEach(tr => {
-      const r = tr.getBoundingClientRect();
-      const rt = r.top - hr.top, rb = r.bottom - hr.top;
-      const rl = r.left - hr.left, rr = r.right - hr.left;
-      if (rl < box.r && rr > box.l && rt < box.b && rb > box.t) base.add(tr.dataset.path);
+    fileRows().forEach(el => {
+      const r = el.getBoundingClientRect();
+      if (r.left - hr.left < box.r && r.right - hr.left > box.l && r.top - hr.top < box.b && r.bottom - hr.top > box.t) base.add(el.dataset.path);
     });
     fileSel = base;
     markFileSel();
   });
-
   const end = e => {
     if (!active) return;
     active = false;
@@ -5342,222 +6019,249 @@ async function transferTo(paths, dest, move) {
   host.addEventListener("pointercancel", end);
 })();
 
-on("#f-table", "dblclick", e => {
-  const tr = e.target.closest("tr[data-path]");
-  if (!tr) return;
-  if (tr.dataset.dir === "1") return loadFiles(tr.dataset.path);
-  if (tr.dataset.text === "1") return openEditor(tr.dataset.path, tr.dataset.name);
-  location.href = "/api/files/download?path=" + encodeURIComponent(tr.dataset.path);
-});
-
-/* ---- right-click, on a row or on empty space ---- */
+/* ---- right-click, on an item or on empty space ---- */
 on("#page-files", "contextmenu", e => {
+  if (e.target.closest("#f-roots, input, textarea, video, audio")) return;
   e.preventDefault();
-  const tr = e.target.closest("tr[data-path]");
-  if (!tr) return openFileMenu(e.clientX, e.clientY, null);
-
-  // Right-clicking inside a selection keeps it; right-clicking outside one
-  // replaces it, so the menu always acts on what is highlighted.
-  if (!fileSel.has(tr.dataset.path)) {
-    fileSel = new Set([tr.dataset.path]);
-    fileAnchor = tr.dataset.path;
-    markFileSel();
-  }
-  openFileMenu(e.clientX, e.clientY, {
-    path: tr.dataset.path, name: tr.dataset.name,
-    dir: tr.dataset.dir === "1", text: tr.dataset.text === "1"
-  });
+  const row = e.target.closest("[data-path]");
+  if (row && !fileSel.has(row.dataset.path)) { fileSel = new Set([row.dataset.path]); fileAnchor = row.dataset.path; markFileSel(); }
+  openFileMenu(e.clientX, e.clientY, row ? entryOf(row.dataset.path) : null);
 });
 
 function openFileMenu(x, y, entry) {
-  const body = $("#ctx-body");
   const many = fileSel.size > 1;
-
-  $("#ctx-icon").src = ICON("files");
-  $("#ctx-title").textContent = many
-    ? `${fileSel.size} ITEMS`
-    : entry ? entry.name.slice(0, 26) : "This folder";
-  body.innerHTML = "";
-  ctxItems = [];
-
-  const actions = [];
+  const items = [];
+  const clip = fileClip.paths.length;
   if (entry && many) {
-    // Only what makes sense for a set. Rename and edit are single-target by
-    // nature; offering them here would just mean "does it to one at random".
-    actions.push({ label: `COPY ${fileSel.size}`, go: () => clipTake(false) });
-    actions.push({ label: `CUT ${fileSel.size}`, go: () => clipTake(true) });
-    actions.push({ label: `DELETE ${fileSel.size} ITEMS`, go: deleteFileSelection, danger: true });
-    actions.push({ label: "Download files", go: downloadFileSelection });
-    actions.push({ label: "Clear selection", go: clearFileSelection });
+    items.push({ label: `Copy ${fileSel.size} items`, icon: "copy", kbd: "Ctrl+C", go: () => clipTake(false) });
+    items.push({ label: `Cut ${fileSel.size} items`, icon: "corner", kbd: "Ctrl+X", go: () => clipTake(true) });
+    items.push({ label: "Move to…", icon: "folder", go: () => moveDialog([...fileSel]) });
+    items.push({ label: "Download the files", icon: "arrow-down", go: downloadFileSelection });
+    items.push("-");
+    items.push({ label: `Delete ${fileSel.size} items`, icon: "trash", kbd: "Del", danger: true, go: deleteFileSelection });
   } else if (entry) {
-    if (entry.dir) actions.push({ label: "Open", go: () => loadFiles(entry.path) });
-    if (entry.text) actions.push({ label: "Edit", go: () => openEditor(entry.path, entry.name) });
-    if (!entry.dir) actions.push({ label: "Download", go: () => { location.href = "/api/files/download?path=" + encodeURIComponent(entry.path); } });
-    actions.push({ label: "Copy", go: () => clipTake(false) });
-    actions.push({ label: "Cut", go: () => clipTake(true) });
-    // Pasting onto a folder puts things inside it, which is what every file
-    // manager does and what the pointer is implicitly aiming at.
-    if (entry.dir && fileClip.paths.length) {
-      actions.push({ label: `PASTE ${fileClip.paths.length} INTO`, go: () => pasteInto(entry.path) });
-    }
-    actions.push({ label: "Rename", go: () => renameEntry(entry) });
-    actions.push({ label: "DELETE", go: () => deleteEntry(entry), danger: true });
+    const k = fileKind(entry).k;
+    items.push({ label: entry.dir ? "Open" : entry.text ? "Edit" : ["img", "vid", "snd", "pdf"].includes(k) ? "View" : "Download", icon: entry.dir ? "folder" : entry.text ? "edit" : "eye", kbd: "Enter", go: () => openEntry(entry) });
+    if (!entry.dir && (entry.text || ["img", "vid", "snd", "pdf"].includes(k))) items.push({ label: "Download", icon: "arrow-down", go: () => { location.href = fileUrl(entry.path); } });
+    items.push("-");
+    items.push({ label: "Copy", icon: "copy", kbd: "Ctrl+C", go: () => clipTake(false) });
+    items.push({ label: "Cut", icon: "corner", kbd: "Ctrl+X", go: () => clipTake(true) });
+    if (entry.dir && clip) items.push({ label: `Paste ${clip} into it`, icon: "copy", go: () => pasteInto(entry.path) });
+    items.push({ label: "Move to…", icon: "folder", go: () => moveDialog([entry.path]) });
+    items.push({ label: "Rename", icon: "edit", kbd: "F2", go: () => renameEntry(entry) });
+    items.push({ label: "Copy the path", icon: "link", go: () => copyText(entry.path) });
+    items.push("-");
+    items.push({ label: "Delete", icon: "trash", kbd: "Del", danger: true, go: () => deleteEntry(entry) });
+  } else {
+    if (clip) items.push({ label: `Paste ${clip} here`, icon: "copy", kbd: "Ctrl+V", go: () => pasteInto(curDir) });
+    items.push({ label: "New folder", icon: "plus", kbd: "Ctrl+Shift+N", go: makeFolder });
+    items.push({ label: "Upload files", icon: "upload", go: () => $("#f-file-input")?.click() });
+    items.push({ label: "Select everything", icon: "check", kbd: "Ctrl+A", go: selectAllFiles });
+    items.push({ label: "Refresh", icon: "refresh", kbd: "F5", go: () => loadFiles(curDir, { history: false }) });
+    if (curParent) items.push({ label: "Up one folder", icon: "arrow-up", kbd: "Backspace", go: () => loadFiles(curParent) });
   }
-  if (fileClip.paths.length) {
-    actions.push({ label: `PASTE ${fileClip.paths.length} HERE`, go: () => pasteInto(curDir) });
-  }
-  actions.push({ label: "Select all", go: selectAllFiles });
-  actions.push({ label: "New folder", go: makeFolder });
-  actions.push({ label: "Refresh", go: () => loadFiles(curDir, { history: false }) });
-  if (curParent) actions.push({ label: "Go up", go: () => loadFiles(curParent) });
-  if (fileHistory.length) actions.push({ label: "Back", go: () => $("#f-back").click() });
-
-  const g = document.createElement("div");
-  g.className = "ctxgroup ctxstack";
-  actions.forEach(a => {
-    const b = document.createElement("button");
-    b.className = "ctxopt wide" + (a.danger ? " danger" : "");
-    b.textContent = a.label;
-    b.addEventListener("click", () => { closeCtx(); a.go(); });
-    g.appendChild(b);
-  });
-  body.appendChild(g);
-
-  $(".ctxfoot").hidden = true;
-  placeCtx(x, y);
+  ctxMenu(x, y, many ? `${fileSel.size} items` : entry ? entry.name : null, items);
 }
 
-function selectAllFiles() {
-  fileSel = new Set(fileRows().map(r => r.dataset.path));
-  markFileSel();
-}
+function selectAllFiles() { fileSel = new Set(fileRows().map(r => r.dataset.path)); markFileSel(); }
 
-/**
- * Deletes everything selected, one request per item.
- *
- * Sequential rather than parallel on purpose: a partial failure halfway through
- * should stop and say so, not fire forty concurrent deletes and leave you
- * guessing which ones landed.
- */
+/** One request per item, in order: a failure halfway stops and says which. */
 async function deleteFileSelection() {
   const chosen = selectedEntries();
   if (!chosen.length) return;
   const dirs = chosen.filter(e => e.dir).length;
-  const msg = `Delete ${chosen.length} item${chosen.length === 1 ? "" : "s"}?` +
-    (dirs ? `\n\n${dirs} of them ${dirs === 1 ? "is a folder and takes its" : "are folders and take their"} contents too.` : "") +
+  const msg = (chosen.length === 1 ? `Delete "${chosen[0].name}"?` : `Delete ${chosen.length} items?`) +
+    (dirs ? `\n\n${dirs === 1 && chosen.length === 1 ? "It is a folder, and everything inside it goes too." : `${dirs} of them ${dirs === 1 ? "is a folder" : "are folders"}, and everything inside goes too.`}` : "") +
     "\n\nThis cannot be undone.";
   if (!confirm(msg)) return;
-
-  let done = 0, failed = [];
+  let done = 0; const failed = [];
   for (const en of chosen) {
     try { await api("/files/delete", { method: "POST", body: { path: en.path } }); done++; }
     catch (ex) { failed.push(`${en.name}: ${ex.message}`); }
   }
-  if (failed.length) toast(`DELETED ${done}, ${failed.length} FAILED`, "err");
-  else toast(`DELETED ${done} ITEM${done === 1 ? "" : "S"}`, "ok");
-  if (failed.length) console.warn("[nexus] delete failures:", failed);
-  loadFiles(curDir);
+  if (failed.length) toast(`Deleted ${done}, ${failed.length} failed — ${failed[0]}`, "err");
+  else toast(`Deleted ${done} item${done === 1 ? "" : "s"}`, "ok");
+  loadFiles(curDir, { history: false });
+  loadRoots(true);
 }
+const deleteEntry = en => { fileSel = new Set([en.path]); return deleteFileSelection(); };
 
 function downloadFileSelection() {
   const files = selectedEntries().filter(e => !e.dir);
-  if (!files.length) return toast("Nothing to download — folders only", "err");
-  // One navigation per file, spaced out: the browser blocks a burst of
-  // simultaneous downloads, and there is no server-side zip to hand back.
+  if (!files.length) return toast("Folders cannot be downloaded — select files", "err");
   files.forEach((en, i) => setTimeout(() => {
     const a = document.createElement("a");
-    a.href = "/api/files/download?path=" + encodeURIComponent(en.path);
-    a.download = en.name;
+    a.href = fileUrl(en.path); a.download = en.name;
     document.body.appendChild(a); a.click(); a.remove();
   }, i * 350));
-  toast(`DOWNLOADING ${files.length} FILE${files.length === 1 ? "" : "S"}`, "ok");
+  toast(`Downloading ${files.length} file${files.length === 1 ? "" : "s"}`, "ok");
 }
 
+/** A new folder appears as a row with its name ready to type. */
 async function makeFolder() {
-  const name = prompt("New folder name:");
-  if (!name) return;
-  try {
-    await api("/files/mkdir", { method: "POST", body: { path: curDir + "/" + name } });
-    toast("Folder created", "ok");
-    loadFiles(curDir);
-  } catch (ex) { toast(ex.message, "err"); }
+  if (!curDir) return;
+  if (fileSearch) { fileSearch = null; renderFileList(); }
+  const list = $("#f-list");
+  $(".fx-newrow", list)?.remove();
+  $(".fx-empty", list)?.remove();
+  const row = document.createElement("div");
+  row.className = (FV.view === "grid" ? "fg" : "fr") + " fx-newrow sel";
+  row.innerHTML = FV.view === "grid"
+    ? `<span class="fg-thumb"><span class="fk k-dir big">${IC("folder")}</span></span><input class="fx-rename" value="New folder" spellcheck="false" aria-label="Folder name">`
+    : `<span class="fr-name"><span class="fk k-dir">${IC("folder")}</span><input class="fx-rename" value="New folder" spellcheck="false" aria-label="Folder name"></span><span></span><span></span><span class="fr-kind">Folder</span>`;
+  list.prepend(row);
+  const input = $("input", row);
+  input.focus(); input.select();
+  let done = false;
+  const commit = async ok => {
+    if (done) return; done = true;
+    const name = input.value.trim();
+    row.remove();
+    if (!ok || !name) return;
+    try {
+      await api("/files/mkdir", { method: "POST", body: { path: joinPath(curDir, name) } });
+      await loadFiles(curDir, { history: false });
+      const p = curEntries.find(e => e.name === name)?.path;
+      if (p) { fileSel = new Set([p]); fileAnchor = p; markFileSel(); }
+      toast("Folder created", "ok");
+    } catch (ex) { toast(ex.message, "err"); }
+  };
+  input.addEventListener("keydown", e => { if (e.key === "Enter") commit(true); if (e.key === "Escape") commit(false); e.stopPropagation(); });
+  input.addEventListener("blur", () => commit(true));
 }
 
-async function renameEntry(entry) {
-  const name = prompt("Rename to:", entry.name);
-  if (!name || name === entry.name) return;
-  const dir = entry.path.slice(0, entry.path.length - entry.name.length);
-  try {
-    await api("/files/rename", { method: "POST", body: { from: entry.path, to: dir + name } });
-    toast("Renamed", "ok");
-    loadFiles(curDir);
-  } catch (ex) { toast(ex.message, "err"); }
+/** Rename in place: the name becomes a text box, with the extension left out of the selection. */
+function renameEntry(entry) {
+  const row = fileRows().find(r => r.dataset.path === entry.path);
+  const label = row && $(FV.view === "grid" ? ".fg-name" : ".fr-t", row);
+  if (!label) return;
+  const input = document.createElement("input");
+  input.className = "fx-rename";
+  input.value = entry.name;
+  input.spellcheck = false;
+  input.setAttribute("aria-label", "New name");
+  label.replaceWith(input);
+  input.focus();
+  const dot = entry.dir ? -1 : entry.name.lastIndexOf(".");
+  input.setSelectionRange(0, dot > 0 ? dot : entry.name.length);
+  row.draggable = false;
+  let done = false;
+  const commit = async ok => {
+    if (done) return; done = true;
+    const name = input.value.trim();
+    if (!ok || !name || name === entry.name) { renderFileList(); return; }
+    if (/[\\/]/.test(name)) { toast("A name cannot contain / or \\", "err"); renderFileList(); return; }
+    const dir = entry.path.slice(0, entry.path.length - entry.name.length);
+    try {
+      await api("/files/rename", { method: "POST", body: { from: entry.path, to: dir + name } });
+      await loadFiles(curDir, { history: false });
+      const p = dir + name;
+      fileSel = new Set([p]); fileAnchor = p; markFileSel();
+      toast("Renamed", "ok");
+    } catch (ex) { toast(ex.message, "err"); renderFileList(); }
+  };
+  input.addEventListener("keydown", e => { if (e.key === "Enter") commit(true); if (e.key === "Escape") commit(false); e.stopPropagation(); });
+  input.addEventListener("blur", () => commit(true));
+  input.addEventListener("click", e => e.stopPropagation());
+  input.addEventListener("dblclick", e => e.stopPropagation());
 }
 
-async function deleteEntry(entry) {
-  // A folder takes its contents with it — say so rather than asking a generic
-  // "are you sure" that hides the real consequence.
-  const msg = entry.dir
-    ? `Delete the folder "${entry.name}" and everything inside it?\n\nThis cannot be undone.`
-    : `Delete "${entry.name}"?\n\nThis cannot be undone.`;
-  if (!confirm(msg)) return;
-  try {
-    await api("/files/delete", { method: "POST", body: { path: entry.path } });
-    toast("Deleted", "ok");
-    loadFiles(curDir);
-  } catch (ex) { toast(ex.message, "err"); }
+/* ---- the viewer: pictures, video, sound, PDF ---- */
+function openViewer(en) {
+  const media = shownEntries().filter(e => !e.dir && ["img", "vid", "snd", "pdf"].includes(fileKind(e).k));
+  let i = Math.max(0, media.findIndex(e => e.path === en.path));
+  let el = $("#fx-viewer");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "fx-viewer";
+    document.body.appendChild(el);
+  }
+  const paint = () => {
+    const cur = media[i], k = fileKind(cur).k, url = esc(fileUrl(cur.path, true));
+    const stage = k === "img" ? `<img src="${url}" alt="${esc(cur.name)}">`
+      : k === "vid" ? `<video src="${url}" controls autoplay></video>`
+      : k === "snd" ? `<div class="fv-snd"><span class="fk k-snd huge">${IC("activity")}</span><audio src="${url}" controls autoplay></audio></div>`
+      : `<iframe src="${url}" title="${esc(cur.name)}"></iframe>`;
+    el.innerHTML = `<div class="fv-top"><span class="fv-name">${esc(cur.name)}</span><span class="fv-n">${i + 1} / ${media.length}</span>
+        <a class="fv-btn" href="${esc(fileUrl(cur.path))}" aria-label="Download">${IC("arrow-down")}</a>
+        <button class="fv-btn" type="button" data-fv="close" aria-label="Close">${IC("x")}</button></div>
+      <div class="fv-stage">${stage}</div>
+      ${media.length > 1 ? `<button class="fv-nav prev" type="button" data-fv="prev" aria-label="Previous">${IC("chevron-left")}</button>
+        <button class="fv-nav next" type="button" data-fv="next" aria-label="Next">${IC("chevron-right")}</button>` : ""}`;
+    fileSel = new Set([cur.path]); fileAnchor = cur.path; markFileSel();
+  };
+  const close = () => { el.remove(); removeEventListener("keydown", key, true); };
+  const key = e => {
+    if (e.key === "Escape") { e.stopPropagation(); close(); }
+    if (e.key === "ArrowRight" && media.length > 1) { e.stopPropagation(); i = (i + 1) % media.length; paint(); }
+    if (e.key === "ArrowLeft" && media.length > 1) { e.stopPropagation(); i = (i - 1 + media.length) % media.length; paint(); }
+  };
+  el.onclick = e => {
+    const b = e.target.closest("[data-fv]");
+    if (b?.dataset.fv === "close" || e.target === el || e.target.classList.contains("fv-stage")) return close();
+    if (b?.dataset.fv === "next") { i = (i + 1) % media.length; paint(); }
+    if (b?.dataset.fv === "prev") { i = (i - 1 + media.length) % media.length; paint(); }
+  };
+  addEventListener("keydown", key, true);
+  paint();
 }
 
 /* ---- in-browser text editor ---- */
 let editorState = null;
 
 async function openEditor(path, name) {
-  openModal({ title: name, icon: ICON("files"), body: "<p>Loading…</p>" });
+  openModal({ title: name, icon: ICON("files"), body: "<p>Loading…</p>", cls: "mw-editor" });
   let file;
-  try {
-    file = await api("/files/read?path=" + encodeURIComponent(path));
-  } catch (e) {
+  try { file = await api("/files/read?path=" + encodeURIComponent(path)); }
+  catch (e) {
     const b = document.createElement("div");
     b.innerHTML = `<div class="warnbox err">${esc(e.message)}</div>`;
     openModal({ title: name, icon: ICON("files"), body: b });
     return;
   }
-
   editorState = { path: file.path, mtime: file.mtime, original: file.content };
-
   const body = document.createElement("div");
+  body.className = "fx-ed";
   body.innerHTML = `
-    <div class="edmeta">
-      <span class="mono">${esc(file.path)}</span>
-      <span class="spacer"></span>
-      <span class="mono" id="ed-stat">${bytes(file.size)}</span>
-    </div>
+    <div class="fx-edbar"><code>${esc(file.path)}</code><span class="spacer"></span>
+      <label class="fx-edwrap"><input type="checkbox" id="ed-wrap"> Wrap lines</label>
+      <span id="ed-pos">Ln 1, Col 1</span><span id="ed-stat">${bytes(file.size)}</span></div>
     <textarea id="ed-area" spellcheck="false" wrap="off"></textarea>`;
-  body.querySelector("#ed-area").value = file.content;
-
+  $("#ed-area", body).value = file.content;
   const foot = document.createElement("div");
-  foot.innerHTML = `<span class="hint" id="ed-hint">Ctrl+S saves</span>
-                    <span class="spacer"></span>
-                    <button class="btn" id="ed-cancel">Cancel</button>
-                    <button class="btn primary" id="ed-save">Save</button>`;
-
-  openModal({ title: name, icon: ICON("files"), body, foot });
-
+  foot.className = "fx-edfoot";
+  foot.innerHTML = `<span class="hint" id="ed-hint">Ctrl+S saves</span><span class="spacer"></span>
+    <button class="btn sm" id="ed-cancel" type="button">Close</button><button class="btn primary sm" id="ed-save" type="button">Save</button>`;
+  openModal({ title: name, icon: ICON("files"), body, foot, cls: "mw-editor" });
   const area = $("#ed-area");
+  const pos = () => {
+    const before = area.value.slice(0, area.selectionStart).split("\n");
+    $("#ed-pos").textContent = `Ln ${before.length}, Col ${before[before.length - 1].length + 1}`;
+  };
   area.addEventListener("input", () => {
     const dirty = area.value !== editorState.original;
-    $("#ed-hint").textContent = dirty ? "unsaved changes" : "Ctrl+S saves";
+    $("#ed-hint").textContent = dirty ? "Unsaved changes" : "Ctrl+S saves";
     $("#ed-hint").style.color = dirty ? "var(--warn)" : "";
   });
+  ["keyup", "click"].forEach(t => area.addEventListener(t, pos));
   area.addEventListener("keydown", e => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveEditor(); }
+    // Tab indents rather than leaving the box.
+    if (e.key === "Tab" && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      const s = area.selectionStart, en = area.selectionEnd;
+      area.setRangeText("  ", s, en, "end");
+      area.dispatchEvent(new Event("input"));
+    }
   });
+  $("#ed-wrap").addEventListener("change", e => area.setAttribute("wrap", e.target.checked ? "soft" : "off"));
   on("#ed-cancel", "click", () => {
-    if (area.value !== editorState.original && !confirm("Discard unsaved changes?")) return;
+    if (area.value !== editorState.original && !confirm("Close without saving your changes?")) return;
     closeModal();
   });
   on("#ed-save", "click", saveEditor);
   area.focus();
+  area.setSelectionRange(0, 0);
 }
 
 async function saveEditor() {
@@ -5565,19 +6269,14 @@ async function saveEditor() {
   const area = $("#ed-area"), btn = $("#ed-save");
   btn.disabled = true;
   try {
-    const out = await api("/files/write", {
-      method: "POST",
-      body: { path: editorState.path, content: area.value, mtime: editorState.mtime }
-    });
-    // Adopt the new mtime, or our own save would look like someone else's edit
-    // the second time round and trip the conflict check.
+    const out = await api("/files/write", { method: "POST", body: { path: editorState.path, content: area.value, mtime: editorState.mtime } });
     editorState.mtime = out.mtime;
     editorState.original = area.value;
     $("#ed-stat").textContent = bytes(out.size);
-    $("#ed-hint").textContent = "saved";
+    $("#ed-hint").textContent = "Saved";
     $("#ed-hint").style.color = "var(--ok)";
     toast("Saved", "ok");
-    loadFiles(curDir);
+    loadFiles(curDir, { history: false, keepSel: true });
   } catch (e) {
     toast(e.message, "err");
     $("#ed-hint").textContent = e.message;
@@ -5585,91 +6284,50 @@ async function saveEditor() {
   } finally { btn.disabled = false; }
 }
 
-on("#f-up", "click", () => {
-  if (curParent) loadFiles(curParent); else toast("Already at a root", "err");
-});
-on("#f-mkdir", "click", makeFolder);
-
 /* ============================ clipboard ============================ */
-
 function clipTake(move) {
   const chosen = selectedEntries();
-  if (!chosen.length) return toast("Nothing selected", "err");
+  if (!chosen.length) return toast("Select something first", "err");
   fileClip.paths = chosen.map(e => e.path);
   fileClip.move = move;
   fileClip.from = curDir;
   paintClip();
-  toast(`${chosen.length} ITEM${chosen.length === 1 ? "" : "S"} ${move ? "Cut" : "Copied"}`, "ok");
+  toast(`${move ? "Cut" : "Copied"} ${chosen.length} item${chosen.length === 1 ? "" : "s"} — open a folder and paste`, "ok");
 }
+function clipClear() { fileClip.paths = []; fileClip.from = null; paintClip(); }
 
-function clipClear() {
-  fileClip.paths = [];
-  fileClip.from = null;
-  paintClip();
-}
-
-/** The toolbar button and the status strip both reflect what is held. */
 function paintClip() {
   const n = fileClip.paths.length;
   const btn = $("#f-paste");
   if (btn) {
     btn.hidden = !n;
-    btn.textContent = `PASTE ${n}`;
-    btn.setAttribute("data-tip", n
-      ? `${fileClip.move ? "Move" : "Copy"} ${n} item${n === 1 ? "" : "s"} from ${fileClip.from} into this folder.`
-      : "");
+    btn.innerHTML = `${IC("copy")}<span>Paste ${n}</span>`;
+    btn.setAttribute("data-tip", n ? `${fileClip.move ? "Move" : "Copy"} ${n} item${n === 1 ? "" : "s"} into this folder.` : "");
   }
   const bar = $("#f-clipbar");
   if (bar) {
     bar.hidden = !n;
     const t = $("#f-clipinfo");
     if (t && n) {
-      t.textContent = `${n} ITEM${n === 1 ? "" : "S"} ${fileClip.move ? "Cut" : "Copied"} FROM ${fileClip.from}`;
+      const names = fileClip.paths.slice(0, 3).map(p => p.split(/[\\/]/).pop());
+      t.innerHTML = `<b>${n} item${n === 1 ? "" : "s"} ${fileClip.move ? "to move" : "to copy"}</b><span>${esc(names.join(", "))}${n > 3 ? ` and ${n - 3} more` : ""}</span>`;
     }
   }
-  // Cut items are dimmed in place until the paste lands, so it is obvious what
-  // is about to move rather than silently vanishing later.
-  fileRows().forEach(tr =>
-    tr.classList.toggle("cut", fileClip.move && fileClip.paths.includes(tr.dataset.path)));
+  fileRows().forEach(el => el.classList.toggle("cut", fileClip.move && fileClip.paths.includes(el.dataset.path)));
 }
 
-/**
- * Paste into a folder.
- *
- * Clashes are reported by the server before anything is written, so the
- * overwrite question is asked once for the batch rather than once per file —
- * and asked before any bytes have moved, not halfway through.
- */
 async function pasteInto(destDir) {
   if (!fileClip.paths.length) return;
   const dest = destDir || curDir;
   if (!dest) return toast("Open a folder first", "err");
-
   const ok = await transferTo(fileClip.paths, dest, fileClip.move);
   if (!ok) return;
-  // A copy stays on the clipboard so it can be pasted into several places; a
-  // cut is spent, because the source no longer exists.
   if (fileClip.move) clipClear(); else paintClip();
 }
 
-on("#f-copy", "click", () => clipTake(false));
-on("#f-cut", "click", () => clipTake(true));
 on("#f-paste", "click", () => pasteInto(curDir));
+on("#f-clippaste", "click", () => pasteInto(curDir));
 on("#f-clipcancel", "click", () => { clipClear(); toast("Clipboard cleared"); });
-
-/* ---- going back ---- */
-on("#f-back", "click", () => {
-  const prev = fileHistory.pop();
-  if (!prev) return toast("Nothing to go back to", "err");
-  loadFiles(prev, { history: false });
-});
-
-function paintNav() {
-  const back = $("#f-back");
-  if (back) back.disabled = !fileHistory.length;
-  const up = $("#f-up");
-  if (up) up.disabled = !curParent;
-}
 
 /* ============================ uploads ============================ */
 /**
@@ -6003,6 +6661,7 @@ function ensureTerm() {
   try { term.loadAddon(new WebLinksAddon.WebLinksAddon()); } catch {}
 
   term.open($("#xterm-host"));
+  loadWebgl();
   // Fit whenever the box changes size, not only when the window does: the
   // sidebar folding, the help line under it wrapping, a phone's toolbar
   // showing — each moves the box without a window resize, and a stale fit is
@@ -6096,6 +6755,34 @@ function ensureTerm() {
 function fitTerm() {
   if (!fit) return;
   try { fit.fit(); } catch {}
+}
+
+/**
+ * The GPU renderer. xterm 6 draws with DOM elements unless told otherwise, and
+ * a full-screen program that redraws constantly (Claude Code) makes thousands
+ * of element updates a second — the stutter. WebGL draws the same in one pass.
+ * Fetched only when a terminal is first opened, so other pages never pay for
+ * it; without WebGL2, or if the GPU context is lost, xterm keeps drawing with
+ * the DOM as before.
+ */
+let webglTried = false;
+function loadWebgl() {
+  if (webglTried || !term) return;
+  webglTried = true;
+  try { if (!document.createElement("canvas").getContext("webgl2")) return; } catch { return; }
+  const s = document.createElement("script");
+  // The same version tag as app.js, so it is cached exactly as long as app.js.
+  const ver = (document.querySelector('script[src*="app.js?v="]')?.getAttribute("src") || "").split("v=")[1] || "";
+  s.src = "/vendor/xterm-addon-webgl.js" + (ver ? "?v=" + ver : "");
+  s.onload = () => {
+    try {
+      const gl = new WebglAddon.WebglAddon();
+      gl.onContextLoss(() => { try { gl.dispose(); } catch {} });
+      term.loadAddon(gl);
+      fitTerm();
+    } catch (e) { console.warn("[nexus] GPU terminal renderer unavailable:", e?.message || e); }
+  };
+  document.head.appendChild(s);
 }
 
 /** Copy to the clipboard. The Clipboard API exists only on https or
@@ -6221,7 +6908,9 @@ function connectTerminal(profile = termProfile) {
 
   const state = $("#term-state");
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  termWS = new WebSocket(`${proto}//${location.host}/ws/terminal${profile === "claude" ? "?profile=claude" : ""}`);
+  const qs = profile === "claude" ? "?profile=claude"
+    : profile.startsWith("exec:") ? "?profile=exec&id=" + encodeURIComponent(profile.slice(5)) : "";
+  termWS = new WebSocket(`${proto}//${location.host}/ws/terminal${qs}`);
   termWS.binaryType = "arraybuffer";
 
   termWS.onopen = () => {
@@ -6280,7 +6969,7 @@ function newTerminalSession() {
 
 on("#t-new", "click", newTerminalSession);
 on("#t-paste", "click", pasteIntoTerminal);
-on("#t-mode", "click", () => go("term", termProfile === "claude" ? null : "claude"));
+on("#t-mode", "click", () => go("term", termProfile === "shell" ? "claude" : null));
 on("#t-clear", "click", () => { if (term) term.clear(); });
 addEventListener("resize", () => { if (term && $("#page-term").classList.contains("on")) fitTerm(); });
 
@@ -7334,6 +8023,8 @@ function go(page, arg = null, { push = true } = {}) {
 
   const meta = page === "term" && arg === "claude"
     ? { title: "Claude Code", icon: "code", sub: "Claude Code on this box. Close the tab and it keeps working." }
+    : page === "term" && String(arg || "").startsWith("ctr:")
+    ? { title: "Console", icon: "box", sub: `A shell inside the container ${String(arg).slice(4)}.` }
     : PAGES[page];
   const areaMeta = page === "area" ? AREA_META[arg] : null;
   $("#page-title").textContent = areaMeta ? areaMeta.name : meta.title;
@@ -7346,6 +8037,7 @@ function go(page, arg = null, { push = true } = {}) {
     if (t) t.hidden = page !== k;
   }
 
+  if (ZOOM.key) closeStatZoom(true);
   // Leaving a page should not leave its selection armed for the Delete key.
   if (page !== "dash") clearSelection();
   if (page !== "files") clearFileSelection();
@@ -7363,9 +8055,10 @@ function go(page, arg = null, { push = true } = {}) {
   // anything that tried to lay it out in the meantime was correctly ignored.
   if (page === "dash") requestAnimationFrame(() => { layout(false); renderWidgets(); });
   if (page === "containers") loadContainers();
+  else if (!CD.id) clearTimeout(CT.statsTimer);
   if (page === "apps") { loadLauncher().then(pollLive); requestAnimationFrame(paintLauncher); }
   else clearTimeout(LV.timer);
-  if (page === "files") { wireFileDnD(); loadRoots(); loadFiles(curDir, { history: false }); }
+  if (page === "files") { wireFileDnD(); loadRoots(); loadFiles(curDir, { history: false }); paintClip(); paintPane(); }
   if (page === "control") loadControl();
   if (page === "settings") loadSettings();
   if (page === "store") { refreshInstalled().then(() => { loadStoreStatus(); loadStore(true); }); }
@@ -7383,11 +8076,12 @@ function paintTermPage(arg) {
   if (on) {
     const t = LIVE.info.terminal;
     const claude = arg === "claude";
+    const ctr = typeof arg === "string" && arg.startsWith("ctr:") ? arg.slice(4) : null;
     const c = t.claude || {};
-    $("#term-title").textContent = claude ? `Claude Code${c.user ? " · " + c.user : ""}${c.available && !c.tmux ? " · no tmux" : ""}` : (t.shell || "shell");
+    $("#term-title").textContent = ctr ? `Console · ${ctr}` : claude ? `Claude Code${c.user ? " · " + c.user : ""}${c.available && !c.tmux ? " · no tmux" : ""}` : (t.shell || "shell");
     const mode = $("#t-mode");
     if (mode) {
-      mode.innerHTML = claude ? `${IC("terminal")}<span>Plain shell</span>` : `${IC("code")}<span>Claude Code</span>`;
+      mode.innerHTML = claude || ctr ? `${IC("terminal")}<span>Plain shell</span>` : `${IC("code")}<span>Claude Code</span>`;
       mode.dataset.tip = claude ? "Back to an ordinary shell. Claude keeps running in tmux." : "Open Claude Code in its tmux session.";
     }
     $("#term-hint").innerHTML = claude
@@ -7398,7 +8092,7 @@ function paintTermPage(arg) {
     const b = $("#term-backend");
     b.className = "pill " + (t.resize ? "ok" : "warn");
     b.textContent = `${String(t.backend || "script")} · ${t.resize ? "full resize" : "no resize"}`;
-    connectTerminal(claude ? "claude" : "shell");
+    connectTerminal(ctr ? "exec:" + ctr : claude ? "claude" : "shell");
     // The host has no size until the page is visible, so fit after paint.
     requestAnimationFrame(() => { fitTerm(); term?.focus(); });
   }
@@ -7420,6 +8114,7 @@ addEventListener("hashchange", () => {
 document.addEventListener("click", e => {
   const n = e.target.closest(".nav[data-page], [data-go]");
   if (!n || n.closest("#ctx")) return;
+  if (!PAGES[n.dataset.page || n.dataset.go]) return;   // a data-go that is not a page is someone else's
   if (n.matches("a[href]") && (e.ctrlKey || e.metaKey)) return;
   e.preventDefault();
   go(n.dataset.page || n.dataset.go, n.dataset.area || n.dataset.arg || null);
@@ -7466,10 +8161,35 @@ function paintSidebarAreas() {
   if (nd) nd.className = "ndot s-" + statusClass(ctrs?.status || "empty");
 }
 
-/** The apps you keep: pinned ones if any are pinned, otherwise the first few. */
+/**
+ * Quick launch: the five apps you open most, in this browser.
+ *
+ * Every open is counted (openApp → noteLaunch) and a count fades with age —
+ * halving every two weeks — so what you use now outranks what you used a lot
+ * in the spring. Empty slots fill with pinned apps, then the board's order, so
+ * a new browser starts with something useful rather than nothing.
+ */
+const LAUNCH_KEY = "nexus.launches";
+function launchStats() {
+  try { return JSON.parse(localStorage.getItem(LAUNCH_KEY) || "{}") || {}; } catch { return {}; }
+}
+function noteLaunch(id) {
+  if (!id) return;
+  const s = launchStats();
+  const now = Date.now(), cur = s[id] || { n: 0, at: now };
+  // Decay the old score to now, then add this open.
+  const n = cur.n * Math.pow(0.5, (now - cur.at) / (14 * 86400e3)) + 1;
+  s[id] = { n: Math.round(n * 1000) / 1000, at: now };
+  for (const k of Object.keys(s)) if (!LP.apps.some(a => a.id === k) && LP.apps.length) delete s[k];
+  try { localStorage.setItem(LAUNCH_KEY, JSON.stringify(s)); } catch {}
+  paintSidebarLaunch();
+}
 function launchList() {
-  const pinned = LP.apps.filter(a => a.pinned);
-  return (pinned.length ? pinned : LP.apps).slice(0, 10);
+  const s = launchStats(), now = Date.now();
+  const score = a => { const r = s[a.id]; return r ? r.n * Math.pow(0.5, (now - r.at) / (14 * 86400e3)) : 0; };
+  const used = LP.apps.filter(a => score(a) > 0.05).sort((a, b) => score(b) - score(a));
+  const rest = [...LP.apps.filter(a => a.pinned), ...LP.apps].filter(a => !used.includes(a));
+  return [...new Set([...used, ...rest])].slice(0, 5);
 }
 
 function appStatus(a) {
@@ -7478,15 +8198,16 @@ function appStatus(a) {
 }
 
 function paintSidebarLaunch() {
-  const box = $("#sb-launch"), group = $("#sb-launch-group");
-  if (!box || !group) return;
+  const box = $("#sb-launch");
+  if (!box) return;
   const list = launchList();
-  group.hidden = !list.length;
-  const html = list.map(a => `
-    <button class="nav app" type="button" data-launch="${esc(a.id)}" data-tip="Open ${esc(a.name)}${a.locked ? " (needs the PIN)" : ""}">
-      <span class="sb-appico">${appIconHTML(a)}</span><span class="nlabel">${esc(a.name)}</span>
-      <span class="ndot s-${statusClass(appStatus(a))}"></span>
-    </button>`).join("");
+  box.hidden = !list.length;
+  const html = list.map(a => {
+    const src = iconSrc(a), st = appStatus(a);
+    return `<button class="sb-dapp" type="button" data-launch="${esc(a.id)}"${src ? ` data-tint="${esc(src)}"` : ""}${tintStyle(src)}
+        aria-label="Open ${esc(a.name)}" data-tip="${esc(a.name)}${a.locked ? " — needs the PIN" : ""}${st === "down" ? " — down" : st === "warn" ? " — slow" : ""}">
+      ${appIconHTML(a)}${st === "down" || st === "warn" ? `<i class="sb-dstat s-${statusClass(st)}"></i>` : ""}</button>`;
+  }).join("");
   if (box.dataset.sig !== html) { box.innerHTML = html; box.dataset.sig = html; wireIcons(box); }
 }
 on("#sb-launch", "click", e => {
@@ -7769,6 +8490,7 @@ async function start() {
   // The Overview, the sidebar and the search palette all read these, so they
   // are fetched once at start rather than on first visit to their own pages.
   api("/automation/alerts?limit=60").then(a => { CP.alerts = a; paintAlertBadge(); }).catch(() => {});
+  loadOvPrefs();
   paintSidebarAreas();            // the five areas, grey until the first reading
   loadLauncherQuiet();
   loadChecks();
@@ -8039,43 +8761,104 @@ on("#ov-problems", "click", e => {
   if (ctr) return manageFromAnywhere(ctr.dataset.chipCtr);
 });
 
-/* ---------- today ---------- */
+/* ---------- today ----------
+ * Ten cards, each a number you can read from across the room. Press one and it
+ * zooms into a panel with everything behind that number — the longer chart,
+ * every mount, every sensor, the processes, the containers — and a choice of
+ * what the small card shows. "Customize" hides and reorders them.
+ *
+ * Preferences are the owner's and follow them between devices: stored in
+ * settings (`overviewCards`), cached in this browser so the first paint is
+ * already right. Only known card keys and known option values are honoured.
+ */
+const STAT_KEYS = ["cpu", "mem", "disk", "net", "ctr", "apps", "temp", "up", "sec", "alerts"];
+const STAT_CHOICES = {
+  cpu:  [["usage", "Usage"], ["load", "Load average"]],
+  mem:  [["percent", "Percent used"], ["used", "Amount used"], ["free", "Free"]],
+  disk: [["used", "Used"], ["free", "Free"], ["percent", "Fullest mount"]],
+  net:  [["down", "Download"], ["up", "Upload"]],
+  sec:  [["logins", "Failed logins"], ["updates", "Security updates"], ["ports", "Open ports"]]
+};
+const OVP = (() => {
+  const base = { order: STAT_KEYS.slice(), hidden: [], opts: {} };
+  try { return cleanOvPrefs(JSON.parse(localStorage.getItem("nexus.today") || "null")) || base; } catch { return base; }
+})();
+let ovEditing = false;
 
-function statCard({ key, icon, label, value, unit, sub, foot, attention, go: dest, arg, tip }) {
-  return `<button class="ov-stat${attention ? " att-" + attention : ""}" type="button" data-stat="${key}"
-      ${dest ? `data-go="${dest}"${arg ? ` data-arg="${esc(arg)}"` : ""}` : ""}${tip ? ` data-tip="${esc(tip)}"` : ""}>
-    <span class="ov-slabel">${IC(icon)}${esc(label)}</span>
+function cleanOvPrefs(p) {
+  if (!p || typeof p !== "object") return null;
+  const order = (Array.isArray(p.order) ? p.order : []).filter(k => STAT_KEYS.includes(k));
+  for (const k of STAT_KEYS) if (!order.includes(k)) order.push(k);
+  const hidden = (Array.isArray(p.hidden) ? p.hidden : []).filter(k => STAT_KEYS.includes(k));
+  const opts = {};
+  for (const [k, v] of Object.entries(p.opts || {})) {
+    if (!STAT_KEYS.includes(k) || typeof v !== "string") continue;
+    if (k === "temp" || (STAT_CHOICES[k] || []).some(c => c[0] === v)) opts[k] = v.slice(0, 60);
+  }
+  return { order, hidden, opts };
+}
+function saveOvPrefs() {
+  try { localStorage.setItem("nexus.today", JSON.stringify(OVP)); } catch {}
+  clearTimeout(saveOvPrefs.t);
+  saveOvPrefs.t = setTimeout(() => {
+    api("/settings", { method: "PUT", body: { overviewCards: { order: OVP.order, hidden: OVP.hidden, opts: OVP.opts } } })
+      .catch(e => toast(e.message || "Could not save the card layout", "err"));
+  }, 500);
+}
+async function loadOvPrefs() {
+  try {
+    const s = await api("/settings");
+    const p = cleanOvPrefs(s.overviewCards);
+    if (p) { Object.assign(OVP, p); try { localStorage.setItem("nexus.today", JSON.stringify(OVP)); } catch {} }
+  } catch {}
+  paintStats();
+}
+
+const STAT_DEST = {
+  cpu: ["dash"], mem: ["dash"], disk: ["area", "storage"], net: ["area", "network"], ctr: ["containers"],
+  apps: ["area", "apps"], temp: ["area", "servers"], up: ["area", "servers"], sec: ["dash"], alerts: ["control"]
+};
+
+function statCard({ key, icon, label, value, unit, sub, foot, attention, tip }) {
+  const hidden = OVP.hidden.includes(key);
+  return { key, html: `<button class="ov-stat${attention ? " att-" + attention : ""}${hidden ? " is-hidden" : ""}" type="button" data-stat="${key}"
+      ${ovEditing ? `draggable="true"` : ""}${tip ? ` data-tip="${esc(tip)}"` : ""} aria-label="${esc(label)} — open details">
+    <span class="ov-slabel">${IC(icon)}${esc(label)}${ovEditing ? `<span class="ov-sedit" role="button" tabindex="0" data-hide="${key}"
+        aria-label="${hidden ? "Show" : "Hide"} ${esc(label)}">${IC(hidden ? "eye-off" : "eye")}</span>` : `<span class="ov-sopen">${IC("corner")}</span>`}</span>
     <span class="ov-sval"><b>${value}</b>${unit ? `<i>${esc(unit)}</i>` : ""}</span>
     <span class="ov-ssub">${sub || "&nbsp;"}</span>
     <span class="ov-sfoot">${foot || ""}</span>
-  </button>`;
+  </button>` };
 }
 
-function paintStats() {
-  const box = $("#ov-stats");
-  if (!box) return;
-  const cards = [];
+/** Everything each card needs, computed once: the card and the zoom both read it. */
+function statModel() {
+  const m = {};
   const live = !!LIVE.t;
+  const o = k => OVP.opts[k] || (STAT_CHOICES[k] ? STAT_CHOICES[k][0][0] : "");
 
   // CPU
-  const cores = LIVE.info?.cpu?.cores;
-  cards.push(statCard({
-    key: "cpu", icon: "cpu", label: "CPU", go: "dash",
-    value: live ? Math.round(LIVE.cpu) : "—", unit: live ? "%" : "",
-    sub: live ? `${cores ? cores + " cores · " : ""}load ${(LIVE.loadavg || [])[0] ?? "—"}` : "waiting for the first reading",
-    foot: sparkSVG((LIVE.history.cpu || []).slice(-120), 100, "acc"),
-    attention: live ? lvl(LIVE.cpu, 85, 95) : ""
-  }));
+  const cores = LIVE.info?.cpu?.cores || LIVE.cores?.length;
+  const la = LIVE.loadavg || [];
+  m.cpu = o("cpu") === "load"
+    ? { icon: "cpu", label: "CPU", value: live ? (la[0] ?? 0).toFixed(2) : "—", unit: live ? "load · 1 min" : "",
+        sub: live ? `${Math.round(LIVE.cpu)}% busy · ${(la[1] ?? 0).toFixed(2)} · ${(la[2] ?? 0).toFixed(2)}` : "waiting for the first reading" }
+    : { icon: "cpu", label: "CPU", value: live ? Math.round(LIVE.cpu) : "—", unit: live ? "%" : "",
+        sub: live ? `${cores ? cores + " cores · " : ""}load ${la[0] ?? "—"}` : "waiting for the first reading" };
+  m.cpu.foot = sparkSVG((LIVE.history.cpu || []).slice(-120), 100, "acc");
+  m.cpu.attention = live ? lvl(LIVE.cpu, 85, 95) : "";
 
   // Memory
-  cards.push(statCard({
-    key: "mem", icon: "memory", label: "Memory", go: "dash",
-    value: LIVE.memTotal ? Math.round(LIVE.mem) : "—", unit: LIVE.memTotal ? "%" : "",
-    sub: LIVE.memTotal ? `${bytes(LIVE.memUsed)} of ${bytes(LIVE.memTotal)}` : "not reported yet",
-    foot: LIVE.memTotal ? meterRow("RAM", LIVE.mem, lvl(LIVE.mem, 80, 92)) +
+  const memOk = !!LIVE.memTotal, memFree = Math.max(0, (LIVE.memTotal || 0) - (LIVE.memUsed || 0));
+  const mo = o("mem");
+  const [muN, ...muU] = bytes(LIVE.memUsed).split(" "), [mfN, ...mfU] = bytes(memFree).split(" ");
+  m.mem = { icon: "memory", label: "Memory",
+    value: !memOk ? "—" : mo === "used" ? muN : mo === "free" ? mfN : Math.round(LIVE.mem),
+    unit: !memOk ? "" : mo === "used" ? muU.join(" ") + " used" : mo === "free" ? mfU.join(" ") + " free" : "%",
+    sub: memOk ? `${bytes(LIVE.memUsed)} of ${bytes(LIVE.memTotal)}` : "not reported yet",
+    foot: memOk ? meterRow("RAM", LIVE.mem, lvl(LIVE.mem, 80, 92)) +
       (LIVE.swapTotal ? meterRow("Swap", LIVE.swapUsed / LIVE.swapTotal * 100, lvl(LIVE.swapUsed / LIVE.swapTotal * 100, 50, 80)) : "") : "",
-    attention: LIVE.memTotal ? lvl(LIVE.mem, 88, 95) : ""
-  }));
+    attention: memOk ? lvl(LIVE.mem, 88, 95) : "" };
 
   // Storage
   const disks = LIVE.disks || [];
@@ -8083,27 +8866,22 @@ function paintStats() {
     const used = disks.reduce((a, d) => a + (d.used || 0), 0);
     const free = disks.reduce((a, d) => a + (d.available || 0), 0);
     const worst = disks.reduce((a, d) => (d.usage > a.usage ? d : a), disks[0]);
-    const [num, ...u] = bytes(used).split(" ");
-    cards.push(statCard({
-      key: "disk", icon: "drive", label: "Storage", go: "area", arg: "storage",
-      value: num, unit: u.join(" ") + " used",
+    const dO = o("disk");
+    const [uN, ...uU] = bytes(used).split(" "), [fN, ...fU] = bytes(free).split(" ");
+    m.disk = { icon: "drive", label: "Storage",
+      value: dO === "free" ? fN : dO === "percent" ? Math.round(worst.usage) : uN,
+      unit: dO === "free" ? fU.join(" ") + " free" : dO === "percent" ? "% · " + worst.mount : uU.join(" ") + " used",
       sub: `${bytes(free)} free · ${disks.length} mount${disks.length === 1 ? "" : "s"} · fullest ${esc(worst.mount)} ${Math.round(worst.usage)}%`,
-      foot: segBar(disks.map(d => ({ w: d.size, cls: "c-" + (lvl(d.usage, 85, 95) || "ok"),
-        tip: `${d.mount}: ${Math.round(d.usage)}% used, ${bytes(d.available)} free` }))),
-      attention: lvl(worst.usage, 85, 95)
-    }));
-  } else {
-    cards.push(statCard({ key: "disk", icon: "drive", label: "Storage", value: "—", sub: "no mounts reported yet", go: "area", arg: "storage" }));
-  }
+      foot: segBar(disks.map(d => ({ w: d.size, cls: "c-" + (lvl(d.usage, 85, 95) || "ok"), tip: `${d.mount}: ${Math.round(d.usage)}% used, ${bytes(d.available)} free` }))),
+      attention: lvl(worst.usage, 85, 95) };
+  } else m.disk = { icon: "drive", label: "Storage", value: "—", sub: "no mounts reported yet" };
 
   // Network
-  const [rxN, ...rxU] = rate(LIVE.net?.rx || 0).split(" ");
-  cards.push(statCard({
-    key: "net", icon: "network", label: "Network", go: "area", arg: "network",
-    value: live ? rxN : "—", unit: live ? rxU.join(" ") + " down" : "",
-    sub: live ? `${rate(LIVE.net?.tx || 0)} up` : "waiting for the first reading",
-    foot: sparkSVG((LIVE.history.rx || []).slice(-120), null, "acc2")
-  }));
+  const up = o("net") === "up";
+  const [nN, ...nU] = rate((up ? LIVE.net?.tx : LIVE.net?.rx) || 0).split(" ");
+  m.net = { icon: "network", label: "Network", value: live ? nN : "—", unit: live ? nU.join(" ") + (up ? " up" : " down") : "",
+    sub: live ? `${rate((up ? LIVE.net?.rx : LIVE.net?.tx) || 0)} ${up ? "down" : "up"}` : "waiting for the first reading",
+    foot: sparkSVG((LIVE.history[up ? "tx" : "rx"] || []).slice(-120), null, "acc2") };
 
   // Containers
   const ctrArea = CK.data?.areas?.find(a => a.id === "containers");
@@ -8111,57 +8889,42 @@ function paintStats() {
   if (ctrs.length) {
     const running = ctrs.filter(c => c.state === "running").length;
     const bad = (CK.data?.checks || []).filter(c => c.area === "containers" && c.status === "down").length;
-    cards.push(statCard({
-      key: "ctr", icon: "box", label: "Containers", go: "containers",
-      value: running, unit: `of ${ctrs.length} running`,
+    m.ctr = { icon: "box", label: "Containers", value: running, unit: `of ${ctrs.length} running`,
       sub: bad ? `${bad} unhealthy` : "none unhealthy",
       foot: segBar([{ w: running - bad, cls: "c-ok", tip: `${running - bad} running` }, { w: bad, cls: "c-crit", tip: `${bad} unhealthy` },
                     { w: ctrs.length - running, cls: "c-idle", tip: `${ctrs.length - running} stopped` }]),
-      attention: bad ? "crit" : ctrArea?.status === "warn" ? "warn" : ""
-    }));
-  } else {
-    cards.push(statCard({ key: "ctr", icon: "box", label: "Containers", value: "—", go: "containers",
-      sub: LIVE.info?.docker && !LIVE.info.docker.available ? "Docker unavailable" : "no containers" }));
-  }
+      attention: bad ? "crit" : ctrArea?.status === "warn" ? "warn" : "" };
+  } else m.ctr = { icon: "box", label: "Containers", value: "—", sub: LIVE.info?.docker && !LIVE.info.docker.available ? "Docker unavailable" : "no containers" };
 
   // Apps
   const appArea = CK.data?.areas?.find(a => a.id === "apps");
   if (appArea?.checks) {
     const appChecks = CK.data.checks.filter(c => c.area === "apps");
-    cards.push(statCard({
-      key: "apps", icon: "grid", label: "Apps", go: "area", arg: "apps",
-      value: appArea.up, unit: `of ${appArea.total} up`,
+    m.apps = { icon: "grid", label: "Apps", value: appArea.up, unit: `of ${appArea.total} up`,
       sub: appArea.avgMs != null ? `average response ${appArea.avgMs} ms` : "&nbsp;",
       foot: segBar(appChecks.map(c => ({ w: 1, cls: "c-" + statusClass(c.status), tip: `${c.name}: ${statusWord(c.status)}` }))),
-      attention: appArea.status === "down" ? "crit" : appArea.status === "warn" ? "warn" : ""
-    }));
-  } else {
-    cards.push(statCard({ key: "apps", icon: "grid", label: "Apps", value: LP.apps.length || "—", unit: LP.apps.length ? "on the board" : "",
-      go: "apps", sub: "add a local address to an app to watch it" }));
-  }
+      attention: appArea.status === "down" ? "crit" : appArea.status === "warn" ? "warn" : "" };
+  } else m.apps = { icon: "grid", label: "Apps", value: LP.apps.length || "—", unit: LP.apps.length ? "on the board" : "",
+    sub: "add a local address to an app to watch it" };
 
-  // Temperature
+  // Temperature — the hottest, or the sensor you chose
   const temps = (LIVE.sensors || []).filter(s => s.kind === "temperature" && Number.isFinite(s.value));
   if (temps.length) {
     const hot = temps.reduce((a, b) => (b.value > a.value ? b : a));
-    const crit = hot.critical || 95;
-    cards.push(statCard({
-      key: "temp", icon: "thermo", label: "Temperature", go: "area", arg: "servers",
-      value: Math.round(hot.value), unit: "°C",
-      sub: esc(hot.label) + (temps.length > 1 ? ` · hottest of ${temps.length}` : ""),
-      foot: meterRow("vs limit", hot.value / crit * 100, lvl(hot.value / crit * 100, 85, 95)),
-      attention: lvl(hot.value / crit * 100, 88, 97)
-    }));
+    const pick = OVP.opts.temp && OVP.opts.temp !== "hottest" ? temps.find(t => t.label === OVP.opts.temp) || hot : hot;
+    const crit = pick.critical || 95;
+    m.temp = { icon: "thermo", label: "Temperature", value: Math.round(pick.value), unit: "°C",
+      sub: esc(pick.label) + (pick === hot && temps.length > 1 ? ` · hottest of ${temps.length}` : ""),
+      foot: meterRow("vs limit", pick.value / crit * 100, lvl(pick.value / crit * 100, 85, 95)),
+      attention: lvl(hot.value / (hot.critical || 95) * 100, 88, 97) };
   }
 
   // Uptime
   const boot = LIVE.uptimeSec ? new Date(Date.now() - LIVE.uptimeSec * 1000) : null;
-  cards.push(statCard({
-    key: "up", icon: "clock", label: "Uptime",
+  m.up = { icon: "clock", label: "Uptime",
     value: LIVE.uptimeSec ? esc(upfmt(LIVE.uptimeSec).split(" ").slice(0, 2).join(" ")) : "—",
     sub: boot ? `booted ${fmtDate(boot)}, ${fmtTime(boot, false, false)}` : "not reported yet",
-    foot: LIVE.info?.host?.distro ? `<span class="ov-fnote">${esc(LIVE.info.host.distro)}</span>` : ""
-  }));
+    foot: LIVE.info?.host?.distro ? `<span class="ov-fnote">${esc(LIVE.info.host.distro)}</span>` : "" };
 
   // Security
   const sec = LIVE.security?.[24];
@@ -8169,28 +8932,317 @@ function paintStats() {
     const ssh = sec.ssh?.ok ? sec.ssh.count : "?";
     const upd = sec.updates?.ok ? sec.updates.security || 0 : "?";
     const ports = sec.ports?.ok ? sec.ports.exposed : "?";
-    cards.push(statCard({
-      key: "sec", icon: "shield", label: "Security", go: "dash",
-      value: ssh, unit: "failed logins · 24 h",
-      sub: `${upd} security update${upd === 1 ? "" : "s"} · ${ports} open port${ports === 1 ? "" : "s"}`,
+    const so = o("sec");
+    m.sec = { icon: "shield", label: "Security",
+      value: so === "updates" ? upd : so === "ports" ? ports : ssh,
+      unit: so === "updates" ? "security updates" : so === "ports" ? "open ports" : "failed logins · 24 h",
+      sub: so === "logins" ? `${upd} security update${upd === 1 ? "" : "s"} · ${ports} open port${ports === 1 ? "" : "s"}`
+                           : `${ssh} failed login${ssh === 1 ? "" : "s"} in 24 h`,
       foot: (sec.findings || []).length ? `<span class="ov-fnote">${esc(sec.findings[0].title)}</span>` : "",
-      attention: sec.level === "crit" ? "crit" : sec.level === "warn" ? "warn" : ""
-    }));
+      attention: sec.level === "crit" ? "crit" : sec.level === "warn" ? "warn" : "" };
   }
 
   // Alerts
   const unread = (CP.alerts || []).filter(a => !a.ack);
   const last = (CP.alerts || [])[0];
-  cards.push(statCard({
-    key: "alerts", icon: "bell", label: "Alerts", go: "control",
-    value: unread.length, unit: "unread",
+  m.alerts = { icon: "bell", label: "Alerts", value: unread.length, unit: "unread",
     sub: last ? `last: ${esc(last.title)} · ${ago(new Date(last.ts).getTime())} ago` : "nothing has tripped",
-    attention: unread.some(a => a.level === "crit") ? "crit" : unread.length ? "warn" : ""
-  }));
-
-  const html = cards.join("");
-  if (box.dataset.sig !== html) { box.innerHTML = html; box.dataset.sig = html; }
+    attention: unread.some(a => a.level === "crit") ? "crit" : unread.length ? "warn" : "" };
+  return m;
 }
+
+function paintStats() {
+  const box = $("#ov-stats");
+  if (!box) return;
+  const m = statModel();
+  const keys = OVP.order.filter(k => m[k] && (ovEditing || !OVP.hidden.includes(k)));
+  const html = keys.map(k => statCard({ key: k, ...m[k] }).html).join("") ||
+    `<p class="ov-snone">Every card is hidden. <button type="button" class="linkbtn" data-ovreset>Show them all</button></p>`;
+  box.classList.toggle("editing", ovEditing);
+  if (box.dataset.sig !== html) { box.innerHTML = html; box.dataset.sig = html; }
+  const bar = $("#ov-editbar");
+  if (bar) bar.hidden = !ovEditing;
+  const cb = $("#ov-custom");
+  if (cb) { cb.textContent = ovEditing ? "Done" : "Customize"; cb.classList.toggle("primary", ovEditing); }
+  paintZoom();
+}
+
+/* ---- customising ---- */
+on("#ov-custom", "click", () => { ovEditing = !ovEditing; paintStats(); });
+on("#ov-reset", "click", () => {
+  OVP.order = STAT_KEYS.slice(); OVP.hidden = []; OVP.opts = {};
+  saveOvPrefs(); paintStats(); toast("Cards back to the default", "ok");
+});
+
+on("#ov-stats", "click", e => {
+  if (e.target.closest("[data-ovreset]")) { OVP.hidden = []; saveOvPrefs(); return paintStats(); }
+  const hide = e.target.closest("[data-hide]");
+  if (hide) {
+    e.stopPropagation();
+    const k = hide.dataset.hide;
+    OVP.hidden = OVP.hidden.includes(k) ? OVP.hidden.filter(x => x !== k) : [...OVP.hidden, k];
+    saveOvPrefs(); return paintStats();
+  }
+  const card = e.target.closest(".ov-stat[data-stat]");
+  if (!card || ovEditing) return;
+  openStatZoom(card.dataset.stat, card);
+});
+on("#ov-stats", "keydown", e => {
+  const hide = e.target.closest?.("[data-hide]");
+  if (hide && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); hide.click(); }
+});
+
+/* Reordering: drag a card onto another while customising. HTML5 drag and drop
+   is enough here — ten cards, a mouse — and the zoom panel has Move earlier /
+   later for a touch screen. */
+let ovDrag = null;
+on("#ov-stats", "dragstart", e => {
+  const c = e.target.closest(".ov-stat");
+  if (!c || !ovEditing) return;
+  ovDrag = c.dataset.stat;
+  c.classList.add("dragging");
+  e.dataTransfer.effectAllowed = "move";
+  try { e.dataTransfer.setData("text/plain", ovDrag); } catch {}
+});
+on("#ov-stats", "dragover", e => {
+  if (!ovDrag) return;
+  const c = e.target.closest(".ov-stat");
+  e.preventDefault();
+  if (!c || c.dataset.stat === ovDrag) return;
+  const r = c.getBoundingClientRect();
+  const before = e.clientX < r.left + r.width / 2;
+  const from = $(`.ov-stat[data-stat="${ovDrag}"]`, $("#ov-stats"));
+  if (from) c.parentNode.insertBefore(from, before ? c : c.nextSibling);
+});
+on("#ov-stats", "dragend", () => {
+  if (!ovDrag) return;
+  const shown = $$("#ov-stats .ov-stat").map(c => c.dataset.stat);
+  OVP.order = [...shown, ...OVP.order.filter(k => !shown.includes(k))];
+  ovDrag = null;
+  $("#ov-stats").dataset.sig = "";
+  saveOvPrefs(); paintStats();
+});
+
+/* ---- the zoom ---- */
+const ZOOM = { key: null, from: null };
+
+function bigChart(series, { max = null, unit = "", fmt = v => Math.round(v) + unit } = {}) {
+  const W = 640, H = 150, n = Math.max(...series.map(s => (s.vals || []).length), 0);
+  if (n < 2) return `<div class="ovz-chart empty">Collecting readings…</div>`;
+  const top = max || Math.max(1, ...series.flatMap(s => s.vals)) * 1.12;
+  const y = v => (H - 4 - (clamp(v, 0, top) / top) * (H - 10)).toFixed(1);
+  const x = (i, len) => ((W - 1) - (len - 1 - i) * (W - 1) / (n - 1)).toFixed(1);
+  const paths = series.map(s => {
+    const v = s.vals || [];
+    const d = v.map((p, i) => `${i ? "L" : "M"}${x(i, v.length)} ${y(p)}`).join("");
+    return `<path class="a ${s.cls}" d="${d}L${x(v.length - 1, v.length)} ${H}L${x(0, v.length)} ${H}Z"/><path class="l ${s.cls}" d="${d}"/>`;
+  }).join("");
+  const mins = Math.max(1, Math.round(n / 60));
+  return `<div class="ovz-chart">
+    <div class="ovz-axis"><span>${esc(fmt(top))}</span><span>${esc(fmt(top / 2))}</span><span>0</span></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+      <line x1="0" x2="${W}" y1="${y(top / 2)}" y2="${y(top / 2)}"/><line x1="0" x2="${W}" y1="${y(top)}" y2="${y(top)}"/>${paths}</svg>
+    <div class="ovz-time"><span>${mins} min ago</span><span>now</span></div>
+    ${series.length > 1 ? `<div class="ovz-legend">${series.map(s => `<span class="${s.cls}"><i></i>${esc(s.label)}</span>`).join("")}</div>` : ""}
+  </div>`;
+}
+const tile = (k, v, cls = "") => `<div class="ovz-tile${cls ? " " + cls : ""}"><b>${v}</b><span>${esc(k)}</span></div>`;
+const procTable = (list, by) => !list?.length ? `<p class="ovz-quiet">No process list yet.</p>` : `
+  <table class="ovz-table"><thead><tr><th>Process</th><th>CPU</th><th>Memory</th><th>User</th></tr></thead><tbody>
+  ${list.slice(0, 8).map(p => `<tr><td class="nm">${esc(p.name)}<small>${p.pid}</small></td>
+    <td class="${by === "cpu" ? "hi" : ""}">${p.cpu}%</td><td class="${by === "mem" ? "hi" : ""}">${p.rss != null ? bytes(p.rss) : p.mem + "%"}</td>
+    <td class="mut">${esc(p.user || "")}</td></tr>`).join("")}</tbody></table>`;
+
+function zoomBody(key) {
+  const sec = (title, html) => `<section class="ovz-sec"><h4>${esc(title)}</h4>${html}</section>`;
+  switch (key) {
+    case "cpu": {
+      const la = LIVE.loadavg || [];
+      return `<div class="ovz-tiles">${tile("Busy now", Math.round(LIVE.cpu) + "%")}${tile("Load · 1 min", (la[0] ?? 0).toFixed(2))}${tile("5 min", (la[1] ?? 0).toFixed(2))}${tile("15 min", (la[2] ?? 0).toFixed(2))}</div>` +
+        sec("Usage", bigChart([{ vals: LIVE.history.cpu, cls: "c1", label: "CPU" }], { max: 100, unit: "%" })) +
+        (LIVE.cores?.length ? sec(`${LIVE.cores.length} cores`, `<div class="ovz-cores">${LIVE.cores.map((c, i) =>
+          `<div class="ovz-core" data-tip="Core ${i}: ${c}%"><i style="height:${clamp(c, 0, 100)}%" class="${lvl(c, 85, 95)}"></i></div>`).join("")}</div>`) : "") +
+        sec("Busiest processes", procTable(LIVE.procs?.byCpu, "cpu"));
+    }
+    case "mem": {
+      const free = Math.max(0, (LIVE.memTotal || 0) - (LIVE.memUsed || 0));
+      return `<div class="ovz-tiles">${tile("Used", bytes(LIVE.memUsed))}${tile("Free", bytes(free))}${tile("Total", bytes(LIVE.memTotal))}${tile("Swap", LIVE.swapTotal ? `${bytes(LIVE.swapUsed)} of ${bytes(LIVE.swapTotal)}` : "none")}</div>` +
+        sec("Usage", bigChart([{ vals: LIVE.history.mem, cls: "c1", label: "Memory" }], { max: 100, unit: "%" })) +
+        sec("Largest processes", procTable(LIVE.procs?.byMem, "mem"));
+    }
+    case "disk": {
+      const disks = (LIVE.disks || []).slice().sort((a, b) => b.usage - a.usage);
+      const io = LIVE.history.dr?.length ? sec("Disk activity", bigChart([{ vals: LIVE.history.dr, cls: "c1", label: "Read" }, { vals: LIVE.history.dw, cls: "c2", label: "Write" }], { fmt: v => rate(v) })) : "";
+      return sec("Mounts", disks.length ? `<div class="ovz-mounts">${disks.map(d => `
+        <div class="ovz-mount"><div class="ovz-mrow"><b>${esc(d.mount)}</b><span>${esc(d.type || "")}${d.fs ? " · " + esc(d.fs) : ""}</span>
+          <em class="${lvl(d.usage, 85, 95)}">${Math.round(d.usage)}%</em></div>
+          <div class="ovz-bar"><i class="${lvl(d.usage, 85, 95)}" style="width:${clamp(d.usage, 0, 100)}%"></i></div>
+          <div class="ovz-msub">${bytes(d.used)} used · ${bytes(d.available)} free · ${bytes(d.size)}</div></div>`).join("")}</div>` : `<p class="ovz-quiet">No mounts reported.</p>`) + io;
+    }
+    case "net": {
+      const rx = LIVE.history.rx || [], tx = LIVE.history.tx || [];
+      return `<div class="ovz-tiles">${tile("Down now", rate(LIVE.net?.rx || 0))}${tile("Up now", rate(LIVE.net?.tx || 0))}${tile("Peak down", rate(Math.max(0, ...rx)))}${tile("Peak up", rate(Math.max(0, ...tx)))}</div>` +
+        sec("Traffic", bigChart([{ vals: rx, cls: "c1", label: "Down" }, { vals: tx, cls: "c2", label: "Up" }], { fmt: v => rate(v) }));
+    }
+    case "ctr": {
+      const list = (LIVE.containers || []).slice().sort((a, b) => (a.state === "running") - (b.state === "running") || a.name.localeCompare(b.name));
+      return sec(`${list.length} containers`, list.length ? `<div class="ovz-list">${list.map(c => `
+        <button type="button" class="ovz-li" data-zctr="${esc(c.id)}"><i class="ndot s-${c.state === "running" ? "ok" : "idle"}"></i>
+          <b>${esc(c.title || c.name)}</b><span>${esc(String(c.image || "").split("/").pop())}</span><em>${esc(c.status || c.state)}</em></button>`).join("")}</div>` : `<p class="ovz-quiet">No containers.</p>`);
+    }
+    case "apps": {
+      const checks = (CK.data?.checks || []).filter(c => c.area === "apps");
+      return sec("Health checks", checks.length ? `<div class="ovz-list">${checks.map(c => {
+        const app = LP.apps.find(a => "app:" + a.id === c.id);
+        return `<button type="button" class="ovz-li" ${app ? `data-zapp="${esc(app.id)}"` : ""}><i class="ndot s-${statusClass(c.status)}"></i>
+          <b>${esc(c.name)}</b><span>${esc(c.msg || "")}</span><em>${Number.isFinite(c.ms) ? c.ms + " ms" : statusWord(c.status)}</em></button>`; }).join("")}</div>`
+        : `<p class="ovz-quiet">No app is being checked yet — give an app a local address.</p>`);
+    }
+    case "temp": {
+      const temps = (LIVE.sensors || []).filter(s => s.kind === "temperature" && Number.isFinite(s.value)).sort((a, b) => b.value - a.value);
+      return sec(`${temps.length} sensors`, `<div class="ovz-mounts">${temps.map(s => { const c = s.critical || 95, p = s.value / c * 100; return `
+        <div class="ovz-mount"><div class="ovz-mrow"><b>${esc(s.label)}</b><span>limit ${Math.round(c)}°C</span><em class="${lvl(p, 85, 95)}">${Math.round(s.value)}°C</em></div>
+          <div class="ovz-bar"><i class="${lvl(p, 85, 95)}" style="width:${clamp(p, 0, 100)}%"></i></div></div>`; }).join("")}</div>`);
+    }
+    case "up": {
+      const h = LIVE.info?.host || {}, boot = LIVE.uptimeSec ? new Date(Date.now() - LIVE.uptimeSec * 1000) : null;
+      return `<div class="ovz-tiles">${tile("Up for", esc(upfmt(LIVE.uptimeSec || 0)))}${tile("Booted", boot ? esc(fmtDate(boot)) : "—")}${tile("At", boot ? esc(fmtTime(boot, false, false)) : "—")}</div>` +
+        sec("This machine", `<dl class="ovz-dl"><dt>Name</dt><dd>${esc(h.hostname || "—")}</dd><dt>System</dt><dd>${esc(h.distro || "—")}</dd>
+          <dt>Kernel</dt><dd>${esc(h.kernel || "—")}</dd><dt>Architecture</dt><dd>${esc(h.arch || "—")}</dd>
+          <dt>CPU</dt><dd>${esc(LIVE.info?.cpu?.model || "—")}${LIVE.info?.cpu?.cores ? ` · ${LIVE.info.cpu.cores} cores` : ""}</dd>
+          <dt>Nexus</dt><dd>${esc(LIVE.info?.version || "")}</dd></dl>`);
+    }
+    case "sec": {
+      const s = LIVE.security?.[24] || {};
+      return `<div class="ovz-tiles">${tile("Failed logins · 24 h", s.ssh?.ok ? s.ssh.count : "?")}${tile("Security updates", s.updates?.ok ? s.updates.security || 0 : "?")}${tile("Open ports", s.ports?.ok ? s.ports.exposed : "?")}</div>` +
+        sec("Findings", (s.findings || []).length ? `<div class="ovz-list">${s.findings.map(f => `<div class="ovz-li static"><i class="ndot s-${f.level === "crit" ? "crit" : f.level === "warn" ? "warn" : "idle"}"></i>
+          <b>${esc(f.title)}</b><span>${esc(f.detail || "")}</span></div>`).join("")}</div>` : `<p class="ovz-quiet">Nothing found.</p>`);
+    }
+    case "alerts": {
+      const list = (CP.alerts || []).slice(0, 12);
+      return sec("Recent", list.length ? `<div class="ovz-list">${list.map(a => `<div class="ovz-li static${a.ack ? " read" : ""}"><i class="ndot s-${a.level === "crit" ? "crit" : a.level === "warn" ? "warn" : "idle"}"></i>
+          <b>${esc(a.title)}</b><span>${esc(a.detail || a.message || "")}</span><em>${ago(new Date(a.ts).getTime())} ago</em></div>`).join("")}</div>` : `<p class="ovz-quiet">Nothing has tripped.</p>`) +
+        ((CP.alerts || []).some(a => !a.ack) ? `<button type="button" class="btn sm" data-zack>Mark all read</button>` : "");
+    }
+  }
+  return "";
+}
+
+function zoomOpts(key) {
+  const choices = key === "temp"
+    ? [["hottest", "Hottest"], ...(LIVE.sensors || []).filter(s => s.kind === "temperature").slice(0, 8).map(s => [s.label, s.label])]
+    : STAT_CHOICES[key];
+  const cur = OVP.opts[key] || (choices ? choices[0][0] : "");
+  const i = OVP.order.indexOf(key);
+  return `${choices ? `<div class="ovz-opt"><span>The card shows</span><div class="seg">${choices.map(([v, l]) =>
+      `<button type="button" data-zopt="${esc(v)}" aria-pressed="${cur === v}">${esc(l)}</button>`).join("")}</div></div>` : ""}
+    <div class="ovz-opt"><span>On the Overview</span>
+      <button type="button" class="btn sm" data-zmove="-1"${i <= 0 ? " disabled" : ""}>${IC("chevron-left")}Earlier</button>
+      <button type="button" class="btn sm" data-zmove="1"${i >= OVP.order.length - 1 ? " disabled" : ""}>Later${IC("chevron-right")}</button>
+      <button type="button" class="btn sm" data-zhide>${IC(OVP.hidden.includes(key) ? "eye" : "eye-off")}${OVP.hidden.includes(key) ? "Show the card" : "Hide the card"}</button></div>`;
+}
+
+function openStatZoom(key, from) {
+  closeStatZoom(true);
+  const m = statModel()[key];
+  if (!m) return;
+  ZOOM.key = key; ZOOM.from = from;
+  const dest = STAT_DEST[key] || [];
+  const destLabel = { dash: "Dashboard", containers: "Containers", control: "Automations", area: AREA_META[dest[1]]?.name }[dest[0]] || "";
+  const wrap = document.createElement("div");
+  wrap.id = "ov-zoom";
+  wrap.innerHTML = `<div class="ovz-back"></div>
+    <section class="ovz" role="dialog" aria-modal="true" aria-labelledby="ovz-title">
+      <div class="ovz-in">
+        <header class="ovz-head">
+          <div class="ovz-hl"><span class="ovz-ico">${IC(m.icon)}</span>
+            <div><h3 id="ovz-title">${esc(m.label)}</h3><div class="ovz-big" id="ovz-big"></div></div></div>
+          ${dest.length ? `<button type="button" class="btn sm" data-zgo>Open ${esc(destLabel)}${IC("chevron-right")}</button>` : ""}
+          <button type="button" class="ovz-x" data-zclose aria-label="Close">${IC("x")}</button>
+        </header>
+        <div class="ovz-opts" id="ovz-opts"></div>
+        <div class="ovz-body" id="ovz-body"></div>
+      </div>
+    </section>`;
+  document.body.appendChild(wrap);
+  paintZoom(true);
+
+  const panel = $(".ovz", wrap);
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.dataset.motion === "reduced";
+  const a = from?.getBoundingClientRect(), b = panel.getBoundingClientRect();
+  if (a && !reduced && a.width) {
+    from.classList.add("ov-lifted");
+    panel.animate([
+      { transform: `translate(${a.left - b.left}px, ${a.top - b.top}px) scale(${a.width / b.width}, ${a.height / b.height})`, borderRadius: "14px" },
+      { transform: "none" }
+    ], { duration: 420, easing: "cubic-bezier(.2,.9,.25,1)" });
+    $(".ovz-in", wrap).animate([{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }],
+      { duration: 260, delay: 170, easing: "ease-out", fill: "backwards" });
+    $(".ovz-back", wrap).animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, easing: "ease-out" });
+  }
+  setTimeout(() => $("[data-zclose]", wrap)?.focus({ preventScroll: true }), 60);
+
+  wrap.addEventListener("click", e => {
+    if (e.target.classList.contains("ovz-back") || e.target.closest("[data-zclose]")) return closeStatZoom();
+    if (e.target.closest("[data-zgo]")) { closeStatZoom(true); return go(dest[0], dest[1] || null); }
+    const opt = e.target.closest("[data-zopt]");
+    if (opt) { OVP.opts[key] = opt.dataset.zopt; saveOvPrefs(); paintStats(); return paintZoom(true); }
+    const mv = e.target.closest("[data-zmove]");
+    if (mv) {
+      const i = OVP.order.indexOf(key), j = i + Number(mv.dataset.zmove);
+      if (j < 0 || j >= OVP.order.length) return;
+      [OVP.order[i], OVP.order[j]] = [OVP.order[j], OVP.order[i]];
+      saveOvPrefs(); paintStats(); return paintZoom(true);
+    }
+    if (e.target.closest("[data-zhide]")) {
+      OVP.hidden = OVP.hidden.includes(key) ? OVP.hidden.filter(x => x !== key) : [...OVP.hidden, key];
+      saveOvPrefs(); paintStats(); return paintZoom(true);
+    }
+    const ctr = e.target.closest("[data-zctr]");
+    if (ctr) { closeStatZoom(true); return manageFromAnywhere(ctr.dataset.zctr); }
+    const app = e.target.closest("[data-zapp]");
+    if (app) return openApp(LP.apps.find(x => x.id === app.dataset.zapp));
+    if (e.target.closest("[data-zack]")) {
+      api("/automation/alerts/ack", { method: "POST" }).then(() => api("/automation/alerts?limit=60"))
+        .then(a => { CP.alerts = a; paintAlertBadge(); paintStats(); }).catch(err => toast(err.message, "err"));
+    }
+  });
+}
+
+function paintZoom(force = false) {
+  const wrap = $("#ov-zoom");
+  if (!wrap || !ZOOM.key) return;
+  const m = statModel()[ZOOM.key];
+  if (!m) return;
+  const big = `<b>${m.value}</b>${m.unit ? `<i>${esc(m.unit)}</i>` : ""}<span>${m.sub || ""}</span>`;
+  const set = (id, html) => { const el = $(id, wrap); if (el && (force || el.dataset.sig !== html)) { el.innerHTML = html; el.dataset.sig = html; } };
+  set("#ovz-big", big);
+  set("#ovz-opts", zoomOpts(ZOOM.key));
+  set("#ovz-body", zoomBody(ZOOM.key));
+}
+
+function closeStatZoom(instant = false) {
+  const wrap = $("#ov-zoom");
+  const from = ZOOM.from;
+  ZOOM.key = null; ZOOM.from = null;
+  if (!wrap) return;
+  let gone = false;
+  const done = () => { if (gone) return; gone = true; wrap.remove(); from?.classList.remove("ov-lifted"); };
+  // An animation in a background tab never finishes; never leave the panel up.
+  setTimeout(done, 480);
+  const panel = $(".ovz", wrap);
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.dataset.motion === "reduced";
+  // The card may have moved or been hidden while the panel was open.
+  const target = from && document.contains(from) ? from : $(`#ov-stats .ov-stat[data-stat="${from?.dataset?.stat}"]`);
+  if (instant || reduced || !panel || !target) return done();
+  const a = target.getBoundingClientRect(), b = panel.getBoundingClientRect();
+  $(".ovz-in", wrap).animate([{ opacity: 1 }, { opacity: 0 }], { duration: 120, fill: "forwards" });
+  $(".ovz-back", wrap).animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300, fill: "forwards" });
+  panel.animate([{ transform: "none" },
+    { transform: `translate(${a.left - b.left}px, ${a.top - b.top}px) scale(${a.width / b.width}, ${a.height / b.height})` }],
+    { duration: 320, easing: "cubic-bezier(.4,0,.2,1)", fill: "forwards" }).finished.then(done, done);
+}
+addEventListener("keydown", e => { if (e.key === "Escape" && ZOOM.key) { e.stopPropagation(); closeStatZoom(); } }, true);
 
 /* ---------- the areas table ---------- */
 
@@ -9535,6 +10587,9 @@ async function renderAgentSettings() {
 
   const s = c.settings;
   const prov = c.providers.find(p => p.id === s.provider) || c.providers[0];
+  // The server uses the custom id whenever the chosen model is not one of the
+  // listed ones, so "using my own" is exactly that.
+  const usingCustom = !!s.model && !prov.models.some(m => m.id === s.model);
   const key = c.keys[s.provider] || { set: false };
 
   const priceBit = m => m.priced
@@ -9561,10 +10616,15 @@ async function renderAgentSettings() {
           <span class="ag-note">${esc(m.note || "")}</span>
         </button>`).join("")}</div>
       ${prov.pricingUrl ? `<p class="hint"><a href="${esc(prov.pricingUrl)}" target="_blank" rel="noopener">${esc(prov.label)}'s current pricing &rarr;</a> These figures are a guide, not a quote.</p>` : ""}
-      <div class="ag-row">
+      <div class="ag-row ag-customrow${usingCustom ? " on" : ""}">
         <label for="ag-custom">Or a model id of your own</label>
-        <input id="ag-custom" type="text" value="${esc(s.customModel || "")}" placeholder="exactly as your provider spells it" spellcheck="false">
+        <input id="ag-custom" type="text" value="${esc(usingCustom ? s.model : (s.customModel || ""))}" placeholder="exactly as your provider spells it" spellcheck="false" autocomplete="off">
+        <button class="btn sm${usingCustom ? "" : " primary"}" id="ag-custom-use" type="button">${usingCustom ? "Update" : "Use"}</button>
+        ${usingCustom ? `<button class="btn sm" id="ag-custom-clear" type="button">Back to the list</button>` : ""}
       </div>
+      <p class="hint ag-customstate">${usingCustom
+        ? `In use: <code>${esc(s.model)}</code>. Press <b>Test</b> below to check ${esc(prov.label)} knows it.`
+        : "Type the id, press Use (or Enter), then Test below."}</p>
       ${prov.needsBaseUrl ? `<div class="ag-row">
         <label for="ag-base">Base URL</label>
         <input id="ag-base" type="text" value="${esc(s.baseUrl || "")}" placeholder="http://127.0.0.1:11434/v1" spellcheck="false">
@@ -9713,7 +10773,17 @@ async function renderAgentSettings() {
     const roots = $$("[data-root]", host).filter(x => x.checked).map(x => x.dataset.root);
     patch({ roots });
   }));
-  on($("#ag-custom", host), "change", e => patch({ customModel: e.target.value.trim() }));
+  // A typed id only takes effect when it is chosen: Use (or Enter) makes it
+  // the model, and a card click goes back to the list. Typing alone used to
+  // save it and change nothing, because a listed model was still selected.
+  const useCustom = () => {
+    const v = $("#ag-custom", host).value.trim();
+    if (!v) return toast("Type a model id first", "err");
+    patch({ customModel: v, model: v }).then(() => toast(`Using ${v}`, "ok"));
+  };
+  on($("#ag-custom-use", host), "click", useCustom);
+  $("#ag-custom", host)?.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); useCustom(); } });
+  $("#ag-custom-clear", host)?.addEventListener("click", () => patch({ model: prov.models[0]?.id || "" }));
   const base = $("#ag-base", host);
   if (base) base.addEventListener("change", e => patch({ baseUrl: e.target.value.trim() }));
   on($("#ag-steps", host), "change", e => patch({ maxSteps: Number(e.target.value) }));

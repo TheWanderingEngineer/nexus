@@ -15,6 +15,17 @@ daylight, one accent, optional glass), **Workstation** (warm and retro) and
 
 ---
 
+## What's new in 0.9.6
+
+| | |
+|---|---|
+| **Containers, rebuilt** | Live CPU and memory on every container, health states, compose projects, port ranges shown as one tag (`25500–25600 · 101`) instead of a hundred links, filters, sort, group, list view. **Check for updates** asks each registry whether a newer image exists; **Update** pulls it and recreates the container with the same settings. A side panel with live numbers, searchable logs, environment and storage — and a **Console** into the container |
+| **Files, rebuilt** | Places, a path bar, sortable columns, list or grid with picture previews, a details pane that previews pictures, video, sound and text, inline rename and new folder, **Move to…**, search through subfolders, a picture and video viewer, and the keyboard shortcuts you expect |
+| **Overview cards open** | Press a card and it zooms into the detail behind it — bigger charts, every mount, sensor, process, container or alert. Choose what each card shows; **Customize** hides and reorders them |
+| **Quick launch** | Your five most-opened apps, as icons under Overview |
+| **Faster terminal** | GPU drawing, batched output, no Nagle delay, and tmux's Esc delay cut from 500 ms to 10 — Claude Code no longer stutters |
+| **Your own model id** | Settings → Kernel: type it and press **Use** — it was saved but never used before |
+
 ## What's new in 0.9.2
 
 | | |
@@ -482,7 +493,14 @@ The page Nexus opens on, and the answer to "is anything wrong?":
   open Files.
 - **Today** is the day's numbers: CPU, memory, storage, network, containers,
   apps, temperature, uptime, security and alerts. A reading that cannot be
-  taken says so instead of showing a zero.
+  taken says so instead of showing a zero. **Press a card** and it zooms into
+  everything behind the number: the longer chart, load averages and every core,
+  the busiest processes, every mount and sensor, each container and app, the
+  security findings, the recent alerts. The panel also chooses what the small
+  card shows (CPU usage or load; memory used, free or percent; storage used,
+  free or fullest; network down or up; one temperature sensor), and moves or
+  hides it. **Customize** in the heading hides cards and reorders them by
+  dragging. Your layout follows you between devices.
 - **Areas** is every area's health, its checks passing, the average response
   time and the last 30 results as bars — hover one for the time, the status and
   the error. Click a row to see its checks; click the name for the area page.
@@ -628,6 +646,35 @@ Layout, hit targets and reading size are decided independently — by width, by
 whether a finger is driving, and by how large the display is. That is why a
 1024px iPad gets desktop layout with touch-sized controls, and a 1080p TV gets
 desktop layout at a size you can read from a sofa.
+
+## Containers
+
+Every container as a card: its icon, image, state — **Healthy**, **Unhealthy**,
+**Starting**, **Exited (1)** — how long it has been up, its compose project, live
+CPU and memory, and its published ports. A run of consecutive ports (a game
+server publishing 25500–25600) is **one tag**, not a hundred links; single TCP
+ports are links you can press, UDP ports are labelled. The strip at the top adds
+up CPU and memory across everything.
+
+Find by name, image, port or project; filter to Running, Stopped, **Problems**
+or **Updates**; sort by name, CPU, memory or problems first; group by compose
+project; switch to a list.
+
+**Check for updates** asks each image's registry — through Docker, with whatever
+login Docker already has — whether the tag now points at a newer image. It reads
+only; nothing changes. A container with a newer image gets an **Update** badge.
+**Update** pulls the image and recreates the container exactly as it was: same
+name, settings, volumes (including anonymous ones), networks and restart policy.
+The old container is kept until the new one is running and put back if anything
+fails. A container pinned to an exact digest has nothing to update to.
+
+Press a card for its **side panel**: live CPU, memory, network, disk and process
+count; its health-check output; ports; image, ids, created and started times,
+restart policy and count, compose file and command. **Logs** streams the output
+with a filter, follow, wrap, copy and save; **Environment** lists the variables
+with anything that looks like a secret hidden until you ask; **Storage &
+network** lists mounts, networks and labels. **Console** opens a shell inside the
+container (bash if it has it, sh otherwise) in the terminal page.
 
 ## Apps
 
@@ -795,10 +842,37 @@ choose; nothing is written until you press ADD.
 
 ## Files
 
+**Places** on the left are your configured folders, with how full each drive is
+(right-click one to give it a label). The **path bar** takes you back up in one
+click, and drops are accepted on any crumb. The folder shows as a **list** with
+sortable Name, Size, Modified and Kind columns, or as a **grid** with picture
+thumbnails. The **details pane** on the right previews what you select —
+pictures, video and sound you can play, the first lines of a text file — with
+its size, date, permissions and the buttons for it.
+
 Selection works the way it does everywhere else: click, Ctrl/⌘+click to add,
-Shift+click for a run, or drag a box over empty space. Delete removes the
-selection, and the right-click menu collapses to the operations that make sense
-for a set. Downloads are issued one file at a time — there is no server-side zip.
+Shift+click for a run, or drag a box over empty space. With something selected,
+a bar offers Open, Rename, Copy, Cut, **Move to…** (pick a folder by browsing),
+Download and Delete; the right-click menu has the same. **Rename** and **New
+folder** happen in place — type the name and press Enter. Double-click a picture
+or a video for the full-screen viewer (← → for the next one).
+
+**Filter** narrows the folder as you type; press **Enter** to search every
+subfolder for that name instead.
+
+| Keys | |
+|---|---|
+| ↑ ↓ (← → in the grid) | Move; Shift extends the selection |
+| Enter | Open: a folder goes in, text opens the editor, media opens the viewer |
+| Backspace · Alt+← · Alt+→ | Up a folder · back · forward |
+| F2 · Delete | Rename · delete |
+| Ctrl/⌘ + A, C, X, V | Select all, copy, cut, paste |
+| Ctrl/⌘ + F · Ctrl+Shift+N · F5 | Filter · new folder · refresh |
+
+Downloads are issued one file at a time — there is no server-side zip. A file
+opened for viewing is shown in the page only if it is a picture (not SVG),
+sound, video, PDF or plain text; anything else, an HTML file included, is always
+a download, so nothing from your disk can run inside Nexus.
 
 ### Uploads
 

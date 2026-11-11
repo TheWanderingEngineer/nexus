@@ -205,6 +205,44 @@ export async function list(dir) {
 
 const MAX_ENTRIES = 4000;
 
+/**
+ * Find names containing `q` anywhere under a folder.
+ *
+ * Breadth-first, so near matches come first; bounded in results, folders
+ * visited and time, so a search from the top of a 4 TB drive returns quickly
+ * with what it found and says it stopped rather than hanging. Symlinks are not
+ * followed (no loops, no escaping the jail through a link), and the usual
+ * bulky, uninteresting trees are skipped.
+ */
+const SEARCH_SKIP = new Set(["node_modules", ".git", "proc", "sys", "dev", ".cache", "__pycache__", "lost+found"]);
+export async function search(dir, q) {
+  const start = await resolveSafe(dir);
+  const needle = String(q || "").trim().toLowerCase();
+  if (needle.length < 2) throw Object.assign(new Error("type at least two characters"), { status: 400 });
+  const results = [];
+  const queue = [start];
+  let visited = 0, stopped = false;
+  const deadline = Date.now() + 4000;
+  while (queue.length) {
+    if (results.length >= 300 || visited >= 6000 || Date.now() > deadline) { stopped = true; break; }
+    const cur = queue.shift();
+    visited++;
+    let ents;
+    try { ents = await fs.readdir(cur, { withFileTypes: true }); } catch { continue; }
+    for (const d of ents) {
+      const full = path.join(cur, d.name);
+      if (d.name.toLowerCase().includes(needle)) {
+        let size = null, mtime = 0;
+        try { const s = await fs.lstat(full); size = d.isDirectory() ? null : s.size; mtime = s.mtimeMs; } catch {}
+        results.push({ name: d.name, path: full, dir: d.isDirectory(), symlink: d.isSymbolicLink(), text: !d.isDirectory() && isTextFile(d.name), size, mtime });
+        if (results.length >= 300) break;
+      }
+      if (d.isDirectory() && !d.isSymbolicLink() && !SEARCH_SKIP.has(d.name)) queue.push(full);
+    }
+  }
+  return { path: start, q: needle, results, stopped, visited };
+}
+
 /** Promise.all with a ceiling on how many run at once. */
 async function mapLimit(items, limit, fn) {
   const out = new Array(items.length);

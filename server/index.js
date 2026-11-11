@@ -112,7 +112,7 @@ app.use((req, res, next) => {
     }
     const etag = `W/"${key}-${enc}"`;
     res.setHeader("Vary", "Accept-Encoding");
-    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Cache-Control", cachePolicy(req));
     res.setHeader("ETag", etag);
     if (req.headers["if-none-match"] === etag) return res.status(304).end();
     const body = enc === "br" ? entry.br : entry.gz;
@@ -124,6 +124,20 @@ app.use((req, res, next) => {
   });
 });
 
+/**
+ * How long a browser may keep a file without asking again.
+ *
+ * A file asked for with this build's version (`app.js?v=0.9.6`) cannot change
+ * under that URL — the next release asks for `?v=0.9.7` — so it is kept for a
+ * year and a page load costs no round trips for it. Anything else, including
+ * the page itself and a `?v=` from another release, is revalidated every time
+ * with its ETag, so an upgrade is never hidden behind a stale cache.
+ */
+function cachePolicy(req) {
+  const v = new URL(req.originalUrl || req.url, "http://x").searchParams.get("v");
+  return v && v === cfg.version ? "public, max-age=31536000, immutable" : "no-cache";
+}
+
 // The app shell must NOT be cached by time. After `git pull && install.sh` a
 // stale app.js would keep running against a newer API until the cache expired,
 // which is a genuinely confusing failure. ETag revalidation makes repeat loads
@@ -133,7 +147,7 @@ app.use(express.static(WEB_DIR, {
   etag: true,
   lastModified: true,
   maxAge: 0,
-  setHeaders(res) { res.setHeader("Cache-Control", "no-cache"); }
+  setHeaders(res) { res.setHeader("Cache-Control", res.req ? cachePolicy(res.req) : "no-cache"); }
 }));
 
 // SPA fallback — anything not an API route or a real file serves the app shell.
@@ -215,6 +229,9 @@ server.on("upgrade", (req, socket, head) => {
   }
   if (pathname === "/ws/terminal") {
     if (!terminal.enabled()) { socket.write("HTTP/1.1 403 Forbidden\r\n\r\n"); return socket.destroy(); }
+    // Keystrokes are tiny packets; Nagle would hold each echo back waiting
+    // for an ACK, which reads as typing lag.
+    try { socket.setNoDelay(true); } catch {}
     return wssTerminal.handleUpgrade(req, socket, head, ws => wssTerminal.emit("connection", ws, req, auth));
   }
   if (pathname === "/ws/events") {
@@ -251,13 +268,35 @@ wssMetrics.on("connection", ws => {
 /* ---- terminal ---- */
 wssTerminal.on("connection", (ws, req, auth) => {
   let session;
-  // "claude" opens Claude Code in its tmux session; anything else, the shell.
-  const profile = new URL(req.url, "http://localhost").searchParams.get("profile") === "claude" ? "claude" : "shell";
+  // "claude" opens Claude Code in its tmux session, "exec" a shell inside one
+  // container (validated in terminal.js); anything else, the host shell.
+  const q = new URL(req.url, "http://localhost").searchParams;
+  const profile = ["claude", "exec"].includes(q.get("profile")) ? q.get("profile") : "shell";
+  const target = profile === "exec" ? String(q.get("id") || "").slice(0, 128) : null;
+  // Output is batched: a full-screen program (Claude Code, htop) redraws in
+  // dozens of small writes, and one WebSocket frame each meant dozens of
+  // parses and paints in the browser per redraw. Gathered for up to 6 ms (or
+  // 64 KB) and sent as one frame, the screen updates once — the lag people
+  // saw while Claude was working.
+  let pending = [], pendingBytes = 0, flushTimer = null;
+  const flush = () => {
+    flushTimer = null;
+    if (!pending.length || ws.readyState !== ws.OPEN) { pending = []; pendingBytes = 0; return; }
+    const out = pending.length === 1 ? pending[0] : Buffer.concat(pending, pendingBytes);
+    pending = []; pendingBytes = 0;
+    ws.send(out);
+  };
+  const queue = buf => {
+    pending.push(buf); pendingBytes += buf.length;
+    if (pendingBytes >= 65536) { clearTimeout(flushTimer); flush(); }
+    else if (!flushTimer) flushTimer = setTimeout(flush, 6);
+  };
   try {
     session = terminal.open({
-      cols: 80, rows: 24, profile,
-      onData: buf => { if (ws.readyState === ws.OPEN) ws.send(buf); },
+      cols: 80, rows: 24, profile, target,
+      onData: buf => queue(Buffer.isBuffer(buf) ? buf : Buffer.from(buf)),
       onExit: code => {
+        clearTimeout(flushTimer); flush();
         if (ws.readyState === ws.OPEN) {
           ws.send(Buffer.from(`\r\n[nexus] session ended (exit ${code})\r\n`));
           ws.close();
@@ -270,7 +309,7 @@ wssTerminal.on("connection", (ws, req, auth) => {
     return ws.close(4000, "not started");
   }
 
-  audit("terminal.open", { sessionId: session.id, profile }, req, auth.user);
+  audit("terminal.open", { sessionId: session.id, profile, ...(target ? { container: target } : {}) }, req, auth.user);
 
   ws.on("message", (data, isBinary) => {
     if (!isBinary) {

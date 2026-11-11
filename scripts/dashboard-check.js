@@ -102,8 +102,8 @@ try {
   // The reported route: Files, open a folder, come back.
   await page.click('.nav[data-page="files"]');
   await sleep(1800);
-  await page.evaluate(() => [...document.querySelectorAll('#f-table tbody tr')]
-    .find(tr => tr.dataset.dir === '1')?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
+  await page.evaluate(() => [...document.querySelectorAll('#f-list [data-path]')]
+    .find(el => el.dataset.dir === '1')?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
   await sleep(1800);
   // ...and the thing that actually broke it: a resize while the page is hidden.
   await page.setViewportSize({ width: 1200, height: 860 });

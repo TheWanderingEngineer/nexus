@@ -136,18 +136,35 @@ function claudeCommand() {
   // of its own while tmux owns the screen). Set on this session only, and on
   // every attach, so it holds for a session made before this existed. A long
   // Claude conversation outgrows tmux's default 2000 lines of history.
+  // escape-time 10: tmux waits this long after Esc to see whether it starts a
+  // key sequence. Its default, 500 ms, made Esc (Claude's "stop") feel stuck.
   // set-clipboard on: a selection made in tmux, and Claude's own "c to copy",
   // both travel out as OSC 52 — which the page turns into a real clipboard
   // write. tmux's default ("external") swallows the program's copies.
   const tmux = shq(st.tmux);
   const body = st.tmux
-    ? `${utf8}${tmux} -u start-server \\; set-option -g history-limit 50000 \\; set-option -s set-clipboard on \\; ` +
+    ? `${utf8}${tmux} -u start-server \\; set-option -g history-limit 50000 \\; set-option -s set-clipboard on \\; set-option -s escape-time 10 \\; ` +
       `new-session -A -s claude ${shq(inner)} \\; set-option -t claude mouse on`
     : `${utf8}printf '\\033[33m[nexus] tmux is not installed, so this session ends when you close the tab. sudo apt install tmux\\033[0m\\n'; ${inner}`;
   return st.asOther ? `runuser -l ${st.user} -c ${shq(body)}` : `bash -lc ${shq(body)}`;
 }
 
-export function open({ cols = 80, rows = 24, onData, onExit, profile = "shell" }) {
+/**
+ * A shell inside a container: the Containers page's Console button. bash if
+ * the image has it, sh otherwise. The id must look like a container id or
+ * name before it goes anywhere near a command line.
+ */
+function execCommand(id) {
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(String(id || ""))) {
+    throw Object.assign(new Error("That is not a container id."), { status: 400 });
+  }
+  const docker = onPath("docker");
+  if (!docker) throw Object.assign(new Error("The docker command is not installed on this host."), { status: 404 });
+  const inner = "if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi";
+  return `${shq(docker)} exec -it -e TERM=xterm-256color ${shq(id)} sh -c ${shq(inner)}`;
+}
+
+export function open({ cols = 80, rows = 24, onData, onExit, profile = "shell", target = null }) {
   if (!cfg.terminal.enabled) {
     throw Object.assign(new Error("terminal is disabled in the server config"), { status: 403 });
   }
@@ -156,7 +173,8 @@ export function open({ cols = 80, rows = 24, onData, onExit, profile = "shell" }
   const shell = shellName();
   const env = { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor", LANG: process.env.LANG || "C.UTF-8" };
   // The Claude profile is a fixed command line; the plain shell is the shell.
-  const command = profile === "claude" ? claudeCommand() : null;
+  const command = profile === "claude" ? claudeCommand()
+                : profile === "exec" ? execCommand(target) : null;
 
   let impl;
 
@@ -209,7 +227,7 @@ export function open({ cols = 80, rows = 24, onData, onExit, profile = "shell" }
   }
 
   const session = {
-    id, cols, rows, backend: backendName(), startedAt: Date.now(), profile: command ? "claude" : "shell",
+    id, cols, rows, backend: backendName(), startedAt: Date.now(), profile: command ? profile : "shell",
     write: impl.write,
     resize(c, r) {
       c = Math.max(2, Math.min(1000, Math.round(Number(c)) || 80));

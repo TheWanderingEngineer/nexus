@@ -196,10 +196,12 @@ export function saveSettings(patch) {
     model: typeof patch.model === "string" ? patch.model.slice(0, 120) : cur.model,
     customModel: typeof patch.customModel === "string" ? patch.customModel.slice(0, 120) : cur.customModel,
     baseUrl: typeof patch.baseUrl === "string" ? patch.baseUrl.slice(0, 300) : cur.baseUrl,
-    approval: patch.approval === "auto" ? "auto" : "ask",
+    // Only what the patch names changes: a patch that sets the model must not
+    // quietly put approval back to "ask" (it used to).
+    approval: patch.approval === undefined ? cur.approval : (patch.approval === "auto" ? "auto" : "ask"),
     askAt: LEVELS.includes(patch.askAt) ? patch.askAt : cur.askAt,
     maxSteps: Math.max(1, Math.min(40, Number(patch.maxSteps) || cur.maxSteps)),
-    sendHostFacts: patch.sendHostFacts !== false,
+    sendHostFacts: patch.sendHostFacts === undefined ? cur.sendHostFacts !== false : patch.sendHostFacts !== false,
     roots: Array.isArray(patch.roots) ? patch.roots.slice(0, 32).map(String) : cur.roots,
     caps: {
       metrics:    !!(patch.caps?.metrics    ?? cur.caps.metrics),

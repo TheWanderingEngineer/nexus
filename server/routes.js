@@ -170,8 +170,9 @@ export default function routes() {
     res.json({ available: true, containers: await dockerx.listContainers() });
   }));
 
-  r.post("/docker/containers/:id/:action", wrap(async (req, res) => {
+  r.post("/docker/containers/:id/:action", wrap(async (req, res, next) => {
     const { id, action } = req.params;
+    if (action === "update") return next();          // its own route, below
     if (!/^[a-zA-Z0-9_.-]+$/.test(id)) return res.status(400).json({ error: "bad container id" });
     await dockerx.containerAction(id, action);
     audit("docker." + action, { container: id }, req);
@@ -187,8 +188,39 @@ export default function routes() {
   }));
 
   r.get("/docker/containers/:id/stats", wrap(async (req, res) => {
+    if (!dockerx.validId(req.params.id)) return res.status(400).json({ error: "bad container id" });
     res.json(await dockerx.containerStats(req.params.id));
   }));
+
+  /** Live CPU, memory, network and disk for every running container. */
+  r.get("/docker/stats", wrap(async (_req, res) => {
+    if (!dockerx.status().available) return res.json({});
+    res.json(await dockerx.allStats());
+  }));
+
+  r.get("/docker/containers/:id/inspect", wrap(async (req, res) => {
+    if (!dockerx.validId(req.params.id)) return res.status(400).json({ error: "bad container id" });
+    res.json(await dockerx.inspectContainer(req.params.id));
+  }));
+
+  /** Whether the image's tag now points at something newer. Read only. */
+  r.get("/docker/containers/:id/update-check", wrap(async (req, res) => {
+    if (!dockerx.validId(req.params.id)) return res.status(400).json({ error: "bad container id" });
+    res.json(await dockerx.checkUpdate(req.params.id, { fresh: req.query.fresh === "1" }));
+  }));
+
+  /** Pull and recreate on the new image. Returns a job to poll. */
+  r.post("/docker/containers/:id/update", (req, res) => {
+    if (!dockerx.validId(req.params.id)) return res.status(400).json({ error: "bad container id" });
+    const job = dockerx.startUpdate(req.params.id);
+    audit("docker.update", { container: req.params.id }, req);
+    res.json(job);
+  });
+  r.get("/docker/jobs/:id", (req, res) => {
+    const job = dockerx.getJob(String(req.params.id));
+    if (!job) return res.status(404).json({ error: "no such job" });
+    res.json(job);
+  });
 
   /* ---------------- files ---------------- */
   /**
@@ -286,13 +318,51 @@ export default function routes() {
     res.json(out);
   }));
 
+  /**
+   * A file, as a download or — with `inline=1` — to view in the page.
+   *
+   * Served with Range support (sendFile), so a video preview can seek.
+   *
+   * Inline is only for types a browser shows without running anything:
+   * pictures (not SVG, which can carry script), audio, video, PDF, and text
+   * forced to text/plain. Anything else comes back as an attachment however it
+   * is asked for: an HTML file from your disk rendered on this origin would be
+   * a script running with your Nexus session. Inline responses also carry a
+   * sandboxing CSP, so even a mislabelled file cannot act as a page.
+   */
+  const INLINE = {
+    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp",
+    avif: "image/avif", bmp: "image/bmp", ico: "image/x-icon",
+    mp4: "video/mp4", m4v: "video/mp4", webm: "video/webm", mov: "video/quicktime", mkv: "video/webm",
+    mp3: "audio/mpeg", m4a: "audio/mp4", aac: "audio/aac", flac: "audio/flac", wav: "audio/wav", ogg: "audio/ogg", opus: "audio/ogg",
+    pdf: "application/pdf"
+  };
   r.get("/files/download", wrap(async (req, res) => {
     const safe = await filesvc.resolveSafe(String(req.query.path || ""));
     const st = await fsp.stat(safe);
     if (st.isDirectory()) return res.status(400).json({ error: "cannot download a directory" });
-    res.setHeader("Content-Disposition", `attachment; filename="${path.basename(safe).replace(/"/g, "")}"`);
-    res.setHeader("Content-Length", String(st.size));
-    fs.createReadStream(safe).pipe(res);
+    const name = path.basename(safe);
+    const ext = name.includes(".") ? name.split(".").pop().toLowerCase() : "";
+    const asText = req.query.inline === "1" && !INLINE[ext] && filesvc.isTextFile(name);
+    const inline = req.query.inline === "1" && (INLINE[ext] || asText);
+    const ascii = name.replace(/[^\x20-\x7e]/g, "_").replace(/"/g, "");
+    res.setHeader("Content-Disposition",
+      `${inline ? "inline" : "attachment"}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    if (inline) {
+      res.setHeader("Content-Type", asText ? "text/plain; charset=utf-8" : INLINE[ext]);
+      if (ext !== "pdf") res.setHeader("Content-Security-Policy", "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox");
+    } else {
+      res.setHeader("Content-Type", "application/octet-stream");
+    }
+    res.sendFile(safe, { dotfiles: "allow", acceptRanges: true, lastModified: true, cacheControl: false }, err => {
+      if (err && !res.headersSent) res.status(err.status || 500).json({ error: err.message });
+    });
+  }));
+
+  /** Names matching `q` under a folder, for the Files page's search. */
+  r.get("/files/search", wrap(async (req, res) => {
+    res.json(await filesvc.search(String(req.query.path || ""), String(req.query.q || "")));
   }));
 
   r.post("/files/mkdirp", wrap(async (req, res) => {

@@ -1117,6 +1117,17 @@ The panel renders incrementally: `stepKey()` identifies each step on screen,
 and only steps after the first difference are redrawn. That is what keeps an
 expanded tool detail open and the scroll position put while a turn streams in.
 
+## Bump the `?v=` with the version
+
+Every script and stylesheet in `index.html` is loaded as `file?v=<version>`.
+When that matches `package.json`'s version, `server/index.js` serves it with
+`Cache-Control: public, max-age=31536000, immutable` — a page load costs no round
+trips for it. Anything else (the page itself, a `?v=` from another release) is
+revalidated with its ETag. **So a change to any web file must ship with a version
+bump and the new `?v=` in `index.html`**, or browsers keep the old file for a
+year. During development, a hard reload or `fetch(url, {cache: "reload"})`
+refreshes one.
+
 ## The version string
 
 `cfg.version` in `config.js`, read from `package.json`, is the only one. The
@@ -1171,6 +1182,24 @@ matter. `gui:check` covers the cases.
 forwarded, upgrade dropped, `Host` rewritten with `trustedProxies` empty, and
 the same once it is set. If you touch any of the above, run it.
 
+## Containers: updates
+
+`checkUpdate()` asks Docker for `/distribution/<image>/json` — Docker contacts the
+registry with its own credentials — and compares the returned digest with the
+local image's `RepoDigests`. Cached an hour per image.
+
+`startUpdate()` runs as a job the page polls (`GET /docker/jobs/:id`): a pull can
+take minutes and a reverse proxy will not hold a request that long. The recreate
+copies `Config` and `HostConfig`, drops a hostname that is just the old id,
+mounts any anonymous volume by name (or it would come back empty), connects the
+first network at create time and the rest after, renames the old container
+aside and only removes it once the new one is running. On any failure the new
+one is removed and the old one renamed back and restarted. Keep that order.
+
+`POST /docker/containers/:id/:action` is registered before `/update` and passes
+`update` through with `next()` — remove that line and Update becomes "unknown
+action".
+
 ## The file manager
 
 Beyond listing and uploading, it does capacity, notes, a clipboard, and drag and
@@ -1186,6 +1215,18 @@ drop. Points worth knowing before changing any of it:
   path, and drops any key that is not a configured root. Normalise with
   `path.resolve()` before comparing — `listRoots()` resolves its paths, so a
   raw-string comparison silently matches nothing on Windows.
+- **`GET /files/download?inline=1`** shows a file in the page only for an
+  allow-list of types (pictures but not SVG, audio, video, PDF; text is forced to
+  `text/plain`), with a sandboxing CSP and `nosniff`. Everything else is an
+  attachment however it is asked for: an HTML file from disk rendered on this
+  origin would be script running with the owner's session. It is `sendFile`, so
+  Range requests work and video seeks.
+- **`GET /files/search`** is breadth-first and bounded (300 results, 6000
+  folders, 4 s), does not follow symlinks, and says when it stopped early.
+- **The path bar's crumbs are `data-fpath`, not `data-go`.** The document-level
+  router treats `data-go` as a page name; the old crumbs used it, and a click
+  could fall through to `go("/mnt/data")` — the Overview. The router now also
+  ignores any `data-go` that is not a page.
 - **`POST /files/transfer`** is the single copy/move endpoint. `transferTo()` in
   `app.js` is its single caller: both the clipboard paste and drag-and-drop go
   through it, so clash handling cannot drift between them.
