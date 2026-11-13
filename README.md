@@ -15,6 +15,16 @@ daylight, one accent, optional glass), **Workstation** (warm and retro) and
 
 ---
 
+## What's new in 0.9.7
+
+| | |
+|---|---|
+| **A new icon** | A white N joining two points, on indigo. One SVG (`assets/brand/nexus.svg`) and the PNG sizes cut from it: browser tab, sidebar, sign-in, notifications, home-screen |
+| **The Dashboard has a job** | Overview says what is wrong; the Dashboard is the board you arrange and leave open. It is **locked until you press Edit**, so nothing moves when you brush a title. **Full screen** shows the board and nothing else. Two new widgets — **Health** (what is wrong, by area) and **Apps** (your apps as buttons, with whether each is up) — and a default layout that fills three even rows |
+| **Settings, rebuilt** | Sections down the left, one at a time on the right, each with its own address: Appearance, General, Kernel, System, Disk health, Activity (with a filter) and About |
+| **Automations, rebuilt** | Five tabs that are also the summary — *3 unread*, *2 of 4 on*, *Not set up*, *Armed*. Alerts grouped by day with filters; rules and schedules as switch rows; four starting points for the rules nearly every box wants |
+| **Fixed** | Memory and Storage widgets read "Not running" since 0.9.6 — two functions shared one name |
+
 ## What's new in 0.9.6
 
 | | |
@@ -537,12 +547,27 @@ minutes; the bouncing itself stays visible in the result bars.
 
 ## The dashboard
 
-Widgets float where you drop them — gravity only applies when you press RESET.
+**Overview** is written by Nexus and answers one question — is anything wrong.
+The **Dashboard** is written by you: the readings, the buttons and the cat you
+want on one screen, at the size and in the place you want them.
+
+It is **locked** until you press **Edit**. In everyday use a widget is something
+you read and press — its title opens the page behind it (Containers, Apps,
+Overview), the gear has its options — and nothing moves when you brush against
+it. **Edit** unlocks the board: widgets get a dashed outline, a remove button and
+a resize corner, and **Add widget**, **Tidy** and **Reset** appear. **Done** (or
+Esc) locks it again.
+
+**Full screen** shows the board and nothing else — no sidebar, no top bar — for a
+spare monitor or a tablet on the wall. Esc, or the button in the corner, leaves.
+
+Widgets float where you drop them — gravity only applies when you press Reset.
+All of these are in Edit mode:
 
 | Gesture | Effect |
 |---|---|
-| Drag a widget's title bar | Moves it. The body is not a handle — so the things inside it stay usable |
-| Right-click a widget | Its own settings: size, colour, background tint, plus per-type options |
+| Drag a widget's title bar | Moves it |
+| Right-click a widget, or press its gear | Its own settings: size, colour, background tint, plus per-type options. This one works locked too |
 | Ctrl/⌘ + click | Add or remove a widget from the selection |
 | Ctrl/⌘ + A | Select every widget, including any below the fold |
 | Drag a selected widget | Moves the whole selection, keeping its internal spacing. A selected widget moves from anywhere on it, not just its title bar |
@@ -550,10 +575,14 @@ Widgets float where you drop them — gravity only applies when you press RESET.
 | Delete / Backspace | Remove the selection |
 | Escape | Clear it |
 
-**TIDY** packs every widget top-left with no gaps, keeping the order you already
-have. **PRESETS** saves the whole arrangement under a name — one layout for
+**Tidy** packs every widget top-left with no gaps, keeping the order you already
+have. **Presets** saves the whole arrangement under a name — one layout for
 watching the media stack, another for chasing a disk problem — and switches
 between them.
+
+A dashboard that was never rearranged is moved to the new default layout on
+upgrade. One with a single widget moved, resized or restyled is left exactly as
+it is.
 
 **Storage** and **Sensors** carry a tick list in their right-click menu, so you can
 drop `/boot/efi` from the disk list or hide the four hwmon channels that only ever
@@ -563,7 +592,10 @@ in next month appears on its own rather than being silently excluded.
 ### The widgets
 
 CPU, Memory, Storage, Network, Sensors, Containers, Uptime, Clock, Last Boot,
-Host, Server Cat — plus four that answer more specific questions:
+Host, Server Cat; **Health** — all clear or what is wrong, then each area with
+how many of its checks pass (press one to go there); **Apps** — your most-used,
+pinned or A–Z apps as buttons, each with a dot for up, slow or down — plus four
+that answer more specific questions:
 
 | Widget | The question it answers |
 |---|---|
@@ -898,12 +930,16 @@ Three things worth knowing:
   missing intermediate directories cannot be symlinks, so there is nothing left
   to escape through.
 
-## Control panel
+## Automations
 
-Automations, in three bands: what has already tripped, the rules and tasks that
-decide when something trips, and where the news is sent. Each section carries
-its own button — **+ NEW RULE** sits in **Watch rules**, not in a toolbar above
-five sections that cannot say which one it belongs to.
+Five tabs across the top, and each one says its own state under its name —
+*3 unread*, *2 of 4 on*, *None yet*, *Not set up*, *Armed* — so the row is a
+summary before it is a menu. One section shows at a time and has its own address
+(`#/control/rules`).
+
+**Alerts** — what has tripped, newest first, grouped by day. Unread ones are
+bold with a dot; filter to Unread, Critical or Warning. **Mark all read** deletes
+nothing; **Clear** deletes the history.
 
 **Watch rules** — one rule watches one thing (a temperature, CPU, memory, a disk,
 a container) and acts when it stays wrong. Two knobs make this useful rather than
@@ -918,9 +954,11 @@ noisy:
 Actions are: notify in Nexus, send a webhook, restart or stop a container, or
 reboot/shut the host down. Two notify-only rules are seeded on first boot — high
 CPU temperature and a nearly-full disk — because those are the two failures that
-actually kill homelab boxes.
+actually kill homelab boxes. Under the list are **starting points** — Running
+hot, Disk nearly full, Container stopped, Memory nearly full — each opening the
+editor filled in, so the threshold is yours to change before anything is saved.
 
-**Scheduled tasks** — container restarts on a clock. A timed whole-host reboot is
+**Schedules** — start, stop or restart a container on a clock. A timed whole-host reboot is
 deliberately *not* offered: rebooting Linux on a timer hides a leak instead of
 finding it and guarantees downtime at a fixed hour. Restarting the one container
 that misbehaves is the same idea aimed at the thing that actually misbehaves.
@@ -935,6 +973,21 @@ buttons and any rule that carries a power action are refused by the server, not
 just greyed out in the UI. Arming is a deliberate switch, and the buttons then ask
 you to type the hostname; Nexus runs as root, so these do exactly what they say and
 there is no remote power-on.
+
+## Settings
+
+Sections down the left; one at a time on the right, each with its own address
+(`#/settings/kernel`).
+
+| | |
+|---|---|
+| **Appearance** | Theme, light or dark, accent, glass panels, reduced motion. Saved in this browser |
+| **General** | Live app data on or off, the slim sidebar, and a reset each for the Overview cards, the Dashboard and quick launch. Keyboard shortcuts; sign out |
+| **Kernel** | Provider, model, key, what it may do, the folders it can reach, when it asks, skills, scheduled tasks, usage |
+| **System** | What this machine is, and whether Docker, the terminal, Claude Code, the file folders and the sensors are working |
+| **Disk health** | What each drive reports about itself (SMART): healthy or failing, temperature, time powered on |
+| **Activity** | The audit log — sign-ins, changes, terminal sessions — with a filter |
+| **About** | Version, where the data and config live, the update command and the way back to the original interface files |
 
 ## Development
 

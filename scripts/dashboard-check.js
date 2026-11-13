@@ -132,12 +132,16 @@ try {
     const el = document.querySelector('#grid .w');
     el.style.left = '900px'; el.style.top = '900px';
   });
+  // The board is locked until Edit is pressed; Tidy lives in edit mode.
+  await page.click('#dash-edit'); await sleep(300);
   await page.click('#tidy');
   await sleep(900);
   const tidied = await geometry(page);
   ok('TIDY leaves no overlaps', tidied.overlaps === 0, tidied.overlaps + ' overlaps');
   const topRow = tidied.box.filter(b => b.y === Math.min(...tidied.box.map(x => x.y)));
   ok('TIDY packs against the top', topRow.length >= 2, topRow.length + ' widgets on the top row');
+  await page.click('#dash-done'); await sleep(300);
+  ok('Done locks the board again', await page.evaluate(() => !document.querySelector('#page-dash').classList.contains('editing')));
 
   // Presets: save, change, switch back.
   await page.click('#presets'); await sleep(700);
@@ -218,16 +222,16 @@ try {
      enough apart that CANCEL and SAVE are two targets. */
   await page.click('.nav[data-page="control"]'); await sleep(1600);
   const cp = await page.evaluate(() => {
-    const t = document.querySelector('.toggle');
+    const t = document.querySelector('#cp-rules .switch');
     const cs = t && getComputedStyle(t);
-    const knob = t && getComputedStyle(t.querySelector('i'));
-    const heads = [...document.querySelectorAll('#page-control .sechead')];
+    const knob = t && getComputedStyle(t.querySelector('span'));
+    const heads = [...document.querySelectorAll('#page-control .au-head')];
     return {
-      toggles: document.querySelectorAll('.toggle').length,
+      toggles: document.querySelectorAll('#cp-rules .switch').length,
       eased: !!cs && /cubic-bezier|ease/.test(knob.transitionTimingFunction) && !/steps/.test(knob.transitionTimingFunction),
       round: !!cs && parseFloat(cs.borderRadius) > 8,
       newRuleInToolbar: !!document.querySelector('#toolbar #cp-new-rule'),
-      newRuleInSection: !!document.querySelector('#page-control .sechead #cp-new-rule'),
+      newRuleInSection: !!document.querySelector('#page-control .au-head #cp-new-rule'),
       sections: heads.length
     };
   });
@@ -236,6 +240,11 @@ try {
   ok('the switch travels rather than stepping', cp.toggles > 0 && cp.eased, JSON.stringify(cp));
   ok('and it is a pill in the workstation theme', cp.round);
 
+  // Each section is a tab with its own address; New rule is on the rules tab.
+  await page.click('#au-tabs [data-au="rules"]'); await sleep(900);
+  ok('a tab shows its own section and nothing else', await page.evaluate(() =>
+    [...document.querySelectorAll('#page-control .au-pane')].filter(p => !p.hidden).map(p => p.dataset.pane).join() === 'rules'
+    && location.hash === '#/control/rules'));
   await page.click('#cp-new-rule'); await sleep(1200);
   const form = await page.evaluate(() => {
     const sel = document.querySelector('#ru-src');

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Nexus">
+  <defs>
+    <linearGradient id="nx-bg" x1="8" y1="4" x2="56" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#9093ff"/>
+      <stop offset="1" stop-color="#5558e3"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="url(#nx-bg)"/>
+  <path d="M21 45V19l22 26V19" fill="none" stroke="#fff" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="21" cy="45" r="5.25" fill="#fff"/>
+  <circle cx="43" cy="19" r="5.25" fill="#fff"/>
+</svg>

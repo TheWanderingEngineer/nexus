@@ -5,18 +5,20 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#0b0c0f">
-<script src="/appearance.js?v=0.9.6"></script>
+<script src="/appearance.js?v=0.9.7"></script>
 <title>Nexus</title>
-<link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/icons/nexus-32.png">
-<link rel="icon" type="image/png" sizes="16x16" href="/assets/brand/icons/nexus-16.png">
-<link rel="apple-touch-icon" href="/assets/brand/icons/nexus-128.png">
-<link rel="stylesheet" href="/vendor/xterm.css?v=0.9.6">
-<link rel="stylesheet" href="/style.css?v=0.9.6">
-<link rel="stylesheet" href="/workstation.css?v=0.9.6">
-<link rel="stylesheet" href="/ui.css?v=0.9.6">
-<link rel="stylesheet" href="/modern.css?v=0.9.6">
-<link rel="stylesheet" href="/apps.css?v=0.9.6">
-<link rel="stylesheet" href="/pages.css?v=0.9.6">
+<link rel="icon" type="image/svg+xml" href="/assets/brand/nexus.svg?v=0.9.7">
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/icons/nexus-32.png?v=0.9.7">
+<link rel="icon" type="image/png" sizes="16x16" href="/assets/brand/icons/nexus-16.png?v=0.9.7">
+<link rel="apple-touch-icon" sizes="180x180" href="/assets/brand/icons/nexus-180.png?v=0.9.7">
+<link rel="stylesheet" href="/vendor/xterm.css?v=0.9.7">
+<link rel="stylesheet" href="/style.css?v=0.9.7">
+<link rel="stylesheet" href="/workstation.css?v=0.9.7">
+<link rel="stylesheet" href="/ui.css?v=0.9.7">
+<link rel="stylesheet" href="/modern.css?v=0.9.7">
+<link rel="stylesheet" href="/apps.css?v=0.9.7">
+<link rel="stylesheet" href="/pages.css?v=0.9.7">
+<link rel="stylesheet" href="/panels.css?v=0.9.7">
 </head>
 <body>
 
@@ -30,7 +32,7 @@
     <!-- method=post and a disabled button until app.js takes over: a form submitted
          natively before the script loads would put the password in the URL. -->
     <form class="gatebody" id="gate-form" autocomplete="on" method="post">
-      <img class="crt" src="/assets/brand/nexus-logo.png" alt="">
+      <img class="crt" src="/assets/brand/nexus.svg?v=0.9.7" alt="">
       <p class="gatemsg" id="gate-msg">Welcome back. Sign in to your homelab.</p>
       <div>
         <label for="g-user">Username</label>
@@ -59,7 +61,7 @@
   <aside id="rail" aria-label="Main navigation">
     <div class="sb-head">
       <button class="sb-brand" type="button" data-go="overview" aria-label="Nexus — overview">
-        <img class="sb-logo" src="/assets/brand/icons/nexus-64.png" width="28" height="28" alt="">
+        <img class="sb-logo" src="/assets/brand/nexus.svg?v=0.9.7" width="28" height="28" alt="">
         <span class="sb-name"><b>Nexus</b><small id="sb-host">homelab</small></span>
       </button>
       <button class="sb-ico" id="sb-search" type="button" aria-label="Search (Ctrl+K)" data-tip="Search everything — Ctrl/&#8984;+K"><i class="ic" data-ic="search"></i></button>
@@ -134,10 +136,17 @@
           <button class="btn primary" id="ar-add" data-tip="Watch a web address, a port, a host or a DNS name."><i class="ic" data-ic="plus"></i>Add check</button>
         </div>
         <div id="tools-dash" hidden>
-          <button class="btn primary" id="add" data-tip="Open the widget library."><i class="ic" data-ic="plus"></i>Add widget</button>
-          <button class="btn" id="presets" data-tip="Saved arrangements. Switch between them, or save this one.">Presets</button>
-          <button class="btn" id="tidy" data-tip="Pack the widgets top-left with no gaps, keeping their order.">Tidy</button>
-          <button class="btn" id="reset" data-tip="Restore the default layout and close any gaps. Your widget styling is discarded.">Reset</button>
+          <span class="tgroup" id="dash-view">
+            <button class="btn" id="presets" type="button" data-tip="Saved arrangements. Switch between them, or save this one.">Presets</button>
+            <button class="btn" id="dash-full" type="button" data-tip="The board and nothing else — for a screen you leave it on. Esc leaves."><i class="ic" data-ic="maximize"></i>Full screen</button>
+            <button class="btn primary" id="dash-edit" type="button" data-tip="Add, move, resize and remove widgets. The board is locked until you press this."><i class="ic" data-ic="edit"></i>Edit</button>
+          </span>
+          <span class="tgroup" id="dash-editing" hidden>
+            <button class="btn" id="tidy" type="button" data-tip="Pack the widgets top-left with no gaps, keeping their order.">Tidy</button>
+            <button class="btn" id="reset" type="button" data-tip="Put the default widgets back. Your arrangement and widget settings are discarded.">Reset</button>
+            <button class="btn" id="add" type="button" data-tip="Open the widget library."><i class="ic" data-ic="plus"></i>Add widget</button>
+            <button class="btn primary" id="dash-done" type="button"><i class="ic" data-ic="check"></i>Done</button>
+          </span>
         </div>
         <div id="tools-containers" hidden>
           <button class="btn" id="c-checkupd" type="button" data-tip="Ask each image's registry whether a newer version is published. Read only — nothing is changed."><i class="ic" data-ic="refresh"></i><span>Check for updates</span></button>
@@ -200,12 +209,16 @@
 
       <!-- dashboard -->
       <section class="page" id="page-dash">
+        <div class="ov-editbar" id="dash-editbar" hidden>
+          <i class="ic" data-ic="layout"></i><span>Drag a title to move &middot; the corner resizes &middot; the gear has each widget's options &middot; Ctrl/&#8984;+click selects several</span>
+        </div>
         <div class="selbar" id="selbar" hidden>
           <span class="selc" id="selcount">0 widgets selected</span>
-          <span class="hint">Ctrl/&#8984;+click to add &middot; drag any of them to move the group &middot; right-click for shared settings &middot; Delete removes them</span>
+          <span class="hint">Drag any of them to move the group &middot; right-click for shared settings &middot; Delete removes them</span>
         </div>
         <div id="grid"></div>
-        <div class="empty" id="grid-empty" hidden>No widgets yet &mdash; press &ldquo;Add widget&rdquo;</div>
+        <div class="empty" id="grid-empty" hidden>No widgets yet &mdash; press Edit, then Add widget</div>
+        <button class="kiosk-exit" id="kiosk-exit" type="button" aria-label="Leave full screen" data-tip="Leave full screen — Esc"><i class="ic" data-ic="minimize"></i></button>
       </section>
 
       <!-- containers -->
@@ -411,186 +424,255 @@
         </div>
       </section>
 
-      <!-- control panel -->
+      <!-- automations -->
       <section class="page" id="page-control">
-        <!-- Three bands, in the order the questions get asked: what happened,
-             what should happen, and where it is sent. A button belongs to the
-             section it acts on — a page-level toolbar cannot say which. -->
-        <p class="pagelead">Three things live here: what has already tripped, the rules and tasks that
-          decide when something trips, and where Nexus sends the news.</p>
+        <!-- Five tabs, each carrying its own state in a line under the name, so
+             the row is a summary before it is a menu. One section shows at a
+             time and has its own address: #/control/rules. -->
+        <div class="au-tabs" id="au-tabs" role="tablist" aria-label="Automations">
+          <button type="button" role="tab" data-au="alerts"><span class="au-ti"><i class="ic" data-ic="bell"></i></span><span class="au-tt"><b>Alerts</b><small id="au-s-alerts">&mdash;</small></span></button>
+          <button type="button" role="tab" data-au="rules"><span class="au-ti"><i class="ic" data-ic="zap"></i></span><span class="au-tt"><b>Watch rules</b><small id="au-s-rules">&mdash;</small></span></button>
+          <button type="button" role="tab" data-au="tasks"><span class="au-ti"><i class="ic" data-ic="calendar"></i></span><span class="au-tt"><b>Schedules</b><small id="au-s-tasks">&mdash;</small></span></button>
+          <button type="button" role="tab" data-au="notify"><span class="au-ti"><i class="ic" data-ic="message"></i></span><span class="au-tt"><b>Notifications</b><small id="au-s-notify">&mdash;</small></span></button>
+          <button type="button" role="tab" data-au="power"><span class="au-ti"><i class="ic" data-ic="power"></i></span><span class="au-tt"><b>Power</b><small id="au-s-power">&mdash;</small></span></button>
+        </div>
 
-        <div class="section">
-          <div class="sechead">
-            <div class="sectitle">
-              <h2>Alerts</h2>
-              <p class="hint">What has tripped, newest first — including health checks that went down.
-                 Kept on the server, so this survives a reload &mdash; and a restart.</p>
+        <div class="au-pane" data-pane="alerts" hidden>
+          <header class="au-head">
+            <div class="au-ht"><h2>Alerts</h2>
+              <p>What has tripped, newest first &mdash; rules, and health checks that went down. Kept on the server, so it survives a reload and a restart.</p></div>
+            <div class="au-acts">
+              <div class="seg" id="au-filter" role="group" aria-label="Show">
+                <button type="button" data-af="all" aria-pressed="true">All <i>0</i></button>
+                <button type="button" data-af="unread" aria-pressed="false">Unread <i>0</i></button>
+                <button type="button" data-af="crit" aria-pressed="false">Critical <i>0</i></button>
+                <button type="button" data-af="warn" aria-pressed="false">Warning <i>0</i></button>
+              </div>
+              <button class="btn sm" id="cp-ack" type="button" data-tip="Mark every alert as seen. Nothing is deleted."><i class="ic" data-ic="check"></i>Mark all read</button>
+              <button class="btn sm danger ghost" id="cp-clear" type="button" data-tip="Delete the alert history permanently."><i class="ic" data-ic="trash"></i>Clear</button>
             </div>
-            <div class="secacts">
-              <button class="btn sm" id="cp-ack" data-tip="Mark every alert as seen. Nothing is deleted.">Mark all read</button>
-              <button class="btn sm danger" id="cp-clear" data-tip="Delete the alert history permanently.">Clear history</button>
-            </div>
-          </div>
+          </header>
           <div id="cp-alerts"></div>
         </div>
 
-        <h3 class="bandhead">When something should happen</h3>
-
-        <div class="section">
-          <div class="sechead">
-            <div class="sectitle">
-              <h2>Watch rules</h2>
-              <p class="hint">A rule watches one thing and does something when it stays wrong for long
-                 enough. Sustain and cooldown are what keep this useful rather than noisy.</p>
+        <div class="au-pane" data-pane="rules" hidden>
+          <header class="au-head">
+            <div class="au-ht"><h2>Watch rules</h2>
+              <p>A rule watches one thing and acts when it stays wrong for long enough. The wait and the quiet time afterwards are what keep it useful instead of noisy.</p></div>
+            <div class="au-acts">
+              <button class="btn primary" id="cp-new-rule" type="button" data-tip="Watch something and act when it stays wrong."><i class="ic" data-ic="plus"></i>New rule</button>
             </div>
-            <div class="secacts">
-              <button class="btn sm primary" id="cp-new-rule" data-tip="Watch something and act when it stays wrong.">New rule</button>
-            </div>
-          </div>
+          </header>
           <div id="cp-rules"></div>
         </div>
 
-        <div class="section">
-          <div class="sechead">
-            <div class="sectitle">
-              <h2>Scheduled tasks</h2>
-              <p class="hint">Container restarts on a clock, in the server&rsquo;s local time. A timed
-                 whole-host reboot is deliberately not offered.</p>
+        <div class="au-pane" data-pane="tasks" hidden>
+          <header class="au-head">
+            <div class="au-ht"><h2>Schedules</h2>
+              <p>Start, stop or restart a container on a clock, in the server&rsquo;s local time. A timed reboot of the whole machine is deliberately not offered.</p></div>
+            <div class="au-acts">
+              <button class="btn primary" id="cp-new-task" type="button" data-tip="Run a container action on a schedule."><i class="ic" data-ic="plus"></i>New schedule</button>
             </div>
-            <div class="secacts">
-              <button class="btn sm primary" id="cp-new-task" data-tip="Restart a container on a schedule.">New task</button>
-            </div>
-          </div>
+          </header>
           <div id="cp-schedules"></div>
         </div>
 
-        <h3 class="bandhead">Where it goes, and the switch you arm</h3>
-
-        <div class="section">
-          <div class="sechead">
-            <div class="sectitle">
-              <h2>Notifications</h2>
-              <p class="hint">An alert that only appears in a browser tab you do not have open is not
-                 an alert.</p>
-            </div>
-          </div>
+        <div class="au-pane" data-pane="notify" hidden>
+          <header class="au-head">
+            <div class="au-ht"><h2>Notifications</h2>
+              <p>Where the news goes. An alert that only appears in a browser tab you do not have open is not an alert.</p></div>
+          </header>
           <div id="cp-notify"></div>
         </div>
 
-        <div class="section">
-          <div class="sechead">
-            <div class="sectitle">
-              <h2>Power</h2>
-              <p class="hint">Reboot and shutdown, disarmed by default. While disarmed the server
-                 refuses them, not just the buttons.</p>
-            </div>
-          </div>
+        <div class="au-pane" data-pane="power" hidden>
+          <header class="au-head">
+            <div class="au-ht"><h2>Power</h2>
+              <p>Reboot and shut down, switched off by default. While off, the server refuses them &mdash; not just these buttons.</p></div>
+          </header>
           <div id="cp-power"></div>
         </div>
       </section>
 
       <!-- settings -->
       <section class="page" id="page-settings">
-        <div class="section" id="appearance-section">
-          <div class="appearance-intro">
-            <div><h2>Appearance</h2><p>How Nexus looks in this browser. Changes apply instantly and are saved here, not on the server.</p></div>
-          </div>
+        <div class="sx">
+          <nav class="sx-nav" id="sx-nav" aria-label="Settings sections">
+            <button type="button" data-sx="appearance"><i class="ic" data-ic="palette"></i><span><b>Appearance</b><small>Theme, colour and motion</small></span></button>
+            <button type="button" data-sx="general"><i class="ic" data-ic="sliders"></i><span><b>General</b><small>Live data, layouts, your session</small></span></button>
+            <button type="button" data-sx="kernel"><i class="ic" data-ic="sparkles"></i><span><b>Kernel</b><small id="sx-kernel-sub">The assistant and what it may do</small></span></button>
+            <button type="button" data-sx="system"><i class="ic" data-ic="server"></i><span><b>System</b><small>This machine and its services</small></span></button>
+            <button type="button" data-sx="disks"><i class="ic" data-ic="drive"></i><span><b>Disk health</b><small>What each drive reports</small></span></button>
+            <button type="button" data-sx="activity"><i class="ic" data-ic="history"></i><span><b>Activity</b><small>Who did what, and when</small></span></button>
+            <button type="button" data-sx="about"><i class="ic" data-ic="info"></i><span><b>About</b><small id="sx-ver">Nexus</small></span></button>
+          </nav>
 
-          <div class="ap-block">
-            <h3>Theme</h3>
-            <div class="skin-list" role="group" aria-label="Theme">
-              <button type="button" class="skin-choice" data-skin-choice="modern" aria-pressed="false">
-                <span class="skin-prev sp-modern" aria-hidden="true"><i></i><b></b><b></b><b></b></span>
-                <span class="skin-label">Modern</span><span class="skin-detail">Graphite or daylight, one accent. The default.</span>
-              </button>
-              <button type="button" class="skin-choice" data-skin-choice="workstation" aria-pressed="false">
-                <span class="skin-prev sp-workstation" aria-hidden="true"><i></i><b></b><b></b><b></b></span>
-                <span class="skin-label">Workstation</span><span class="skin-detail">Warm paper, forest or slate. Cosy and retro.</span>
-              </button>
-              <button type="button" class="skin-choice" data-skin-choice="classic" aria-pressed="false">
-                <span class="skin-prev sp-classic" aria-hidden="true"><i></i><b></b><b></b><b></b></span>
-                <span class="skin-label">Classic</span><span class="skin-detail">The original pixel CRT.</span>
-              </button>
-            </div>
-          </div>
+          <div class="sx-body">
+            <!-- appearance -->
+            <section class="sx-pane" data-pane="appearance" id="appearance-section" hidden>
+              <header class="sx-head"><h2>Appearance</h2><p>How Nexus looks in this browser. Changes apply as you make them and are saved here, not on the server.</p></header>
 
-          <div class="ap-block" id="ap-modern">
-            <div class="display-row">
-              <div><h3>Mode</h3><p>Dark is the graphite look; System follows your device.</p></div>
-              <div class="seg" role="group" aria-label="Mode" id="ap-mode">
-                <button type="button" data-mode="dark">Dark</button><button type="button" data-mode="light">Light</button><button type="button" data-mode="system">System</button>
+              <div class="sx-card">
+                <div class="sx-ch"><h3>Theme</h3></div>
+                <div class="skin-list" role="group" aria-label="Theme">
+                  <button type="button" class="skin-choice" data-skin-choice="modern" aria-pressed="false">
+                    <span class="skin-prev sp-modern" aria-hidden="true"><i></i><b></b><b></b><b></b></span>
+                    <span class="skin-label">Modern</span><span class="skin-detail">Graphite or daylight, one accent. The default.</span>
+                  </button>
+                  <button type="button" class="skin-choice" data-skin-choice="workstation" aria-pressed="false">
+                    <span class="skin-prev sp-workstation" aria-hidden="true"><i></i><b></b><b></b><b></b></span>
+                    <span class="skin-label">Workstation</span><span class="skin-detail">Warm paper, forest or slate. Cosy and retro.</span>
+                  </button>
+                  <button type="button" class="skin-choice" data-skin-choice="classic" aria-pressed="false">
+                    <span class="skin-prev sp-classic" aria-hidden="true"><i></i><b></b><b></b><b></b></span>
+                    <span class="skin-label">Classic</span><span class="skin-detail">The original pixel CRT.</span>
+                  </button>
+                </div>
               </div>
-            </div>
-            <div class="display-row">
-              <div><h3>Accent</h3><p>The one colour used for selection and primary actions. Status colours never change.</p></div>
-              <div class="accent-list" role="group" aria-label="Accent colour" id="ap-accent"></div>
-            </div>
-          </div>
 
-          <div class="ap-block" id="ap-workstation">
-            <h3>Workstation palette</h3>
-            <div class="palette-list" role="group" aria-label="Workstation palette">
-              <button type="button" class="palette-choice" data-palette-choice="parchment" aria-pressed="false">
-                <span class="palette-preview" data-preview="parchment" aria-hidden="true"><span class="mini-rail"><i></i><i></i><i></i></span><span class="mini-panels"><i><b></b></i><i><b></b></i><i><b></b></i></span></span>
-                <span class="palette-label">Parchment<span class="palette-status">Selected</span></span><span class="palette-detail">Warm paper &amp; olive. A little daylight.</span>
-              </button>
-              <button type="button" class="palette-choice" data-palette-choice="evergreen" aria-pressed="false">
-                <span class="palette-preview" data-preview="evergreen" aria-hidden="true"><span class="mini-rail"><i></i><i></i><i></i></span><span class="mini-panels"><i><b></b></i><i><b></b></i><i><b></b></i></span></span>
-                <span class="palette-label">Evergreen<span class="palette-status">Selected</span></span><span class="palette-detail">Forest green &amp; brass. Settle in.</span>
-              </button>
-              <button type="button" class="palette-choice" data-palette-choice="midnight" aria-pressed="false">
-                <span class="palette-preview" data-preview="midnight" aria-hidden="true"><span class="mini-rail"><i></i><i></i><i></i></span><span class="mini-panels"><i><b></b></i><i><b></b></i><i><b></b></i></span></span>
-                <span class="palette-label">Night Shift<span class="palette-status">Selected</span></span><span class="palette-detail">Slate &amp; amber. For the late hours.</span>
-              </button>
-            </div>
-          </div>
+              <div class="sx-card" id="ap-modern">
+                <div class="sx-row">
+                  <div class="sx-rl"><b>Mode</b><span>Dark is the graphite look. System follows your device.</span></div>
+                  <div class="seg" role="group" aria-label="Mode" id="ap-mode">
+                    <button type="button" data-mode="dark">Dark</button><button type="button" data-mode="light">Light</button><button type="button" data-mode="system">System</button>
+                  </div>
+                </div>
+                <div class="sx-row">
+                  <div class="sx-rl"><b>Accent</b><span>The one colour for selection and main buttons. Status colours never change.</span></div>
+                  <div class="accent-list" role="group" aria-label="Accent colour" id="ap-accent"></div>
+                </div>
+              </div>
 
-          <div class="ap-block">
-            <div class="display-row">
-              <div><h3>Glass panels</h3><p>Kernel, the search palette, menus and dialogs become translucent and blur what is behind them. Turn it off for the crispest reading.</p></div>
-              <button class="switch" id="glass-toggle" type="button" role="switch" aria-checked="false"><span></span></button>
-            </div>
-            <div class="display-row">
-              <div><h3>Reduce motion</h3><p>Stops transitions and animations. Your device's reduced-motion preference is always respected.</p></div>
-              <button class="switch" id="motion-toggle" type="button" role="switch" aria-checked="false"><span></span></button>
-            </div>
-            <div class="display-row" id="crt-row">
-              <div><h3>CRT scanlines</h3><p>A faint CRT texture, for the Classic and Workstation themes.</p></div>
-              <button class="switch" id="crt-toggle" type="button" role="switch" aria-checked="false"><span></span></button>
-            </div>
+              <div class="sx-card" id="ap-workstation">
+                <div class="sx-ch"><h3>Workstation palette</h3></div>
+                <div class="palette-list" role="group" aria-label="Workstation palette">
+                  <button type="button" class="palette-choice" data-palette-choice="parchment" aria-pressed="false">
+                    <span class="palette-preview" data-preview="parchment" aria-hidden="true"><span class="mini-rail"><i></i><i></i><i></i></span><span class="mini-panels"><i><b></b></i><i><b></b></i><i><b></b></i></span></span>
+                    <span class="palette-label">Parchment<span class="palette-status">Selected</span></span><span class="palette-detail">Warm paper &amp; olive. A little daylight.</span>
+                  </button>
+                  <button type="button" class="palette-choice" data-palette-choice="evergreen" aria-pressed="false">
+                    <span class="palette-preview" data-preview="evergreen" aria-hidden="true"><span class="mini-rail"><i></i><i></i><i></i></span><span class="mini-panels"><i><b></b></i><i><b></b></i><i><b></b></i></span></span>
+                    <span class="palette-label">Evergreen<span class="palette-status">Selected</span></span><span class="palette-detail">Forest green &amp; brass. Settle in.</span>
+                  </button>
+                  <button type="button" class="palette-choice" data-palette-choice="midnight" aria-pressed="false">
+                    <span class="palette-preview" data-preview="midnight" aria-hidden="true"><span class="mini-rail"><i></i><i></i><i></i></span><span class="mini-panels"><i><b></b></i><i><b></b></i><i><b></b></i></span></span>
+                    <span class="palette-label">Night Shift<span class="palette-status">Selected</span></span><span class="palette-detail">Slate &amp; amber. For the late hours.</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="sx-card">
+                <div class="sx-row">
+                  <div class="sx-rl"><b>Glass panels</b><span>Kernel, search, menus and dialogs go translucent and blur what is behind them. Off is the crispest to read.</span></div>
+                  <button class="switch" id="glass-toggle" type="button" role="switch" aria-checked="false" aria-label="Glass panels"><span></span></button>
+                </div>
+                <div class="sx-row">
+                  <div class="sx-rl"><b>Reduce motion</b><span>Stops transitions and animations. Your device&rsquo;s own reduced-motion setting is always respected.</span></div>
+                  <button class="switch" id="motion-toggle" type="button" role="switch" aria-checked="false" aria-label="Reduce motion"><span></span></button>
+                </div>
+                <div class="sx-row" id="crt-row">
+                  <div class="sx-rl"><b>CRT scanlines</b><span>A faint CRT texture, for the Classic and Workstation themes.</span></div>
+                  <button class="switch" id="crt-toggle" type="button" role="switch" aria-checked="false" aria-label="CRT scanlines"><span></span></button>
+                </div>
+              </div>
+              <p class="sx-note" id="appearance-status" role="status" aria-live="polite"></p>
+            </section>
+
+            <!-- general -->
+            <section class="sx-pane" data-pane="general" hidden>
+              <header class="sx-head"><h2>General</h2><p>The switches and resets that belong to the whole dashboard rather than one page.</p></header>
+
+              <div class="sx-card">
+                <div class="sx-row">
+                  <div class="sx-rl"><b>Live app data</b><span>Read speeds, queues and what is playing from the apps that support it. Off, and Nexus stops asking them.</span></div>
+                  <button class="switch" id="sx-live" type="button" role="switch" aria-checked="false" aria-label="Live app data"><span></span></button>
+                </div>
+                <div class="sx-row">
+                  <div class="sx-rl"><b>Slim sidebar</b><span>Icons only, to give the page more room.</span></div>
+                  <button class="switch" id="sx-rail" type="button" role="switch" aria-checked="false" aria-label="Slim sidebar"><span></span></button>
+                </div>
+              </div>
+
+              <div class="sx-card">
+                <div class="sx-ch"><h3>Layouts</h3><p>Each of these puts one thing back the way it shipped. Nothing else is touched.</p></div>
+                <div class="sx-row">
+                  <div class="sx-rl"><b>Overview cards</b><span id="sx-ov-n">Order, hidden cards and what each one shows.</span></div>
+                  <button class="btn sm" id="sx-ov-reset" type="button">Reset</button>
+                </div>
+                <div class="sx-row">
+                  <div class="sx-rl"><b>Dashboard</b><span>The default widgets in the default places. Saved presets are kept.</span></div>
+                  <button class="btn sm" id="sx-dash-reset" type="button">Reset</button>
+                </div>
+                <div class="sx-row">
+                  <div class="sx-rl"><b>Quick launch</b><span id="sx-launch-n">The five icons under Overview are the apps you open most.</span></div>
+                  <button class="btn sm" id="sx-launch-clear" type="button">Start counting again</button>
+                </div>
+              </div>
+
+              <div class="sx-card">
+                <div class="sx-row">
+                  <div class="sx-rl"><b>Keyboard shortcuts</b><span>Search, Kernel, and getting around without the mouse.</span></div>
+                  <button class="btn sm" id="sx-keys" type="button"><i class="ic" data-ic="keyboard"></i>Show</button>
+                </div>
+                <div class="sx-row">
+                  <div class="sx-rl"><b>Session</b><span>Sign out of Nexus in this browser.</span></div>
+                  <button class="btn sm danger ghost" id="sx-logout" type="button"><i class="ic" data-ic="logout"></i>Sign out</button>
+                </div>
+              </div>
+            </section>
+
+            <!-- kernel -->
+            <section class="sx-pane" data-pane="kernel" id="agent-section" hidden>
+              <header class="sx-head"><h2>Kernel</h2><p>An assistant with tools pointed at this machine. It starts with no access at all &mdash; every capability below is yours to hand over, one at a time.</p></header>
+              <div id="agent-panel"></div>
+            </section>
+
+            <!-- system -->
+            <section class="sx-pane" data-pane="system" hidden>
+              <header class="sx-head"><h2>System</h2><p>What this machine is, and which parts of Nexus are switched on.</p></header>
+              <div class="sx-card"><div class="sx-ch"><h3>This machine</h3></div><dl class="sx-kv" id="s-system"></dl></div>
+              <div class="sx-card"><div class="sx-ch"><h3>Services</h3></div><div id="s-services"></div></div>
+            </section>
+
+            <!-- disks -->
+            <section class="sx-pane" data-pane="disks" hidden>
+              <header class="sx-head"><h2>Disk health</h2><p>What each drive says about itself (SMART). A drive that reports a failure here should be backed up and replaced.</p></header>
+              <div id="s-smart"></div>
+            </section>
+
+            <!-- activity -->
+            <section class="sx-pane" data-pane="activity" hidden>
+              <header class="sx-head sx-head-row">
+                <div><h2>Activity</h2><p>Sign-ins, changes and every terminal session, newest first.</p></div>
+                <div class="sx-tools">
+                  <label class="lsearch"><i class="ic" data-ic="search"></i>
+                    <input id="sx-audit-q" type="search" placeholder="Filter by action, person or detail…" aria-label="Filter the activity log" autocomplete="off"></label>
+                  <button class="btn sm" id="sx-audit-reload" type="button"><i class="ic" data-ic="refresh"></i>Refresh</button>
+                </div>
+              </header>
+              <div class="sx-card sx-flush"><div id="s-audit"></div></div>
+            </section>
+
+            <!-- about -->
+            <section class="sx-pane" data-pane="about" hidden>
+              <div class="sx-about">
+                <img src="/assets/brand/nexus.svg?v=0.9.7" width="72" height="72" alt="">
+                <h2>Nexus</h2>
+                <p id="sx-about-ver">&nbsp;</p>
+              </div>
+              <div class="sx-card"><dl class="sx-kv" id="s-about"></dl></div>
+              <div class="sx-card">
+                <div class="sx-ch"><h3>Update</h3><p>Run this on the machine Nexus is installed on, then reload this page with Ctrl+Shift+R.</p></div>
+                <div class="sx-cmd"><code id="sx-cmd-update">cd ~/nexus &amp;&amp; git pull &amp;&amp; sudo bash scripts/install.sh</code>
+                  <button class="btn sm" type="button" data-copy="sx-cmd-update"><i class="ic" data-ic="copy"></i>Copy</button></div>
+              </div>
+              <div class="sx-card">
+                <div class="sx-ch"><h3>An easy way back</h3><p>Themes switch the look and keep everything. To put the original interface files back from the verified backup, run this from the Nexus folder &mdash; the outgoing files are saved first.</p></div>
+                <div class="sx-cmd"><code id="sx-cmd-restore">node scripts/gui-backup.js restore</code>
+                  <button class="btn sm" type="button" data-copy="sx-cmd-restore"><i class="ic" data-ic="copy"></i>Copy</button></div>
+              </div>
+            </section>
           </div>
-          <p class="appearance-status" id="appearance-status" role="status" aria-live="polite"></p>
-        </div>
-        <div class="section" id="agent-section">
-          <h2>Kernel — the Nexus Expert</h2>
-          <p class="hint">Kernel is an AI agent with tools pointed at this machine. It starts with no
-            access at all &mdash; every capability below is yours to hand over, one at a time.</p>
-          <div id="agent-panel"></div>
-        </div>
-        <div class="section">
-          <h2>An easy way back</h2>
-          <p class="hint">Theme choices above switch the look instantly and keep every widget, file and setting.
-            To restore the original GUI files from the verified backup, run this from your Nexus folder — the outgoing GUI is saved first.</p>
-          <code class="restore-command">node scripts/gui-backup.js restore</code>
-        </div>
-        <div class="section">
-          <h2>System</h2>
-          <dl class="kv" id="s-system"></dl>
-        </div>
-        <div class="section">
-          <h2>Services</h2>
-          <dl class="kv" id="s-services"></dl>
-        </div>
-        <div class="section">
-          <h2>Storage health (SMART)</h2>
-          <div id="s-smart"></div>
-        </div>
-        <div class="section">
-          <h2>Recent activity</h2>
-          <div class="tw"><table id="s-audit">
-            <thead><tr><th>When</th><th>Action</th><th>Who</th><th>Detail</th></tr></thead>
-            <tbody></tbody>
-          </table></div>
         </div>
       </section>
     </div>
@@ -690,9 +772,9 @@
   </div>
 </section>
 
-<script src="/vendor/xterm.js?v=0.9.6"></script>
-<script src="/vendor/xterm-addon-fit.js?v=0.9.6"></script>
-<script src="/vendor/xterm-addon-web-links.js?v=0.9.6"></script>
-<script src="/app.js?v=0.9.6"></script>
+<script src="/vendor/xterm.js?v=0.9.7"></script>
+<script src="/vendor/xterm-addon-fit.js?v=0.9.7"></script>
+<script src="/vendor/xterm-addon-web-links.js?v=0.9.7"></script>
+<script src="/app.js?v=0.9.7"></script>
 </body>
 </html>

@@ -1117,6 +1117,54 @@ The panel renders incrementally: `stepKey()` identifies each step on screen,
 and only steps after the first difference are redrawn. That is what keeps an
 expanded tool detail open and the scroll position put while a turn streams in.
 
+## The Dashboard is locked unless `dashEdit`
+
+`dashEdit` (app.js) gates every gesture that changes the board: `dragHandle()`,
+the touch hold-to-drag, the resize corner, the rubber band, Ctrl+click and
+Ctrl+A. The stylesheet hides the remove button and the resize corner to match
+(`#page-dash.editing` shows them) and switches the widget bodies to
+`pointer-events:none` while editing, so arranging can never press Stop on a
+container. A new gesture that moves, resizes or removes a widget must check
+`dashEdit` first. Right-click and the gear stay available locked: they change
+what a widget shows, not where it is.
+
+`setKiosk()` is full screen: a `kiosk` class on `<body>` that hides the sidebar,
+top bar and toolbar, plus `requestFullscreen()` when the browser allows it. The
+class is the source of truth — a browser that refuses the Fullscreen API still
+gets the bare board, and `fullscreenchange` clears the class when Esc leaves.
+
+`untouchedOldDefault()` swaps a saved layout for the new default only when it is
+position-for-position the pre-0.9.7 default with no per-widget settings. Do not
+loosen it: a layout somebody arranged must survive an upgrade.
+
+## Two functions, one name
+
+0.9.6 added a container `meterHTML(c)` below the widget `meterHTML(pct, …)`. In
+one scope the later declaration wins, silently: the Memory and Storage widgets
+printed "Not running" for a release. The container one is `ctMeterHTML` now.
+`grep -n "^function name"` before adding a helper with an obvious name — app.js
+is one scope.
+
+## Settings and Automations are tabs with addresses
+
+`go("settings", "kernel")` and `go("control", "rules")`; the tab is the route's
+argument. `loadSettings(arg)` shows one `.sx-pane` and loads only that pane's
+data. `loadControl(arg)` shows one `.au-pane`; called with **no** argument — which
+is what every save handler does — it re-reads everything and stays on the
+current tab. Called with a tab moments after a load it re-reads nothing, so
+moving between tabs does not wipe a half-typed webhook address.
+
+The Kernel pane still renders the old `.ag-*` markup; `panels.css` turns each
+`.ag-block` into a card and its checkboxes into switches. Restyle there rather
+than rewriting `renderAgentSettings()`.
+
+## The icon
+
+`assets/brand/nexus.svg` is the source. The PNG sizes in `assets/brand/icons/`
+have the same geometry, drawn by a small rasteriser with no dependencies (rounded
+square, three capsules, two circles, supersampled) — if the mark changes, change
+both. `/assets` is cached for a day, so the links in `index.html` carry `?v=`.
+
 ## Bump the `?v=` with the version
 
 Every script and stylesheet in `index.html` is loaded as `file?v=<version>`.

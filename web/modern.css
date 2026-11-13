@@ -319,8 +319,8 @@ html:root[data-skin="modern"] :is(.mw-head,.dw-head){color:var(--text)}
 [data-skin="modern"] .gatemsg{font-size:13.5px;color:var(--text-3);margin:0}
 [data-skin="modern"] .gateerr{font-family:var(--pixel);font-size:12.5px;letter-spacing:0;text-transform:none}
 [data-skin="modern"] #g-submit{min-height:40px;font-size:14px;font-weight:600}
-[data-skin="modern"] .gate-mark{width:40px;height:40px;border-radius:12px;display:block;margin:0 auto 12px;
-  background:url(/assets/brand/icons/nexus-64.png) center/28px no-repeat,var(--sunk);border:1px solid var(--rule)}
+[data-skin="modern"] .gate-mark{width:48px;height:48px;border-radius:13px;display:block;margin:0 auto 14px;
+  background:url(/assets/brand/nexus.svg?v=0.9.7) center/cover no-repeat;box-shadow:0 8px 22px rgba(85,88,227,.35)}
 [data-skin="modern"] .gatehead{flex-direction:column}
 .gate-mark{display:none}
 [data-skin="modern"] .gate-mark{display:block}

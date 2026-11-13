@@ -30,6 +30,11 @@ const cap = s => (s = String(s ?? "")) && s[0].toUpperCase() + s.slice(1);
  */
 const P = d => `<path d="${d}"/>`;
 const ICONS = {
+  maximize: P("M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"),
+  minimize: P("M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"),
+  sliders: P("M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M2 14h4M10 8h4M18 16h4"),
+  palette: '<circle cx="13.5" cy="6.5" r="1" fill="currentColor" stroke="none"/><circle cx="17.5" cy="10.5" r="1" fill="currentColor" stroke="none"/><circle cx="8.5" cy="7.5" r="1" fill="currentColor" stroke="none"/><circle cx="6.5" cy="12.5" r="1" fill="currentColor" stroke="none"/>' +
+    P("M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.6-.7 1.6-1.7 0-.4-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1a1.6 1.6 0 0 1 1.6-1.7H16c3 0 5.5-2.5 5.5-5.6C21.5 6 17.2 2 12 2z"),
   search: '<circle cx="11" cy="11" r="7.5"/>' + P("m21 21-4.3-4.3"),
   activity: P("M22 12h-4l-3 9L9 3l-3 9H2"),
   "chevron-down": P("m6 9 6 6 6-6"),
@@ -1290,11 +1295,12 @@ const REG = {
       r.sub.textContent = `${LIVE.info?.cpu?.cores || "?"} cores${t ? " · " + Math.round(t.value) + "°C" : ""}`; } },
 
   memory: { name: "Memory", icon: ICON("memory"), desc: "RAM in use", w: 4, h: 3,
-    mount(b) { b.innerHTML = '<div class="big"><span class="n">--</span><span class="u">%</span></div><div class="meter inset"></div><span class="sub"></span>';
-      return { n: $(".n", b), m: $(".meter", b), sub: $(".sub", b) }; },
-    update(r) { r.n.textContent = Math.round(LIVE.mem);
-      r.m.innerHTML = meterHTML(LIVE.mem, 75, 90);
-      r.sub.textContent = bytes(LIVE.memUsed) + " of " + bytes(LIVE.memTotal); } },
+    mount(b) { b.innerHTML = '<div class="big"><span class="n">--</span><span class="u">%</span></div><svg class="chart"></svg><span class="sub"></span>';
+      return { n: $(".n", b), svg: $("svg", b), sub: $(".sub", b) }; },
+    update(r, cfg) { r.n.textContent = Math.round(LIVE.mem);
+      drawChart(r.svg, LIVE.history.mem, 100, colorCss(cfg.color),
+        { label: "Used", fmt: v => v.toFixed(1) + "%" });
+      r.sub.textContent = LIVE.memTotal ? bytes(LIVE.memUsed) + " of " + bytes(LIVE.memTotal) : ""; } },
 
   storage: { name: "Storage", icon: ICON("storage"), desc: "Usage per mount point", w: 4, h: 4,
     // Right-click -> tick the mounts you care about. /boot/efi and snap loops are
@@ -1320,9 +1326,10 @@ const REG = {
         return;
       }
       r.l.innerHTML = shown.map(d => {
-        const col = d.usage >= 90 ? "var(--crit)" : d.usage >= 80 ? "var(--warn)" : "var(--text)";
-        return `<li><span class="k">${esc(d.mount)}</span><span class="v" style="color:${col}">${d.usage}% · ${bytes(d.available)} free</span></li>
-                <li><span class="meter inset" style="width:100%">${meterHTML(d.usage, 80, 90, 18)}</span></li>`;
+        const cls = d.usage >= 90 ? "crit" : d.usage >= 80 ? "warn" : "";
+        return `<li class="wmount"><span class="wm-top"><span class="k">${esc(d.mount)}</span>
+            <span class="v ${cls}"><b>${d.usage}%</b> · ${bytes(d.available)} free</span></span>
+          <span class="wbar"><i class="${cls}" style="width:${clamp(d.usage, 0, 100)}%"></i></span></li>`;
       }).join(""); } },
 
   network: { name: "Network", icon: ICON("network"), desc: "Throughput in and out", w: 4, h: 4,
@@ -1430,6 +1437,8 @@ const REG = {
       const el = { sum: $(".csummary", b), list: $(".clist", b), busy: new Set() };
       // Delegated so the handler survives every re-render.
       el.list.addEventListener("click", async e => {
+        const open = e.target.closest("[data-wctr]");
+        if (open) { go("containers"); manageFromAnywhere(open.dataset.wctr); return; }
         const btn = e.target.closest("[data-act]");
         if (!btn) return;
         e.stopPropagation();
@@ -1459,8 +1468,8 @@ const REG = {
       }
       const running = all.filter(c => c.state === "running").length;
       r.sum.innerHTML =
-        `<span class="pill ok"><i class="dot"></i>${running} UP</span>` +
-        (all.length - running ? `<span class="pill crit"><i class="dot"></i>${all.length - running} DOWN</span>` : "");
+        `<span class="pill ok"><i class="dot"></i>${running} running</span>` +
+        (all.length - running ? `<span class="pill crit"><i class="dot"></i>${all.length - running} stopped</span>` : "");
 
       const rows = all
         .filter(c => cfg.show === "all" || (cfg.show === "running") === (c.state === "running"))
@@ -1471,14 +1480,17 @@ const REG = {
         const busy = r.busy.has(c.id);
         // Every published port, not just the first: an app with a web UI on one
         // port and an API on another was showing you only one of them.
-        return `<div class="crow">
+        const g = up ? portGroups(c.ports) : [];
+        return `<div class="crow${up ? "" : " is-down"}${busy ? " busy" : ""}">
           <i class="cdot ${up ? "up" : "down"}"></i>
-          <span class="cname" data-tip="${esc(c.image)}">${esc(c.title || c.name)}</span>
-          <span class="cports">${up ? portLinks(c.ports, "cport") : ""}</span>
-          <button class="cact" data-act="${up ? "stop" : "start"}" data-id="${esc(c.id)}"
-                  data-nm="${esc(c.name)}" ${busy ? "disabled" : ""}>${busy ? "…" : up ? "Stop" : "Start"}</button>
-          <button class="cact" data-act="restart" data-id="${esc(c.id)}"
-                  data-nm="${esc(c.name)}" ${busy || !up ? "disabled" : ""}>Restart</button>
+          <button type="button" class="cname" data-wctr="${esc(c.id)}" data-tip="${esc(c.image)} — press for details">${esc(c.title || c.name)}</button>
+          <span class="cports">${g.length ? portChip(g.find(p => p.port && p.port.type !== "udp") || g[0]) + (g.length > 1 ? `<span class="cpc more">+${g.length - 1}</span>` : "") : ""}</span>
+          <span class="cbtns">
+            <button class="cact" data-act="${up ? "stop" : "start"}" data-id="${esc(c.id)}" data-nm="${esc(c.name)}"
+                    aria-label="${up ? "Stop" : "Start"} ${esc(c.name)}" data-tip="${up ? "Stop" : "Start"}" ${busy ? "disabled" : ""}>${IC(up ? "stop" : "play")}</button>
+            <button class="cact" data-act="restart" data-id="${esc(c.id)}" data-nm="${esc(c.name)}"
+                    aria-label="Restart ${esc(c.name)}" data-tip="Restart" ${busy || !up ? "disabled" : ""}>${IC("retry")}</button>
+          </span>
         </div>`;
       }).join("") || '<div class="empty">Nothing matches that filter</div>';
     } },
@@ -1634,6 +1646,86 @@ const REG = {
       return ref;
     },
     update(r, cfg) { catTick(r, cfg); } },
+
+  /* ------------------------------------------------------------- health */
+  health: { name: "Health", icon: ICON("warning"), go: "overview",
+    desc: "Is anything wrong right now — and what", w: 3, h: 6,
+    mount(b) {
+      b.innerHTML = '<div class="hw"></div>';
+      const box = b.firstElementChild;
+      box.addEventListener("click", e => {
+        const p = e.target.closest("[data-harea]");
+        if (p) go("area", p.dataset.harea);
+      });
+      return { box };
+    },
+    update(r) {
+      const problems = allProblems();
+      const down = problems.filter(p => p.status === "down").length;
+      let st, title, line;
+      if (!CK.data?.updatedAt) { st = "idle"; title = "Checking…"; line = "The first round of checks is running."; }
+      else if (!problems.length) {
+        const n = CK.data.checks.filter(c => c.status !== "off" && c.status !== "unknown").length;
+        st = "ok"; title = "All clear"; line = `${n} check${n === 1 ? "" : "s"} passing`;
+      } else {
+        st = down ? "crit" : "warn";
+        title = `${problems.length} problem${problems.length === 1 ? "" : "s"}`;
+        line = down ? `${down} down${problems.length - down ? `, ${problems.length - down} degraded` : ""}` : "degraded, not down";
+      }
+      const areas = (CK.data?.areas || []).map(a => {
+        const cls = statusClass(a.status);
+        return `<button type="button" class="hw-area s-${cls}" data-harea="${esc(a.id)}" data-tip="${esc(AREA_META[a.id]?.name || a.id)}: ${a.up ?? 0} of ${a.total ?? 0} passing">
+          <i class="hw-dot"></i><span>${esc(AREA_META[a.id]?.name || a.id)}</span><em>${a.total ? `${a.up}/${a.total}` : "—"}</em></button>`;
+      }).join("");
+      const list = problems.slice(0, 6).map(p => `
+        <div class="hw-prob s-${p.status === "down" ? "crit" : "warn"}"><i class="hw-dot"></i>
+          <span><b>${esc(p.name)}</b><small>${esc(p.areaName || "")}${p.msg ? " · " + esc(p.msg) : ""}</small></span></div>`).join("");
+      const html = `
+        <div class="hw-top s-${st}"><span class="hw-ico">${IC(st === "ok" ? "check-circle" : st === "crit" ? "alert" : st === "warn" ? "half" : "activity")}</span>
+          <span class="hw-txt"><b>${esc(title)}</b><small>${esc(line)}</small></span></div>
+        ${list ? `<div class="hw-probs">${list}</div>` : ""}
+        <div class="hw-areas">${areas}</div>`;
+      if (r.sig !== html) { r.box.innerHTML = html; r.sig = html; }
+    } },
+
+  /* --------------------------------------------------------------- apps */
+  apps: { name: "Apps", icon: ICON("apps"), go: "apps",
+    desc: "Your apps as buttons, with whether each one is up", w: 4, h: 6,
+    defaults: { pick: "top", limit: 12 },
+    options: [
+      { key: "pick", label: "Show", values: [
+        { value: "top", label: "Most used" }, { value: "pinned", label: "Pinned" }, { value: "all", label: "A–Z" }] },
+      { key: "limit", label: "How many", values: [
+        { value: 6, label: "6" }, { value: 12, label: "12" }, { value: 24, label: "24" }, { value: 99, label: "All" }] }
+    ],
+    mount(b) {
+      b.innerHTML = '<div class="wapps"></div>';
+      const box = b.firstElementChild;
+      box.addEventListener("click", e => {
+        const t = e.target.closest("[data-wapp]");
+        if (t) openApp(LP.apps.find(a => a.id === t.dataset.wapp));
+      });
+      return { box };
+    },
+    update(r, cfg) {
+      const all = (LP.apps || []).filter(a => a.url || a.locked);
+      const s = launchStats(), now = Date.now();
+      const score = a => { const x = s[a.id]; return x ? x.n * Math.pow(0.5, (now - x.at) / (14 * 86400e3)) : 0; };
+      const byName = (a, b) => String(a.name).localeCompare(String(b.name));
+      let list = cfg.pick === "pinned" ? all.filter(a => a.pinned).sort(byName)
+        : cfg.pick === "all" ? all.slice().sort(byName)
+        : all.slice().sort((a, b) => score(b) - score(a) || (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || byName(a, b));
+      list = list.slice(0, cfg.limit || 12);
+      const html = list.length ? list.map(a => {
+        const st = appStatus(a), src = iconSrc(a);
+        return `<button type="button" class="wapp" data-wapp="${esc(a.id)}"${src ? ` data-tint="${esc(src)}"` : ""}${tintStyle(src)}
+            data-tip="${esc(a.name)}${a.locked ? " — needs the PIN" : ""}${st === "down" ? " — down" : st === "warn" ? " — slow" : ""}">
+          <span class="wapp-ico">${appIconHTML(a)}<i class="wapp-st s-${statusClass(st)}"></i></span>
+          <span class="wapp-name">${esc(a.name)}</span></button>`;
+      }).join("")
+        : `<p class="wempty">${cfg.pick === "pinned" ? "Nothing is pinned yet — pin an app on the Apps page." : "No apps yet — add some on the Apps page."}</p>`;
+      if (r.sig !== html) { r.box.innerHTML = html; r.sig = html; wireIcons(r.box); }
+    } },
 
   /* ---------------------------------------------------------- CPU cores */
   cores: { name: "CPU Cores", icon: ICON("cpu"),
@@ -2275,24 +2367,30 @@ function catTick(r, cfg) {
    always her own sprite. */
 const W_ICONS = { cpu: "cpu", memory: "memory", storage: "drive", network: "network", sensors: "thermo",
   containers: "box", uptime: "power", clock: "clock", boot: "calendar", cores: "cpu", procs: "terminal",
-  diskio: "drive", security: "shield", host: "home" };
+  diskio: "drive", security: "shield", host: "home", health: "activity", apps: "grid" };
 function widgetIcon(type, def) {
   const ln = W_ICONS[type];
   return ln ? `<img class="px-ico" src="${def.icon}" alt="">${IC(ln, "ln-ico w-lico")}` : `<img src="${def.icon}" alt="">`;
 }
 
 /* ============================ grid engine ============================ */
-const COLS = 12, ROW = 44, GAP = 8;
+const COLS = 12, ROW = 44, GAP = 12;
 const gridEl = $("#grid"), emptyEl = $("#grid-empty");
 let items = [], mounted = {}, uid = 1, saveTimer = null;
 
+/** Three even rows that fill the canvas: the three live graphs, then what is
+ *  wrong / what is running / what you open, then the slower-moving things. */
 const DEFAULT_LAYOUT = [
-  { t: "cpu", x: 0, y: 0, w: 4, h: 4 }, { t: "memory", x: 4, y: 0, w: 4, h: 3 },
-  { t: "cat", x: 8, y: 0, w: 4, h: 4 }, { t: "network", x: 4, y: 3, w: 4, h: 4 },
-  { t: "sensors", x: 0, y: 4, w: 4, h: 4 }, { t: "containers", x: 8, y: 4, w: 4, h: 4 },
-  { t: "storage", x: 0, y: 8, w: 4, h: 4 }, { t: "host", x: 4, y: 7, w: 4, h: 3 },
-  { t: "uptime", x: 8, y: 8, w: 4, h: 2 }
+  { t: "cpu", x: 0, y: 0, w: 4, h: 4 }, { t: "memory", x: 4, y: 0, w: 4, h: 4 }, { t: "network", x: 8, y: 0, w: 4, h: 4 },
+  { t: "health", x: 0, y: 4, w: 3, h: 6 }, { t: "containers", x: 3, y: 4, w: 5, h: 6 }, { t: "apps", x: 8, y: 4, w: 4, h: 6 },
+  { t: "storage", x: 0, y: 10, w: 4, h: 5 }, { t: "sensors", x: 4, y: 10, w: 4, h: 5 }, { t: "cat", x: 8, y: 10, w: 4, h: 5 }
 ];
+/** The default up to 0.9.6. A saved layout that is still exactly this was never
+ *  arranged by anyone, so it is safe to swap for the new default; one with a
+ *  single widget moved, resized or restyled is left alone. */
+const OLD_DEFAULT = "cpu:0,0,4,4|memory:4,0,4,3|cat:8,0,4,4|network:4,3,4,4|sensors:0,4,4,4|containers:8,4,4,4|storage:0,8,4,4|host:4,7,4,3|uptime:8,8,4,2";
+const layoutSig = list => list.map(w => `${w.t}:${w.x},${w.y},${w.w},${w.h}`).join("|");
+const untouchedOldDefault = list => layoutSig(list) === OLD_DEFAULT && !list.some(w => w.cfg && Object.keys(w.cfg).length);
 
 const cellW = () => (gridEl.clientWidth - (COLS - 1) * GAP) / COLS;
 const overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
@@ -2419,7 +2517,7 @@ function paintSelection() {
   if (bar) {
     bar.hidden = n < 1;
     const c = $("#selcount");
-    if (c) c.textContent = n === 1 ? "1 WIDGET SELECTED" : `${n} WIDGETS SELECTED`;
+    if (c) c.textContent = n === 1 ? "1 widget selected" : `${n} widgets selected`;
   }
 }
 function clearSelection() { if (selection.size) { selection.clear(); paintSelection(); } }
@@ -2441,6 +2539,8 @@ function build(it, animate) {
   el.innerHTML =
     `<div class="w-head" data-tip="${esc(def.desc)} — drag to move, right-click or press the gear for settings">` +
       widgetIcon(it.t, def) + `<span class="t">${esc(def.name)}</span>` +
+      (def.go ? `<button class="w-go" type="button" data-go="${def.go}" aria-label="Open ${esc(PAGES[def.go]?.title || def.name)}" data-tip="Open ${esc(PAGES[def.go]?.title || def.name)}">${IC("chevron-right")}</button>` : "") +
+      `<span class="spacer"></span>` +
       `<button class="w-cfg" aria-label="Widget settings" data-tip="Size, colour and options"><span class="px">&#9881;</span>${IC("settings", "ln-ico")}</button>` +
       `<button class="w-x" aria-label="Remove widget" data-tip="Remove this widget"><span class="px">&times;</span>${IC("x", "ln-ico")}</button>` +
     `</div>` +
@@ -2463,7 +2563,7 @@ function build(it, animate) {
   // container's STOP button selects the widget instead of stopping a container.
   el.addEventListener("pointerdown", e => {
     if (e.button !== 0) return;
-    if (e.ctrlKey || e.metaKey) {
+    if ((e.ctrlKey || e.metaKey) && dashEdit) {
       e.preventDefault();
       e.stopPropagation();
       toggleSelect(it.id);
@@ -2508,7 +2608,7 @@ function deleteSelection() {
   if (!n) return;
   if (n > 1 && !confirm(`Remove ${n} widgets from the dashboard?`)) return;
   removeWidgets([...selection]);
-  toast(n === 1 ? "Widget removed" : `${n} WIDGETS REMOVED`, "ok");
+  toast(n === 1 ? "Widget removed" : `${n} widgets removed`, "ok");
 }
 
 /** True when a keystroke belongs to whatever the user is typing in. */
@@ -2518,12 +2618,45 @@ function typingInto(el) {
 }
 const onDashboard = () => $("#page-dash")?.classList.contains("on") && !$("#app").hidden;
 
+/* ---------------------------- view and edit ----------------------------
+ * The board is locked until you press Edit. Arranging is something you do once
+ * in a while; reading it is every day, and a board that moves when you brush a
+ * title bar is one you learn to keep your hands off.
+ */
+let dashEdit = false;
+function setDashEdit(want) {
+  dashEdit = !!want;
+  $("#page-dash")?.classList.toggle("editing", dashEdit);
+  const v = $("#dash-view"), ed = $("#dash-editing"), bar = $("#dash-editbar");
+  if (v) v.hidden = dashEdit;
+  if (ed) ed.hidden = !dashEdit;
+  if (bar) bar.hidden = !dashEdit;
+  if (!dashEdit) { clearSelection(); closeCtx(); $("#drawer")?.classList.remove("open"); }
+  else if (document.body.classList.contains("kiosk")) setKiosk(false);
+}
+
+/* Full screen: the board and nothing else, for the screen you leave it on. */
+function setKiosk(want) {
+  const on_ = !!want;
+  document.body.classList.toggle("kiosk", on_);
+  if (on_) {
+    setDashEdit(false);
+    document.documentElement.requestFullscreen?.().catch(() => {});
+  } else if (document.fullscreenElement) {
+    document.exitFullscreen?.().catch(() => {});
+  }
+  requestAnimationFrame(() => { layout(false); renderWidgets(); });
+}
+document.addEventListener("fullscreenchange", () => {
+  if (!document.fullscreenElement && document.body.classList.contains("kiosk")) setKiosk(false);
+});
+
 addEventListener("keydown", e => {
   if (typingInto(document.activeElement)) return;
   if (modal.classList.contains("open")) return;
 
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
-    if (!onDashboard()) return;
+    if (!onDashboard() || !dashEdit) return;
     e.preventDefault();
     selectAll();
     return;
@@ -2532,7 +2665,11 @@ addEventListener("keydown", e => {
     if (onDashboard() && selection.size) { e.preventDefault(); deleteSelection(); return; }
     if (e.key === "Delete" && $("#page-files")?.classList.contains("on") && fileSel.size) { e.preventDefault(); deleteFileSelection(); return; }
   }
-  if (e.key === "Escape") { clearSelection(); clearFileSelection(); clipClear(); }
+  if (e.key === "Escape") {
+    if (document.body.classList.contains("kiosk")) setKiosk(false);
+    else if (dashEdit && onDashboard() && !selection.size && !$("#drawer").classList.contains("open") && !ctx.classList.contains("open")) setDashEdit(false);
+    clearSelection(); clearFileSelection(); clipClear();
+  }
 
   // Ctrl/Cmd C, X, V on the files page — the shortcuts everyone already knows.
   if (!$("#page-files")?.classList.contains("on")) return;
@@ -2555,7 +2692,7 @@ addEventListener("keydown", e => {
   };
 
   gridEl.addEventListener("pointerdown", e => {
-    if (e.button !== 0 || e.target !== gridEl) return;
+    if (!dashEdit || e.button !== 0 || e.target !== gridEl) return;
     const p = toGrid(e.clientX, e.clientY);
     sx = p.x; sy = p.y; active = true;
     additive = e.ctrlKey || e.metaKey || e.shiftKey;
@@ -2738,6 +2875,7 @@ const NO_DRAG = "button, a, input, select, textarea, .w-rs, [contenteditable]";
  * and no hover to protect, and a press that travels is already a scroll.
  */
 function dragHandle(it, target) {
+  if (!dashEdit) return false;            // locked until you press Edit
   if (target.closest(NO_DRAG)) return false;
   return !!target.closest(".w-head") || selection.has(it.id);
 }
@@ -2965,6 +3103,7 @@ function dragify(el, it) {
   const cancelHold = () => { clearTimeout(holdTimer); holdTimer = null; };
 
   el.addEventListener("touchstart", e => {
+    if (!dashEdit) return;
     if (e.touches.length !== 1) return;      // pinch/zoom is not ours
     if (e.target.closest(NO_DRAG)) return;
     const t = e.touches[0];
@@ -3008,6 +3147,7 @@ function dragify(el, it) {
 function resizify(el, it) {
   const h = $(".w-rs", el);
   h.addEventListener("pointerdown", e => {
+    if (!dashEdit) return;
     e.preventDefault(); e.stopPropagation();
     h.setPointerCapture(e.pointerId);
     const cw = cellW(), sx = e.clientX, sy = e.clientY, ow = it.w, oh = it.h;
@@ -3174,7 +3314,7 @@ function ctRate(id, key) {
   return Math.max(0, (b[key] - a[key]) / dt);
 }
 
-function meterHTML(c) {
+function ctMeterHTML(c) {
   const s = CT.stats[c.id];
   if (!cRunning(c)) return `<div class="cc-meters off"><span>Not running</span></div>`;
   if (!s) return `<div class="cc-meters wait"><span class="cm"><i></i></span><span class="cm"><i></i></span></div>`;
@@ -3188,7 +3328,7 @@ function paintCtMeters() {
   $$("#c-grid [data-meter]").forEach(el => {
     const c = CT.list.find(x => x.id === el.dataset.meter);
     if (!c) return;
-    const h = meterHTML(c);
+    const h = ctMeterHTML(c);
     if (el.dataset.sig !== h) { el.innerHTML = h; el.dataset.sig = h; }
   });
   if (CT.sort === "cpu" || CT.sort === "mem") paintContainers();
@@ -3243,7 +3383,7 @@ function ctCard(c) {
       <span class="cc-ico">${appIconHTML({ name, icon: slug })}<i class="cdot s-${st.cls}"></i></span>
       <span class="cr-name"><b>${esc(name)}</b><span>${esc(cShortImage(c.image))}</span></span>
       <span class="cr-state"><span class="cstate2 s-${st.cls}">${esc(st.word)}</span><em>${esc(cUptime(c))}</em></span>
-      <span class="cr-meter" data-meter="${esc(c.id)}">${meterHTML(c)}</span>
+      <span class="cr-meter" data-meter="${esc(c.id)}">${ctMeterHTML(c)}</span>
       <span class="cr-ports">${portChips(c.ports, 2)}</span>
       <span class="cr-badges">${badges}</span>
       <span class="cr-acts">${actions}</span>
@@ -3256,7 +3396,7 @@ function ctCard(c) {
       <span class="cstate2 s-${st.cls}">${esc(st.word)}</span>
     </header>
     <div class="cc-sub">${cUptime(c) ? `<span>${IC("clock")}${esc(cUptime(c))}</span>` : ""}${badges}</div>
-    <div data-meter="${esc(c.id)}">${meterHTML(c)}</div>
+    <div data-meter="${esc(c.id)}">${ctMeterHTML(c)}</div>
     <div class="cc-ports">${portChips(c.ports)}</div>
     <footer class="cc-acts">${actions}</footer>
   </article>`;
@@ -6973,47 +7113,213 @@ on("#t-mode", "click", () => go("term", termProfile === "shell" ? "claude" : nul
 on("#t-clear", "click", () => { if (term) term.clear(); });
 addEventListener("resize", () => { if (term && $("#page-term").classList.contains("on")) fitTerm(); });
 
-async function loadSettings() {
-  paintAppearance();
-  renderAgentSettings();
+/* ============================ settings ============================
+ * One section at a time, each with its own address (#/settings/kernel), so a
+ * link from anywhere lands on the thing it is about and the back button walks
+ * the sections. Each section loads only what it shows: the disk scan and the
+ * activity log are not fetched to change an accent colour.
+ */
+const SX = { tab: "appearance", audit: [], auditQ: "" };
+const SX_TABS = ["appearance", "general", "kernel", "system", "disks", "activity", "about"];
+
+async function loadSettings(arg) {
+  let tab = SX_TABS.includes(arg) ? arg : null;
+  if (!tab) { try { tab = localStorage.getItem("nexus.settings.tab"); } catch {} }
+  if (!SX_TABS.includes(tab)) tab = "appearance";
+  SX.tab = tab;
+  try { localStorage.setItem("nexus.settings.tab", tab); } catch {}
+  $$("#sx-nav [data-sx]").forEach(b => {
+    const on_ = b.dataset.sx === tab;
+    b.classList.toggle("on", on_);
+    if (on_) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+  });
+  $$("#page-settings .sx-pane").forEach(p => { p.hidden = p.dataset.pane !== tab; });
+
+  if (tab === "appearance") paintAppearance();
+  if (tab === "general") paintGeneral();
+  if (tab === "kernel") renderAgentSettings();
 
   const i = LIVE.info || (LIVE.info = await api("/system/info").catch(() => null));
-  if (!i) return;
-  $("#s-system").innerHTML = [
-    ["Hostname", i.host?.hostname], ["OS", i.host?.distro], ["Kernel", i.host?.kernel],
-    ["Arch", i.host?.arch], ["CPU", i.cpu?.model], ["Cores", i.cpu?.cores],
-    ["Data dir", i.config?.dataDir], ["Config", i.config?.loadedFrom || "defaults"],
-    ["Nexus", i.version ? "v" + i.version : null]
-  ].filter(x => x[1] != null).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
-
-  $("#s-services").innerHTML = [
-    ["Docker", i.docker?.available ? "connected" : "unavailable — " + (i.docker?.reason || "")],
-    ["Terminal", i.terminal?.enabled ? "enabled (" + i.terminal.shell + ")" : "disabled"],
-    ["Sessions", String(i.terminal?.active ?? 0)],
-    ["File roots", (i.fileRoots || []).map(r => r.path).join(", ") || "none"],
-    ["Sensors", i.simulated ? "simulated (non-Linux host)" : "reading /sys"]
-  ].map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
-
-  try {
-    const sm = await api("/system/smart");
-    $("#s-smart").innerHTML = sm.length
-      ? `<div class="tw"><table><thead><tr><th>Device</th><th>Model</th><th>Health</th><th>Temp</th><th>Hours</th></tr></thead><tbody>` +
-        sm.map(d => `<tr><td class="mono">${esc(d.device)}</td><td>${esc(d.model || "—")}</td>
-          <td>${d.error ? `<span class="pill idle">${esc(d.error)}</span>` : `<span class="pill ${d.passed ? "ok" : "crit"}"><i class="dot"></i>${d.passed ? "Passed" : "Failed"}</span>`}</td>
-          <td class="mono">${d.temperature != null ? d.temperature + "°C" : "—"}</td>
-          <td class="mono">${d.powerOnHours ?? "—"}</td></tr>`).join("") + "</tbody></table></div>"
-      : `<div class="empty">NO SMART DATA — needs smartmontools on Linux</div>`;
-  } catch { $("#s-smart").innerHTML = `<div class="empty">SMART unavailable</div>`; }
-
-  try {
-    const a = await api("/audit?limit=40");
-    $("#s-audit tbody").innerHTML = a.map(e => `<tr>
-      <td class="mono">${esc(new Date(e.ts).toLocaleString())}</td>
-      <td class="name">${esc(e.action)}</td><td>${esc(e.user || "—")}</td>
-      <td class="mono">${esc(e.detail ? JSON.stringify(e.detail) : "—")}</td></tr>`).join("")
-      || `<tr><td colspan="4" class="empty">No activity yet</td></tr>`;
-  } catch {}
+  const ver = $("#sx-ver");
+  if (ver && i?.version) ver.textContent = "Nexus " + i.version;
+  if (SX.tab !== tab) return;               // moved on while that was loading
+  if (tab === "system") paintSystem(i);
+  if (tab === "disks") loadSmart();
+  if (tab === "activity") loadAudit();
+  if (tab === "about") paintAbout(i);
 }
+on("#sx-nav", "click", e => {
+  const b = e.target.closest("[data-sx]");
+  if (b) go("settings", b.dataset.sx);
+});
+
+/* ---- general ---- */
+function paintGeneral() {
+  const sw = (id, v) => { const b = $(id); if (b) b.setAttribute("aria-checked", String(!!v)); };
+  sw("#sx-live", LV.on);
+  sw("#sx-rail", document.body.classList.contains("rail-mini"));
+  const n = Object.keys(launchStats()).length;
+  const ln = $("#sx-launch-n");
+  if (ln) ln.textContent = n
+    ? `The five icons under Overview are the apps you open most. ${n} app${n === 1 ? "" : "s"} counted so far.`
+    : "The five icons under Overview are the apps you open most. Nothing counted yet.";
+  const ov = $("#sx-ov-n");
+  if (ov) {
+    const hid = (OVP.hidden || []).length, opts = Object.keys(OVP.opts || {}).length;
+    ov.textContent = hid || opts
+      ? `Order, hidden cards and what each one shows. ${[hid ? `${hid} hidden` : "", opts ? `${opts} changed` : ""].filter(Boolean).join(", ")}.`
+      : "Order, hidden cards and what each one shows. Currently the default.";
+  }
+}
+on("#sx-live", "click", () => { $("#l-live-on")?.click(); paintGeneral(); });
+on("#sx-rail", "click", () => { setRailMini(!document.body.classList.contains("rail-mini")); paintGeneral(); });
+on("#sx-ov-reset", "click", () => { $("#ov-reset")?.click(); paintGeneral(); });
+on("#sx-dash-reset", "click", () => $("#reset")?.click());
+on("#sx-launch-clear", "click", () => {
+  try { localStorage.removeItem(LAUNCH_KEY); } catch {}
+  paintSidebarLaunch(); paintGeneral();
+  toast("Quick launch is counting from zero", "ok");
+});
+on("#sx-keys", "click", () => showShortcuts());
+on("#sx-logout", "click", () => $("#logout")?.click());
+
+/* ---- system ---- */
+function paintSystem(i) {
+  const sys = $("#s-system"), svc = $("#s-services");
+  if (!sys || !svc) return;
+  if (!i) {
+    sys.innerHTML = `<div class="sx-empty">Could not read this machine's details.</div>`;
+    svc.innerHTML = "";
+    return;
+  }
+  const rows = [
+    ["Hostname", i.host?.hostname],
+    ["Address", i.host?.ip4 ? i.host.ip4 + (i.host.iface ? `  ·  ${i.host.iface}` : "") : null],
+    ["Operating system", i.host?.distro],
+    ["Kernel", i.host?.kernel],
+    ["Architecture", i.host?.arch],
+    ["Processor", i.cpu?.model ? i.cpu.model + (i.cpu.cores ? `  ·  ${i.cpu.cores} cores` : "") : null],
+    ["Memory", LIVE.memTotal ? bytes(LIVE.memTotal) : null],
+    ["Up for", LIVE.uptimeSec ? upfmt(LIVE.uptimeSec) : null]
+  ];
+  sys.innerHTML = rows.filter(r => r[1] != null && r[1] !== "")
+    .map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
+
+  const row = (name, tone, state, sub) => `
+    <div class="sx-row"><div class="sx-rl"><b>${name}</b><span>${esc(sub)}</span></div>
+      <span class="pill ${tone}"><i class="dot"></i>${esc(state)}</span></div>`;
+  const t = i.terminal || {}, c = t.claude || {};
+  const roots = (i.fileRoots || []).map(r => r.path);
+  svc.innerHTML =
+    row("Docker", i.docker?.available ? "ok" : "idle", i.docker?.available ? "Connected" : "Unavailable",
+      i.docker?.available ? "Containers, logs, updates and the App Store work." : (i.docker?.reason || "Nexus cannot reach the Docker engine.")) +
+    row("Terminal", t.enabled ? "ok" : "idle", t.enabled ? "On" : "Off",
+      t.enabled ? `${t.shell || "shell"} · ${t.active ?? 0} open session${t.active === 1 ? "" : "s"} · ${t.resize ? "resizes with the window" : "fixed size"}`
+                : "Switched off in the server config (terminal.enabled).") +
+    row("Claude Code", c.available ? "ok" : "idle", c.available ? "Ready" : "Not set up",
+      c.available ? `Runs as ${c.user || "your user"}${c.tmux ? ", in tmux so it keeps working when the tab closes" : " — tmux is missing, so it stops when the tab closes"}.`
+                  : "Install Claude Code on this machine and run scripts/claude-setup.sh.") +
+    row("Files", roots.length ? "ok" : "idle", roots.length ? `${roots.length} folder${roots.length === 1 ? "" : "s"}` : "None",
+      roots.length ? roots.join("  ·  ") : "No folders are shared with the file manager (fileRoots in the config).") +
+    row("Sensors", i.simulated ? "warn" : "ok", i.simulated ? "Simulated" : "Live",
+      i.simulated ? "This is not a Linux host, so temperatures are made up for testing." : "Temperatures and fans are read from the machine.");
+}
+
+/* ---- disk health ---- */
+function hoursWord(h) {
+  if (h == null) return "—";
+  if (h < 48) return `${h} h`;
+  const d = h / 24;
+  return d < 365 ? `${Math.round(d)} days` : `${(d / 365).toFixed(1)} years`;
+}
+async function loadSmart() {
+  const box = $("#s-smart");
+  if (!box) return;
+  if (!box.children.length) box.innerHTML = `<div class="sx-card"><div class="sx-empty">Asking the drives…</div></div>`;
+  let sm;
+  try { sm = await api("/system/smart"); }
+  catch { box.innerHTML = `<div class="sx-card"><div class="sx-empty">${IC("drive")}<b>Disk health is not available</b><span>The check could not be run on this machine.</span></div></div>`; return; }
+  if (!sm.length) {
+    box.innerHTML = `<div class="sx-card"><div class="sx-empty">${IC("drive")}<b>No drive reported anything</b>
+      <span>This needs <code>smartmontools</code> on a Linux host: <code>sudo apt install smartmontools</code>.</span></div></div>`;
+    return;
+  }
+  box.innerHTML = `<div class="sx-card sx-flush">` + sm.map(d => {
+    const tone = d.error ? "idle" : d.passed ? "ok" : "crit";
+    const hot = d.temperature != null && d.temperature >= 55;
+    return `<div class="sx-disk${tone === "crit" ? " bad" : ""}">
+      <span class="sx-dico">${IC("drive")}</span>
+      <div class="sx-dtxt"><b>${esc(d.model || d.device)}</b><small>${esc(d.device)}${d.serial ? " · " + esc(d.serial) : ""}</small></div>
+      <div class="sx-dstat"><span>Temperature</span><b class="${hot ? "warn" : ""}">${d.temperature != null ? d.temperature + "°C" : "—"}</b></div>
+      <div class="sx-dstat"><span>Powered on</span><b data-tip="${d.powerOnHours != null ? d.powerOnHours + " hours" : "not reported"}">${hoursWord(d.powerOnHours)}</b></div>
+      <span class="pill ${tone}"><i class="dot"></i>${d.error ? esc(d.error) : d.passed ? "Healthy" : "Failing"}</span>
+    </div>`;
+  }).join("") + `</div>`;
+  hydrateIcons(box);
+}
+
+/* ---- activity ---- */
+function auditDetail(d) {
+  if (d == null || d === "") return "";
+  if (typeof d !== "object") return String(d);
+  return Object.entries(d).map(([k, v]) => `${k}: ${v && typeof v === "object" ? JSON.stringify(v) : v}`).join("  ·  ");
+}
+const auditTone = a => /fail|denied|refus|error/.test(a) ? "crit"
+  : /delete|remove|clear|power|reboot|shutdown|uninstall|stop/.test(a) ? "warn" : "";
+async function loadAudit() {
+  const box = $("#s-audit");
+  if (!box) return;
+  if (!SX.audit.length) box.innerHTML = `<div class="sx-empty">Reading the log…</div>`;
+  try { SX.audit = await api("/audit?limit=300"); }
+  catch { box.innerHTML = `<div class="sx-empty">The activity log could not be read.</div>`; return; }
+  paintAudit();
+}
+function paintAudit() {
+  const box = $("#s-audit");
+  if (!box) return;
+  const q = SX.auditQ.trim().toLowerCase();
+  const rows = SX.audit.filter(e => !q ||
+    `${e.action} ${e.user || ""} ${e.ip || ""} ${auditDetail(e.detail)}`.toLowerCase().includes(q));
+  if (!rows.length) {
+    box.innerHTML = `<div class="sx-empty">${SX.audit.length ? "Nothing in the log matches that." : "No activity yet."}</div>`;
+    return;
+  }
+  box.innerHTML = `<div class="sx-ahead"><span>Action</span><span>Detail</span><span>Who</span><span>When</span></div>` +
+    rows.map(e => {
+      const det = auditDetail(e.detail);
+      return `<div class="sx-arow">
+        <span class="sx-aact ${auditTone(String(e.action))}">${esc(e.action)}</span>
+        <span class="sx-adet" ${det ? `data-tip="${esc(det)}"` : ""}>${det ? esc(det) : "—"}</span>
+        <span class="sx-awho">${esc(e.user || "—")}${e.ip ? `<small>${esc(e.ip)}</small>` : ""}</span>
+        <time data-tip="${esc(new Date(e.ts).toLocaleString())}">${esc(since(new Date(e.ts).getTime()))}</time>
+      </div>`;
+    }).join("") +
+    (rows.length < SX.audit.length ? "" : SX.audit.length >= 300 ? `<div class="sx-afoot">Showing the newest 300 entries.</div>` : "");
+}
+on("#sx-audit-q", "input", e => { SX.auditQ = e.target.value; paintAudit(); });
+on("#sx-audit-reload", "click", () => loadAudit());
+
+/* ---- about ---- */
+function paintAbout(i) {
+  const v = $("#sx-about-ver");
+  if (v) v.textContent = i?.version ? `Version ${i.version}` : "Your homelab, in one place";
+  const kv = $("#s-about");
+  if (!kv) return;
+  const rows = [
+    ["Version", i?.version],
+    ["Data folder", i?.config?.dataDir],
+    ["Config file", i?.config?.loadedFrom || "built-in defaults"],
+    ["Running on", i?.host?.hostname ? `${i.host.hostname}${i.host.distro ? "  ·  " + i.host.distro : ""}` : null]
+  ];
+  kv.innerHTML = rows.filter(r => r[1] != null && r[1] !== "")
+    .map(([k, val]) => `<dt>${k}</dt><dd>${esc(val)}</dd>`).join("");
+}
+on("#page-settings", "click", e => {
+  const b = e.target.closest("[data-copy]");
+  if (!b) return;
+  const src = document.getElementById(b.dataset.copy);
+  if (src) copyText(src.textContent, b);
+});
 
 /* ============================ modal ============================ */
 const modal = $("#modal");
@@ -7483,7 +7789,7 @@ on("#st-installed-btn", "click", openInstalled);
  * That means the form can never offer a rule the evaluator does not implement,
  * which is the failure mode every hand-written settings screen eventually hits.
  */
-const CP = { conf: null, alerts: [] };
+const CP = { conf: null, alerts: [], tab: "alerts", filter: "all", at: 0 };
 
 const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -7496,11 +7802,69 @@ function fmtSecs(s) {
   return `${+(s / 86400).toFixed(1)}d`;
 }
 
-async function loadControl() {
+const AU_TABS = ["alerts", "rules", "tasks", "notify", "power"];
+
+function showAuTab(tab) {
+  CP.tab = AU_TABS.includes(tab) ? tab : "alerts";
+  $$("#au-tabs [data-au]").forEach(b => {
+    const on_ = b.dataset.au === CP.tab;
+    b.classList.toggle("on", on_);
+    b.setAttribute("aria-selected", String(on_));
+  });
+  $$("#page-control .au-pane").forEach(p => { p.hidden = p.dataset.pane !== CP.tab; });
+}
+on("#au-tabs", "click", e => {
+  const b = e.target.closest("[data-au]");
+  if (b) go("control", b.dataset.au);
+});
+
+/** What a webhook address is, in a word. */
+function hookName(n) {
+  const f = n.webhookFormat && n.webhookFormat !== "auto" ? n.webhookFormat
+    : /ntfy/i.test(n.webhookUrl || "") ? "ntfy" : /discord/i.test(n.webhookUrl || "") ? "discord" : "json";
+  return { ntfy: "ntfy", discord: "Discord", json: "Webhook" }[f] || "Webhook";
+}
+const browserNotes = () => ("Notification" in window) ? Notification.permission : "unsupported";
+
+/** The line under each tab: the state of that section without opening it. */
+function paintAuTabs() {
+  const set = (id, text, tone = "") => {
+    const el = $("#au-s-" + id);
+    if (!el) return;
+    el.textContent = text;
+    el.closest("[data-au]").dataset.tone = tone;
+  };
+  const unread = (CP.alerts || []).filter(a => !a.ack).length;
+  set("alerts", unread ? `${unread} unread` : (CP.alerts || []).length ? "All read" : "Nothing has tripped", unread ? "warn" : "");
+  if (!CP.conf) return;
+  const rules = CP.conf.rules || [], sch = CP.conf.schedules || [];
+  set("rules", rules.length ? `${rules.filter(r => r.enabled).length} of ${rules.length} on` : "None yet");
+  set("tasks", sch.length ? `${sch.filter(s => s.enabled).length} of ${sch.length} on` : "None yet");
+  const n = CP.conf.notify || {};
+  const ways = [n.webhookUrl ? hookName(n) : null, browserNotes() === "granted" && n.browser !== false ? "this browser" : null].filter(Boolean);
+  set("notify", ways.length ? ways.join(" + ") : "Not set up", ways.length ? "" : "warn");
+  set("power", CP.conf.power?.allowRemote ? "Armed" : "Switched off", CP.conf.power?.allowRemote ? "crit" : "");
+}
+
+/**
+ * `arg` is the tab from the address. Called with nothing — which is what every
+ * save does — it re-reads everything and stays on the tab you are on.
+ */
+async function loadControl(arg) {
+  const tabOnly = arg !== undefined && CP.conf && Date.now() - (CP.at || 0) < 8000;
+  showAuTab(arg === undefined ? CP.tab : arg || "alerts");
+  paintAuTabs();
+  // Moving between tabs moments after a load re-reads nothing — and so does not
+  // throw away a webhook address you were halfway through typing.
+  if (tabOnly) return;
   try {
     CP.conf = await api("/automation");
+    CP.at = Date.now();
   } catch (e) {
-    $("#cp-rules").innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    for (const id of ["#cp-rules", "#cp-schedules", "#cp-notify", "#cp-power"]) {
+      const el = $(id);
+      if (el) el.innerHTML = `<div class="au-empty">${IC("alert")}<b>Could not load this</b><span>${esc(e.message)}</span></div>`;
+    }
     return;
   }
   await loadAlerts();
@@ -7508,6 +7872,7 @@ async function loadControl() {
   renderSchedules();
   renderNotify();
   renderPower();
+  paintAuTabs();
 }
 
 /* ---- alerts ---- */
@@ -7517,23 +7882,59 @@ async function loadAlerts() {
   paintAlertBadge();
 }
 
+function dayLabel(ts) {
+  const d = new Date(ts), n = new Date();
+  const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((day(n) - day(d)) / 86400e3);
+  return diff === 0 ? "Today" : diff === 1 ? "Yesterday"
+    : d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
+}
+
 function renderAlerts() {
   const box = $("#cp-alerts");
   if (!box) return;
-  if (!CP.alerts.length) {
-    box.innerHTML = `<div class="empty">Nothing has tripped yet — that is the good outcome</div>`;
+  const all = CP.alerts || [];
+  const f = CP.filter || "all";
+  const match = (a, k) => k === "all" || (k === "unread" ? !a.ack : a.level === k);
+  $$("#au-filter [data-af]").forEach(b => {
+    b.setAttribute("aria-pressed", String(b.dataset.af === f));
+    $("i", b).textContent = all.filter(a => match(a, b.dataset.af)).length;
+  });
+  const ack = $("#cp-ack"), clr = $("#cp-clear");
+  if (ack) ack.disabled = !all.some(a => !a.ack);
+  if (clr) clr.disabled = !all.length;
+  paintAuTabs();
+
+  if (!all.length) {
+    box.innerHTML = `<div class="au-empty ok">${IC("check-circle")}<b>Nothing has tripped</b>
+      <span>That is the good outcome. When a rule fires or a health check goes down, it is listed here.</span></div>`;
     return;
   }
-  box.innerHTML = `<div class="alertlist">` + CP.alerts.map(a => `
-    <div class="alert ${esc(a.level)}">
-      <span class="apill">${esc(String(a.level).toUpperCase())}</span>
-      <span class="atxt">
-        <span class="at">${esc(a.title)}</span>
-        <span class="am">${esc(a.message)}</span>
-      </span>
-      <span class="awhen mono">${esc(new Date(a.ts).toLocaleString())}</span>
-    </div>`).join("") + `</div>`;
+  const list = all.filter(a => match(a, f));
+  if (!list.length) {
+    box.innerHTML = `<div class="au-empty">${IC("bell")}<b>Nothing here</b><span>No alert matches this filter.</span></div>`;
+    return;
+  }
+  let html = "", last = "";
+  for (const a of list) {
+    const day = dayLabel(a.ts);
+    if (day !== last) { html += `${last ? "</div>" : ""}<h3 class="au-day">${esc(day)}</h3><div class="au-list">`; last = day; }
+    const lv = a.level === "crit" ? "crit" : a.level === "warn" ? "warn" : "info";
+    html += `<div class="au-alert lv-${lv}${a.ack ? "" : " unread"}">
+      <span class="au-aico">${IC(lv === "crit" ? "alert" : lv === "warn" ? "half" : "info")}</span>
+      <div class="au-atxt"><b>${esc(a.title)}</b>${a.message ? `<span>${esc(a.message)}</span>` : ""}</div>
+      ${a.source === "health" ? `<span class="au-chip">Health check</span>` : a.ruleId ? `<span class="au-chip">Rule</span>` : ""}
+      <time data-tip="${esc(new Date(a.ts).toLocaleString())}">${esc(fmtTime(new Date(a.ts)))}</time>
+    </div>`;
+  }
+  box.innerHTML = html + "</div>";
 }
+on("#au-filter", "click", e => {
+  const b = e.target.closest("[data-af]");
+  if (!b) return;
+  CP.filter = b.dataset.af;
+  renderAlerts();
+});
 
 /* ---- watch rules ---- */
 function ruleSummary(r) {
@@ -7554,26 +7955,52 @@ function actionLabels(keys) {
   return (keys || []).map(k => (CP.conf.actions.find(a => a.key === k) || {}).label || k).join(", ");
 }
 
+/** Starting points: the four rules nearly every box wants. Each opens the
+ *  editor filled in, so the threshold is yours to change before it is saved. */
+const RULE_STARTERS = [
+  { icon: "thermo", label: "Running hot", sub: "Temperature above 85°C for 2 minutes",
+    preset: { name: "Running hot", source: "temp", target: "*", op: "above", value: 85, forSec: 120, severity: "warn" } },
+  { icon: "drive", label: "Disk nearly full", sub: "Any disk above 90%",
+    preset: { name: "Disk nearly full", source: "disk", target: "*", op: "above", value: 90, forSec: 300, cooldownSec: 21600, severity: "warn" } },
+  { icon: "box", label: "Container stopped", sub: "Any container down for a minute",
+    preset: { name: "Container stopped", source: "container", target: "*", forSec: 60, severity: "crit" } },
+  { icon: "memory", label: "Memory nearly full", sub: "Above 92% for 5 minutes",
+    preset: { name: "Memory nearly full", source: "memory", target: "*", op: "above", value: 92, forSec: 300, severity: "warn" } }
+];
+const SEV_WORD = { crit: "Critical", warn: "Warning", info: "Info" };
+
 function renderRules() {
   const box = $("#cp-rules");
+  if (!box) return;
   const rules = CP.conf.rules || [];
+  const starters = RULE_STARTERS.filter(s => !rules.some(r => r.name === s.preset.name));
+  const startHTML = starters.length ? `
+    <div class="au-start">
+      <h3>${rules.length ? "Add from a starting point" : "Start from one of these"}</h3>
+      <div class="au-starts">${starters.map((s, i) => `
+        <button type="button" class="au-startb" data-starter="${RULE_STARTERS.indexOf(s)}">
+          <span class="au-si">${IC(s.icon)}</span><span class="au-st"><b>${esc(s.label)}</b><small>${esc(s.sub)}</small></span>${IC("plus")}</button>`).join("")}</div>
+    </div>` : "";
   if (!rules.length) {
-    box.innerHTML = `<div class="empty">No rules — press &ldquo;+ new rule&rdquo;</div>`;
+    box.innerHTML = `<div class="au-empty">${IC("zap")}<b>No rules yet</b>
+      <span>A rule tells you — or restarts something — when a reading stays wrong.</span></div>` + startHTML;
     return;
   }
-  box.innerHTML = `<div class="rulelist">` + rules.map(r => `
-    <div class="rule${r.enabled ? "" : " off"}">
-      <button class="toggle${r.enabled ? " on" : ""}" data-toggle="${esc(r.id)}"
-              role="switch" aria-checked="${r.enabled}" title="Enable or disable"><i></i></button>
-      <span class="rtxt">
-        <span class="rn">${esc(r.name)}</span>
-        <span class="rd">When ${esc(ruleSummary(r))} &rarr; ${esc(actionLabels(r.actions))}</span>
-        <span class="rd dim">Then stays quiet for ${esc(fmtSecs(r.cooldownSec))}</span>
-      </span>
-      <span class="pill ${r.severity === "crit" ? "crit" : r.severity === "warn" ? "warn" : "idle"}">${esc(String(r.severity).toUpperCase())}</span>
-      <button class="btn sm" data-edit="${esc(r.id)}">Edit</button>
-      <button class="btn sm danger" data-del="${esc(r.id)}">DELETE</button>
-    </div>`).join("") + `</div>`;
+  box.innerHTML = `<div class="au-list">` + rules.map(r => {
+    const acts = actionLabels(r.actions) + (r.actionTarget ? ` (${r.actionTarget})` : "");
+    return `<div class="au-item${r.enabled ? "" : " off"}">
+      <button class="switch" type="button" data-toggle="${esc(r.id)}" role="switch" aria-checked="${!!r.enabled}"
+              aria-label="${r.enabled ? "Turn off" : "Turn on"} ${esc(r.name)}"><span></span></button>
+      <div class="au-itxt">
+        <b>${esc(r.name)}</b>
+        <span>When ${esc(ruleSummary(r))}</span>
+        <small>${IC("chevron-right")}${esc(acts)} · then quiet for ${esc(fmtSecs(r.cooldownSec))}</small>
+      </div>
+      <span class="au-sev ${r.severity === "crit" ? "crit" : r.severity === "warn" ? "warn" : "info"}">${SEV_WORD[r.severity] || "Info"}</span>
+      <button class="au-ib" type="button" data-edit="${esc(r.id)}" aria-label="Edit ${esc(r.name)}" data-tip="Edit">${IC("edit")}</button>
+      <button class="au-ib danger" type="button" data-del="${esc(r.id)}" aria-label="Delete ${esc(r.name)}" data-tip="Delete">${IC("trash")}</button>
+    </div>`;
+  }).join("") + `</div>` + startHTML;
 }
 
 on("#cp-rules", "click", async e => {
@@ -7608,11 +8035,12 @@ function targetOptions(source) {
   return null;
 }
 
-function openRuleEditor(rule) {
+function openRuleEditor(rule, preset) {
   const isNew = !rule;
   const r = rule || {
     name: "", source: "temp", target: "*", op: "above", value: 80,
-    forSec: 120, cooldownSec: 1800, severity: "warn", actions: ["notify"], actionTarget: null, enabled: true
+    forSec: 120, cooldownSec: 1800, severity: "warn", actions: ["notify"], actionTarget: null, enabled: true,
+    ...(preset || {})
   };
   const sources = CP.conf.sources || [];
   const containers = (CP.conf.available?.containers || []).map(c => ({ value: c.name, label: c.name }));
@@ -7733,27 +8161,38 @@ function openRuleEditor(rule) {
 }
 
 on("#cp-new-rule", "click", () => openRuleEditor(null));
+on("#cp-rules", "click", e => {
+  const s = e.target.closest("[data-starter]");
+  if (s) openRuleEditor(null, RULE_STARTERS[Number(s.dataset.starter)]?.preset);
+});
 
 /* ---- scheduled tasks ---- */
 function renderSchedules() {
   const box = $("#cp-schedules");
+  if (!box) return;
   const list = CP.conf.schedules || [];
   if (!list.length) {
-    box.innerHTML = `<div class="empty">No scheduled tasks</div>`;
+    box.innerHTML = `<div class="au-empty">${IC("calendar")}<b>Nothing is scheduled</b>
+      <span>A nightly restart for the one container that leaks, or stopping something outside the hours you use it.</span>
+      <button class="btn primary" type="button" data-au-new="task">${IC("plus")}New schedule</button></div>`;
     return;
   }
-  box.innerHTML = `<div class="rulelist">` + list.map(s => {
-    const days = s.days?.length === 7 ? "every day" : (s.days || []).map(d => DAY_NAMES[d].slice(0, 3)).join(", ");
-    return `<div class="rule${s.enabled ? "" : " off"}">
-      <button class="toggle${s.enabled ? " on" : ""}" data-toggle="${esc(s.id)}"
-              role="switch" aria-checked="${s.enabled}" title="Enable or disable"><i></i></button>
-      <span class="rtxt">
-        <span class="rn">${esc(s.name)}</span>
-        <span class="rd">${esc(s.action.replace("container.", ""))} <b>${esc(s.target || "—")}</b> at ${esc(s.time)}, ${esc(days)}</span>
-        <span class="rd dim">${s.lastRunAt ? "last ran " + esc(since(s.lastRunAt)) : "has not run yet"}${s.lastError ? " · " + esc(s.lastError) : ""}</span>
-      </span>
-      <button class="btn sm" data-edit="${esc(s.id)}">Edit</button>
-      <button class="btn sm danger" data-del="${esc(s.id)}">DELETE</button>
+  const verb = a => ({ "container.restart": "Restart", "container.stop": "Stop", "container.start": "Start" }[a] || a);
+  box.innerHTML = `<div class="au-list">` + list.map(s => {
+    const days = new Set(s.days || []);
+    const failed = !!s.lastError;
+    return `<div class="au-item${s.enabled ? "" : " off"}">
+      <button class="switch" type="button" data-toggle="${esc(s.id)}" role="switch" aria-checked="${!!s.enabled}"
+              aria-label="${s.enabled ? "Turn off" : "Turn on"} ${esc(s.name)}"><span></span></button>
+      <div class="au-itxt">
+        <b>${esc(s.name || `${verb(s.action)} ${s.target || ""}`)}</b>
+        <span>${esc(verb(s.action))} <em>${esc(s.target || "—")}</em> at <em>${esc(s.time)}</em></span>
+        <small class="${failed ? "bad" : ""}">${s.lastRunAt ? "Last ran " + esc(since(s.lastRunAt)) : "Has not run yet"}${failed ? " · " + esc(s.lastError) : ""}</small>
+      </div>
+      <span class="au-days" aria-label="${days.size === 7 ? "Every day" : [...days].sort().map(d => DAY_NAMES[d]).join(", ")}">${DAY_LABELS.map((d, i) =>
+        `<i class="${days.has(i) ? "on" : ""}">${d}</i>`).join("")}</span>
+      <button class="au-ib" type="button" data-edit="${esc(s.id)}" aria-label="Edit ${esc(s.name)}" data-tip="Edit">${IC("edit")}</button>
+      <button class="au-ib danger" type="button" data-del="${esc(s.id)}" aria-label="Delete ${esc(s.name)}" data-tip="Delete">${IC("trash")}</button>
     </div>`;
   }).join("") + `</div>`;
 }
@@ -7843,35 +8282,48 @@ function openScheduleEditor(sched) {
 }
 
 on("#cp-new-task", "click", () => openScheduleEditor(null));
+on("#cp-schedules", "click", e => { if (e.target.closest("[data-au-new]")) openScheduleEditor(null); });
 
 /* ---- notifications ---- */
 function renderNotify() {
   const n = CP.conf.notify || {};
-  const perm = ("Notification" in window) ? Notification.permission : "unsupported";
+  const perm = browserNotes();
+  const bOn = perm === "granted" && n.browser !== false;
   $("#cp-notify").innerHTML = `
-    <div class="cpform">
-      <div class="field">
-        <label for="nt-url">Webhook URL</label>
-        <input id="nt-url" type="text" spellcheck="false" value="${esc(n.webhookUrl || "")}"
-               placeholder="https://ntfy.sh/my-private-topic">
-        <span class="fh">ntfy, a Discord webhook, or any endpoint that accepts a JSON POST.
-          The shape is picked from the URL. This is the part that matters — an alert
-          that only appears in a tab you do not have open is not an alert.</span>
-      </div>
-      <div class="frow">
-        <div class="field"><label for="nt-fmt">Format</label>
-          ${selectHTML("nt-fmt", [
-            { value: "auto", label: "Detect from URL" }, { value: "ntfy", label: "ntfy" },
-            { value: "discord", label: "Discord" }, { value: "json", label: "Plain JSON" }
-          ], n.webhookFormat || "auto")}</div>
-        <div class="field"><label>Browser notifications</label>
-          <button class="btn" id="nt-browser">${perm === "granted" ? (n.browser === false ? "Off — turn on" : "On") : perm === "denied" ? "Blocked by browser" : "Enable"}</button>
-          <span class="fh">Desktop pop-ups while a Nexus tab is open.</span>
+    <div class="au-cards">
+      <div class="au-card">
+        <div class="au-ch"><span class="au-ci">${IC("link")}</span>
+          <div><h3>Webhook</h3><p>Reaches your phone when no Nexus tab is open. This is the one that matters.</p></div>
+          <span class="pill ${n.webhookUrl ? "ok" : "idle"}"><i class="dot"></i>${n.webhookUrl ? esc(hookName(n)) : "Not set up"}</span></div>
+        <div class="cpform">
+          <div class="field">
+            <label for="nt-url">Address</label>
+            <input id="nt-url" type="text" spellcheck="false" autocomplete="off" value="${esc(n.webhookUrl || "")}"
+                   placeholder="https://ntfy.sh/my-private-topic">
+            <span class="fh">ntfy, a Discord webhook, or anything that accepts a JSON POST.</span>
+          </div>
+          <div class="field"><label for="nt-fmt">Format</label>
+            ${selectHTML("nt-fmt", [
+              { value: "auto", label: "Work it out from the address" }, { value: "ntfy", label: "ntfy" },
+              { value: "discord", label: "Discord" }, { value: "json", label: "Plain JSON" }
+            ], n.webhookFormat || "auto")}</div>
+          <div class="rowbtns">
+            <button class="btn primary" id="nt-save" type="button">Save</button>
+            <button class="btn" id="nt-test" type="button">Send test</button>
+          </div>
         </div>
       </div>
-      <div class="rowbtns">
-        <button class="btn primary" id="nt-save">Save</button>
-        <button class="btn" id="nt-test">Send test</button>
+      <div class="au-card">
+        <div class="au-ch"><span class="au-ci">${IC("bell")}</span>
+          <div><h3>This browser</h3><p>A desktop pop-up while a Nexus tab is open somewhere.</p></div>
+          <span class="pill ${bOn ? "ok" : perm === "denied" ? "crit" : "idle"}"><i class="dot"></i>${bOn ? "On" : perm === "denied" ? "Blocked" : "Off"}</span></div>
+        <p class="au-cnote">${perm === "unsupported" ? "This browser has no notifications."
+          : perm === "denied" ? "This browser is blocking notifications from Nexus. Allow them in the site settings (the icon left of the address), then come back."
+          : bOn ? "Alerts pop up on this device. Each browser you use is switched on separately."
+          : "Off on this device. Turning it on asks the browser for permission first."}</p>
+        <div class="rowbtns">
+          <button class="btn${bOn ? "" : " primary"}" id="nt-browser" type="button" ${perm === "unsupported" ? "disabled" : ""}>${bOn ? "Turn off" : perm === "denied" ? "How to unblock" : "Turn on"}</button>
+        </div>
       </div>
     </div>`;
 
@@ -7919,22 +8371,20 @@ function renderNotify() {
 /* ---- power ---- */
 function renderPower() {
   const p = CP.conf.power || {};
+  const live = p.allowRemote && p.supported;
   $("#cp-power").innerHTML = `
-    <div class="cpform">
-      <div class="warnbox ${p.allowRemote ? "err" : ""}">
-        <b>${p.allowRemote ? "Power actions are armed." : "Power actions are switched off."}</b>
-        ${p.supported
-          ? "While armed, this page — and any rule you give a power action to — can reboot or shut the host down. Leave it off unless you actually want that reachable from a browser."
-          : "This host is not Linux, so reboot and shutdown are not wired up. The switch is still stored so your rules keep their settings."}
+    <div class="au-card au-power${p.allowRemote ? " armed" : ""}">
+      <div class="au-ch"><span class="au-ci">${IC(p.allowRemote ? "power" : "lock")}</span>
+        <div><h3>${p.allowRemote ? "Power actions are armed" : "Power actions are switched off"}</h3>
+          <p>${p.supported
+            ? "While armed, this page — and any rule you give a power action to — can reboot or shut the machine down. Leave it off unless you want that reachable from a browser."
+            : "This machine is not Linux, so reboot and shut down are not wired up. The switch is still stored, so your rules keep their settings."}</p></div>
+        <button class="btn ${p.allowRemote ? "" : "primary"}" id="pw-arm" type="button">${p.allowRemote ? "Switch off" : "Arm"}</button></div>
+      <div class="au-pwr">
+        <button class="au-pbtn" id="pw-reboot" type="button" ${live ? "" : "disabled"}>${IC("retry")}<b>Reboot</b><small>Back in a minute or two</small></button>
+        <button class="au-pbtn danger" id="pw-shutdown" type="button" ${live ? "" : "disabled"}>${IC("power")}<b>Shut down</b><small>Stays off until someone presses the button</small></button>
       </div>
-      <div class="rowbtns">
-        <button class="btn ${p.allowRemote ? "danger" : "primary"}" id="pw-arm">
-          ${p.allowRemote ? "Disarm power actions" : "Arm power actions"}</button>
-        <button class="btn danger" id="pw-reboot" ${p.allowRemote && p.supported ? "" : "disabled"}>Reboot now</button>
-        <button class="btn danger" id="pw-shutdown" ${p.allowRemote && p.supported ? "" : "disabled"}>Shut down now</button>
-      </div>
-      <span class="fh">Nexus runs as root, so these do exactly what they say. There is no undo
-        and no remote power-on — if the box lives somewhere awkward, think before the second one.</span>
+      <p class="au-cnote">Nexus runs as root, so these do exactly what they say. There is no undo and no remote power-on &mdash; if the box lives somewhere awkward, think before the second one. Both ask you to type the hostname first.</p>
     </div>`;
 
   on("#pw-arm", "click", async () => {
@@ -7965,7 +8415,7 @@ function onAlert(a) {
   toast(a.title, a.level === "crit" ? "err" : a.level === "warn" ? "err" : "ok");
 
   if (CP.conf?.notify?.browser !== false && "Notification" in window && Notification.permission === "granted") {
-    try { new Notification(a.title, { body: a.message, icon: "/assets/brand/icons/nexus-128.png", tag: a.ruleId || a.id }); } catch {}
+    try { new Notification(a.title, { body: a.message, icon: "/assets/brand/icons/nexus-128.png?v=0.9.7", tag: a.ruleId || a.id }); } catch {}
   }
   CP.alerts.unshift(a);
   if (CP.alerts.length > 60) CP.alerts.length = 60;
@@ -7995,14 +8445,14 @@ on("#cp-clear", "click", async () => {
 const PAGES = {
   overview:   { title: "Overview",      icon: "activity", sub: "Your homelab, at a glance." },
   area:       { title: "Area",          icon: "activity", sub: "" },
-  dash:       { title: "Dashboard",     icon: "layout",   sub: "Your widgets, arranged your way." },
+  dash:       { title: "Dashboard",     icon: "layout",   sub: "Your board: the readings and buttons you want in one place." },
   apps:       { title: "Apps",          icon: "grid",     sub: "Everything you run, one press away." },
   containers: { title: "Containers",    icon: "box",      sub: "The services that keep your homelab running." },
   files:      { title: "Files",         icon: "folder",   sub: "Everything in its place." },
   term:       { title: "Terminal",      icon: "terminal", sub: "A direct line to your machine." },
   store:      { title: "App Store",     icon: "store",    sub: "Find a new home for your next project." },
   control:    { title: "Automations",   icon: "zap",      sub: "Alerts, watch rules, schedules and where the news goes." },
-  settings:   { title: "Settings",      icon: "settings", sub: "A workstation that feels like yours." }
+  settings:   { title: "Settings",      icon: "settings", sub: "How Nexus looks, what Kernel may do, and what this machine is." }
 };
 const TITLES = Object.fromEntries(Object.entries(PAGES).map(([k, v]) => [k, v.title]));
 let curPage = null, curArg = null, hashSkip = null;
@@ -8039,7 +8489,7 @@ function go(page, arg = null, { push = true } = {}) {
 
   if (ZOOM.key) closeStatZoom(true);
   // Leaving a page should not leave its selection armed for the Delete key.
-  if (page !== "dash") clearSelection();
+  if (page !== "dash") { clearSelection(); if (dashEdit) setDashEdit(false); if (document.body.classList.contains("kiosk")) setKiosk(false); }
   if (page !== "files") clearFileSelection();
   closeSidebar();
 
@@ -8059,8 +8509,8 @@ function go(page, arg = null, { push = true } = {}) {
   if (page === "apps") { loadLauncher().then(pollLive); requestAnimationFrame(paintLauncher); }
   else clearTimeout(LV.timer);
   if (page === "files") { wireFileDnD(); loadRoots(); loadFiles(curDir, { history: false }); paintClip(); paintPane(); }
-  if (page === "control") loadControl();
-  if (page === "settings") loadSettings();
+  if (page === "control") loadControl(arg);
+  if (page === "settings") loadSettings(arg);
   if (page === "store") { refreshInstalled().then(() => { loadStoreStatus(); loadStore(true); }); }
   if (page === "term") paintTermPage(arg);
   $("#main").scrollTop = 0;
@@ -8335,6 +8785,10 @@ function toggleCRT() {
 }
 
 on("#add", "click", () => { renderDrawer(); $("#drawer").classList.add("open"); });
+on("#dash-edit", "click", () => setDashEdit(true));
+on("#dash-done", "click", () => setDashEdit(false));
+on("#dash-full", "click", () => setKiosk(true));
+on("#kiosk-exit", "click", () => setKiosk(false));
 on("#dclose", "click", () => $("#drawer").classList.remove("open"));
 on("#drawer", "click", e => { if (e.target.id === "drawer") e.currentTarget.classList.remove("open"); });
 on("#tidy", "click", () => {
@@ -8423,6 +8877,7 @@ function applyPreset(p) {
 on("#presets", "click", openPresets);
 
 on("#reset", "click", async () => {
+  if (!confirm("Put the default widgets back?\n\nYour arrangement and each widget's own settings are discarded. Saved presets are kept.")) return;
   try { await api("/layout", { method: "DELETE" }); } catch {}
   gridEl.innerHTML = ""; mounted = {}; clearSelection();
   items = DEFAULT_LAYOUT.map((d, i) => ({ id: i + 1, ...d }));
@@ -8456,7 +8911,7 @@ if (typeof ResizeObserver === "function") {
 async function start() {
   try {
     const saved = await api("/layout");
-    items = Array.isArray(saved.widgets) && saved.widgets.length
+    items = Array.isArray(saved.widgets) && saved.widgets.length && !untouchedOldDefault(saved.widgets)
       ? saved.widgets.filter(w => REG[w.t])
       : DEFAULT_LAYOUT.map((d, i) => ({ id: i + 1, ...d }));
   } catch {
@@ -9495,7 +9950,7 @@ function paletteSources() {
     ["Add a health check", "plus", () => { go("area", curPage === "area" ? curArg : "network"); setTimeout(() => editCheck(null), 50); }],
     ["Add a widget", "layout", () => { go("dash"); renderDrawer(); $("#drawer").classList.add("open"); }],
     ["Add an app", "grid", () => { go("apps"); setTimeout(() => editApp(null), 50); }],
-    ["New watch rule", "zap", () => { go("control"); setTimeout(() => $("#cp-new-rule")?.click(), 150); }],
+    ["New watch rule", "zap", () => { go("control", "rules"); setTimeout(() => $("#cp-new-rule")?.click(), 150); }],
     ["Install from GitHub", "store", () => { go("store"); setTimeout(() => openGitHubInstall(), 50); }],
     ["Open Kernel", "sparkles", () => toggleKernel(true)],
     ["New Kernel conversation", "message", () => { toggleKernel(true); newChat(); }],
@@ -9682,7 +10137,7 @@ const money = (n, priced = true) =>
 function mountKernel() {
   on("#kernel-open", "click", () => toggleKernel());
   on("#kx-close", "click", () => toggleKernel(false));
-  on("#kx-config", "click", () => { toggleKernel(false); go("settings"); setTimeout(() => $("#agent-section")?.scrollIntoView({ behavior: "smooth" }), 80); });
+  on("#kx-config", "click", () => { toggleKernel(false); go("settings", "kernel"); });
   on("#kx-reset", "click", () => resetPanel());
   on("#kx-add", "click", () => newChat());
   on("#kx-dock", "click", () => setDock(!$("#kernel").classList.contains("docked")));
@@ -9757,7 +10212,7 @@ function mountKernel() {
     }
     const sug = e.target.closest("[data-suggest]");
     if (sug) return kernelSend(sug.dataset.suggest);
-    if (e.target.closest("[data-kx-setup]")) { toggleKernel(false); go("settings"); return; }
+    if (e.target.closest("[data-kx-setup]")) { toggleKernel(false); go("settings", "kernel"); return; }
     const img = e.target.closest("[data-shot]");
     if (img) openShot(img.dataset.shot, img.dataset.name);
   });
@@ -10581,6 +11036,7 @@ function paintUsage() {
 async function renderAgentSettings() {
   const host = $("#agent-panel");
   if (!host) return;
+  if (!host.children.length) host.innerHTML = `<div class="sx-card"><div class="sx-empty">Loading Kernel’s settings…</div></div>`;
   let c;
   try { c = KX.cfg = await api("/agent/config"); }
   catch { host.innerHTML = `<p class="hint">Could not load the agent settings.</p>`; return; }
